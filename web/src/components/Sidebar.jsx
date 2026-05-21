@@ -90,7 +90,8 @@ export default function Sidebar({
         <SidebarSection title="Messages directs" onAdd={onNewDm}>
           {dms.map((c) => {
             const other = c.members.find((m) => m.id !== user.id) || c.members[0];
-            const isTyping = typingByChannel?.[c.id]?.includes(other?.id);
+            const isGroup = c.members.length > 2;
+            const isTyping = (typingByChannel?.[c.id]?.length || 0) > 0;
             return (
               <button
                 key={c.id}
@@ -110,16 +111,25 @@ export default function Sidebar({
                   >
                     …
                   </span>
+                ) : isGroup ? (
+                  <span
+                    className="w-5 h-5 shrink-0 rounded grid place-items-center bg-aubergine-500 text-white text-[11px]"
+                    title="Groupe"
+                  >
+                    👥
+                  </span>
                 ) : (
                   <Avatar user={other} size={20} />
                 )}
-                <span
-                  className={`w-2 h-2 rounded-full shrink-0 ${
-                    onlineUserIds?.has(other?.id) ? "bg-green-400" : "bg-slate-500"
-                  }`}
-                  title={onlineUserIds?.has(other?.id) ? "En ligne" : "Hors ligne"}
-                />
-                <span className="truncate flex-1">{other?.displayName || "DM"}</span>
+                {!isGroup && (
+                  <span
+                    className={`w-2 h-2 rounded-full shrink-0 ${
+                      onlineUserIds?.has(other?.id) ? "bg-green-400" : "bg-slate-500"
+                    }`}
+                    title={onlineUserIds?.has(other?.id) ? "En ligne" : "Hors ligne"}
+                  />
+                )}
+                <span className="truncate flex-1">{c.displayName || "DM"}</span>
                 {c.unread && c.id !== activeChannelId && (
                   <span className="w-2 h-2 rounded-full bg-white shrink-0" />
                 )}

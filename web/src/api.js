@@ -61,7 +61,8 @@ export const api = {
   leaveChannel: (id) => request(`/channels/${id}/leave`, { method: "POST" }),
   removeMember: (id, userId) =>
     request(`/channels/${id}/members/${userId}`, { method: "DELETE" }),
-  openDm: (userId) => request("/channels/dm", { method: "POST", body: { userId } }),
+  openDm: (userIds) =>
+    request("/channels/dm", { method: "POST", body: { userIds } }),
   messages: (channelId) => request(`/channels/${channelId}/messages`),
   thread: (id) => request(`/channels/messages/${id}/thread`),
   react: (id, emoji) =>

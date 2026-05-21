@@ -4,7 +4,9 @@ import Avatar from "./Avatar.jsx";
 
 export default function NewDmModal({ onClose, onOpened, currentUserId }) {
   const [users, setUsers] = useState([]);
+  const [selected, setSelected] = useState(new Set());
   const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -16,12 +18,21 @@ export default function NewDmModal({ onClose, onOpened, currentUserId }) {
     };
   }, [q, currentUserId]);
 
-  async function pick(u) {
+  function toggle(id) {
+    const next = new Set(selected);
+    next.has(id) ? next.delete(id) : next.add(id);
+    setSelected(next);
+  }
+
+  async function start() {
+    if (selected.size === 0) return;
+    setBusy(true);
     try {
-      const res = await api.openDm(u.id);
+      const res = await api.openDm(Array.from(selected));
       onOpened(res.channel);
     } catch (err) {
       alert(err.message);
+      setBusy(false);
     }
   }
 
@@ -36,34 +47,58 @@ export default function NewDmModal({ onClose, onOpened, currentUserId }) {
       >
         <div className="p-5 border-b border-slate-200 flex items-center justify-between">
           <h2 className="text-xl font-bold">Nouveau message</h2>
-          <button onClick={onClose} className="text-slate-500 hover:text-slate-800">✕</button>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-800">
+            ✕
+          </button>
         </div>
         <div className="p-4">
           <input
             autoFocus
             className="w-full border rounded-md px-3 py-2"
-            placeholder="Rechercher quelqu'un..."
+            placeholder="Rechercher une ou plusieurs personnes..."
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
+          <p className="text-xs text-slate-500 mt-1">
+            Sélectionnez plusieurs personnes pour créer un groupe.
+          </p>
         </div>
-        <div className="px-2 pb-2 overflow-y-auto">
+        <div className="px-2 pb-2 overflow-y-auto flex-1">
           {users.map((u) => (
-            <button
+            <label
               key={u.id}
-              onClick={() => pick(u)}
-              className="w-full flex items-center gap-3 px-3 py-2 hover:bg-slate-100 rounded-md text-left"
+              className="flex items-center gap-3 px-3 py-2 hover:bg-slate-100 rounded-md cursor-pointer"
             >
+              <input
+                type="checkbox"
+                checked={selected.has(u.id)}
+                onChange={() => toggle(u.id)}
+              />
               <Avatar user={u} size={32} />
               <div className="flex-1">
                 <div className="text-sm font-medium">{u.displayName}</div>
                 <div className="text-xs text-slate-500">@{u.username}</div>
               </div>
-            </button>
+            </label>
           ))}
           {users.length === 0 && (
             <div className="px-3 py-3 text-sm text-slate-500">Aucun utilisateur</div>
           )}
+        </div>
+        <div className="p-4 border-t border-slate-200 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="px-3 py-1.5 rounded-md border border-slate-300"
+          >
+            Annuler
+          </button>
+          <button
+            onClick={start}
+            disabled={busy || selected.size === 0}
+            className="px-3 py-1.5 rounded-md bg-aubergine-700 text-white font-medium hover:bg-aubergine-800 disabled:opacity-50"
+          >
+            {selected.size > 1 ? `Créer le groupe (${selected.size})` : "Démarrer"}
+          </button>
         </div>
       </div>
     </div>
