@@ -12,7 +12,7 @@ function fmtBytes(n) {
   return `${(n / 1024 / 1024).toFixed(1)} Mo`;
 }
 
-export default function Composer({ onSend, placeholder }) {
+export default function Composer({ onSend, placeholder, allowSchedule = true }) {
   const [text, setText] = useState("");
   const [showSchedule, setShowSchedule] = useState(false);
   const defaultSched = new Date(Date.now() + 60 * 60_000);
@@ -157,17 +157,19 @@ export default function Composer({ onSend, placeholder }) {
             <span>📎</span>
             {uploading ? "Envoi..." : "Fichier"}
           </button>
-          <button
-            onClick={() => setShowSchedule((v) => !v)}
-            className="text-slate-500 hover:text-slate-800 px-2 py-1 text-sm flex items-center gap-1"
-            title="Planifier un envoi"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="9" />
-              <path d="M12 7v5l3 2" />
-            </svg>
-            Planifier
-          </button>
+          {allowSchedule && (
+            <button
+              onClick={() => setShowSchedule((v) => !v)}
+              className="text-slate-500 hover:text-slate-800 px-2 py-1 text-sm flex items-center gap-1"
+              title="Planifier un envoi"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3 2" />
+              </svg>
+              Planifier
+            </button>
+          )}
         </div>
         <button
           onClick={() => send(false)}

@@ -57,13 +57,17 @@ model Message {
   scheduledAt DateTime?
   delivered   Boolean   @default(true)
   editedAt    DateTime?
+  parentId    String?
 
   channel     Channel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
   author      User         @relation(fields: [authorId], references: [id], onDelete: Cascade)
   attachments Attachment[]
+  parent      Message?     @relation("MessageThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies     Message[]    @relation("MessageThread")
 
   @@index([channelId, createdAt])
   @@index([scheduledAt, delivered])
+  @@index([parentId])
 }
 
 model Attachment {

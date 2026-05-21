@@ -114,12 +114,40 @@ router.get("/:id/messages", requireAuth, async (req, res) => {
   if (!member) return res.status(403).json({ error: "not_a_member" });
 
   const messages = await prisma.message.findMany({
-    where: { channelId: id, delivered: true },
-    include: { author: true, attachments: true },
+    where: { channelId: id, delivered: true, parentId: null },
+    include: {
+      author: true,
+      attachments: true,
+      _count: { select: { replies: true } },
+    },
     orderBy: { createdAt: "asc" },
     take: 200,
   });
   res.json({ messages: messages.map(serializeMessage) });
+});
+
+router.get("/messages/:messageId/thread", requireAuth, async (req, res) => {
+  const { messageId } = req.params;
+  const parent = await prisma.message.findUnique({
+    where: { id: messageId },
+    include: {
+      author: true,
+      attachments: true,
+      _count: { select: { replies: true } },
+    },
+  });
+  if (!parent) return res.status(404).json({ error: "not_found" });
+  const member = await prisma.membership.findUnique({
+    where: { userId_channelId: { userId: req.userId, channelId: parent.channelId } },
+  });
+  if (!member) return res.status(403).json({ error: "not_a_member" });
+
+  const replies = await prisma.message.findMany({
+    where: { parentId: messageId, delivered: true },
+    include: { author: true, attachments: true },
+    orderBy: { createdAt: "asc" },
+  });
+  res.json({ parent: serializeMessage(parent), replies: replies.map(serializeMessage) });
 });
 
 router.get("/:id/scheduled", requireAuth, async (req, res) => {
@@ -197,7 +225,11 @@ router.patch("/messages/:messageId", requireAuth, async (req, res) => {
   const updated = await prisma.message.update({
     where: { id: messageId },
     data: { body: encryptBody(trimmed), editedAt: new Date() },
-    include: { author: true, attachments: true },
+    include: {
+      author: true,
+      attachments: true,
+      _count: { select: { replies: true } },
+    },
   });
 
   const serialized = serializeMessage(updated);
@@ -211,9 +243,11 @@ router.delete("/messages/:messageId", requireAuth, async (req, res) => {
   if (!msg || msg.authorId !== req.userId || !msg.delivered) {
     return res.status(404).json({ error: "not_found" });
   }
-  const { channelId } = msg;
+  const { channelId, parentId } = msg;
   await prisma.message.delete({ where: { id: messageId } });
-  req.io?.to(`channel:${channelId}`).emit("message:deleted", { id: messageId, channelId });
+  req.io
+    ?.to(`channel:${channelId}`)
+    .emit("message:deleted", { id: messageId, channelId, parentId });
   res.json({ ok: true });
 });
 
@@ -257,10 +291,12 @@ export function serializeMessage(m) {
   return {
     id: m.id,
     channelId: m.channelId,
+    parentId: m.parentId ?? null,
     body: decryptBody(m.body),
     createdAt: m.createdAt,
     editedAt: m.editedAt ?? null,
     scheduledAt: m.scheduledAt,
+    replyCount: m._count?.replies ?? 0,
     author: m.author ? publicUser(m.author) : { id: m.authorId },
     attachments: (m.attachments || []).map(serializeAttachment),
   };

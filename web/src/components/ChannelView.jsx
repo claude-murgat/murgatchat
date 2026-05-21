@@ -78,6 +78,7 @@ export default function ChannelView({ channel, currentUser, socket }) {
   const [messages, setMessages] = useState([]);
   const [scheduled, setScheduled] = useState([]);
   const [showScheduled, setShowScheduled] = useState(false);
+  const [threadParentId, setThreadParentId] = useState(null);
   const scrollRef = useRef(null);
 
   useEffect(() => {
@@ -107,17 +108,39 @@ export default function ChannelView({ channel, currentUser, socket }) {
       if (!channel || msg.channelId !== channel.id) return;
       setMessages((prev) => prev.map((m) => (m.id === msg.id ? msg : m)));
     }
-    function onDeleted({ id, channelId }) {
+    function onDeleted({ id, channelId, parentId }) {
       if (!channel || channelId !== channel.id) return;
-      setMessages((prev) => prev.filter((m) => m.id !== id));
+      if (parentId) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === parentId
+              ? { ...m, replyCount: Math.max(0, (m.replyCount || 0) - 1) }
+              : m
+          )
+        );
+      } else {
+        setMessages((prev) => prev.filter((m) => m.id !== id));
+      }
+    }
+    function onReply(msg) {
+      if (!channel || msg.channelId !== channel.id) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === msg.parentId
+            ? { ...m, replyCount: (m.replyCount || 0) + 1 }
+            : m
+        )
+      );
     }
     socket.on("message:new", onNew);
     socket.on("message:updated", onUpdated);
     socket.on("message:deleted", onDeleted);
+    socket.on("thread:reply", onReply);
     return () => {
       socket.off("message:new", onNew);
       socket.off("message:updated", onUpdated);
       socket.off("message:deleted", onDeleted);
+      socket.off("thread:reply", onReply);
     };
   }, [socket, channel?.id]);
 
@@ -139,6 +162,20 @@ export default function ChannelView({ channel, currentUser, socket }) {
       }
     );
   }
+
+  function sendReply(payload) {
+    if (!channel || !socket || !threadParentId) return;
+    socket.emit(
+      "message:send",
+      { channelId: channel.id, parentId: threadParentId, ...payload },
+      (resp) => {
+        if (resp?.error) alert(resp.error);
+      }
+    );
+  }
+
+  const openThread = (message) => setThreadParentId(message.id);
+  const closeThread = () => setThreadParentId(null);
 
   async function cancelScheduled(id) {
     await api.deleteScheduled(id);
@@ -192,7 +229,8 @@ export default function ChannelView({ channel, currentUser, socket }) {
   let lastDay = null;
 
   return (
-    <section className="flex-1 flex flex-col bg-white text-slate-900 min-w-0">
+    <div className="flex-1 flex min-w-0">
+      <section className="flex-1 flex flex-col bg-white text-slate-900 min-w-0">
       <header className="border-b border-slate-200 px-4 py-2.5 flex items-center justify-between">
         <div>
           <div className="font-bold">{headerTitle}</div>
@@ -258,6 +296,7 @@ export default function ChannelView({ channel, currentUser, socket }) {
                 currentUser={currentUser}
                 onEdit={editMessage}
                 onDelete={deleteMessage}
+                onReply={openThread}
               />
             </div>
           );
@@ -279,7 +318,19 @@ export default function ChannelView({ channel, currentUser, socket }) {
           }
         />
       </div>
-    </section>
+      </section>
+      {threadParentId && (
+        <ThreadPanel
+          parentId={threadParentId}
+          currentUser={currentUser}
+          socket={socket}
+          onClose={closeThread}
+          onSend={sendReply}
+          onEdit={editMessage}
+          onDelete={deleteMessage}
+        />
+      )}
+    </div>
   );
 }
 
@@ -374,7 +425,102 @@ function ScheduledRow({ message, onCancel, onSave }) {
   );
 }
 
-function MessageRow({ message, grouped, currentUser, onEdit, onDelete }) {
+function ThreadPanel({ parentId, currentUser, socket, onClose, onSend, onEdit, onDelete }) {
+  const [parent, setParent] = useState(null);
+  const [replies, setReplies] = useState([]);
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.thread(parentId).then((res) => {
+      if (cancelled) return;
+      setParent(res.parent);
+      setReplies(res.replies);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [parentId]);
+
+  useEffect(() => {
+    if (!socket) return;
+    function onReply(msg) {
+      if (msg.parentId !== parentId) return;
+      setReplies((prev) => (prev.some((r) => r.id === msg.id) ? prev : [...prev, msg]));
+    }
+    function onUpdated(msg) {
+      if (msg.id === parentId) return setParent(msg);
+      if (msg.parentId !== parentId) return;
+      setReplies((prev) => prev.map((r) => (r.id === msg.id ? msg : r)));
+    }
+    function onDeleted({ id, parentId: pid }) {
+      if (id === parentId) return onClose();
+      if (pid !== parentId) return;
+      setReplies((prev) => prev.filter((r) => r.id !== id));
+    }
+    socket.on("thread:reply", onReply);
+    socket.on("message:updated", onUpdated);
+    socket.on("message:deleted", onDeleted);
+    return () => {
+      socket.off("thread:reply", onReply);
+      socket.off("message:updated", onUpdated);
+      socket.off("message:deleted", onDeleted);
+    };
+  }, [socket, parentId]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [replies.length]);
+
+  return (
+    <aside className="w-96 border-l border-slate-200 flex flex-col bg-white">
+      <header className="border-b border-slate-200 px-4 py-2.5 flex items-center justify-between">
+        <div className="font-bold">Fil de discussion</div>
+        <button
+          onClick={onClose}
+          className="text-slate-500 hover:text-slate-800 text-lg leading-none"
+          title="Fermer"
+        >
+          ✕
+        </button>
+      </header>
+      <div ref={scrollRef} className="flex-1 overflow-y-auto scroll-thin px-3 py-3">
+        {parent && (
+          <div className="border-b border-slate-200 pb-2 mb-2">
+            <MessageRow
+              message={parent}
+              grouped={false}
+              currentUser={currentUser}
+              onEdit={onEdit}
+              onDelete={onDelete}
+            />
+          </div>
+        )}
+        {replies.map((r) => (
+          <MessageRow
+            key={r.id}
+            message={r}
+            grouped={false}
+            currentUser={currentUser}
+            onEdit={onEdit}
+            onDelete={onDelete}
+          />
+        ))}
+        {replies.length === 0 && (
+          <div className="text-center text-slate-400 text-sm mt-6">
+            Aucune réponse pour l'instant.
+          </div>
+        )}
+      </div>
+      <div className="p-3 border-t border-slate-200">
+        <Composer onSend={onSend} placeholder="Répondre…" allowSchedule={false} />
+      </div>
+    </aside>
+  );
+}
+
+function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply }) {
   const isOwn = message.author?.id === currentUser?.id;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.body || "");
@@ -443,23 +589,45 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete }) {
     )
   );
 
-  const actions = isOwn && !editing && (
+  const actions = !editing && (onReply || isOwn) && (
     <div className="absolute right-2 top-1 hidden group-hover:flex items-center gap-1 bg-white border border-slate-200 rounded shadow-sm">
-      <button
-        onClick={startEdit}
-        className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
-        title="Modifier"
-      >
-        Modifier
-      </button>
-      <button
-        onClick={() => onDelete(message)}
-        className="text-xs text-slate-600 hover:text-red-600 px-2 py-1"
-        title="Supprimer"
-      >
-        Supprimer
-      </button>
+      {onReply && (
+        <button
+          onClick={() => onReply(message)}
+          className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
+          title="Répondre dans un fil"
+        >
+          Répondre
+        </button>
+      )}
+      {isOwn && (
+        <button
+          onClick={startEdit}
+          className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
+          title="Modifier"
+        >
+          Modifier
+        </button>
+      )}
+      {isOwn && (
+        <button
+          onClick={() => onDelete(message)}
+          className="text-xs text-slate-600 hover:text-red-600 px-2 py-1"
+          title="Supprimer"
+        >
+          Supprimer
+        </button>
+      )}
     </div>
+  );
+
+  const footer = onReply && message.replyCount > 0 && (
+    <button
+      onClick={() => onReply(message)}
+      className="mt-1 text-xs font-medium text-aubergine-700 hover:underline"
+    >
+      💬 {message.replyCount} réponse{message.replyCount > 1 ? "s" : ""}
+    </button>
   );
 
   if (grouped) {
@@ -473,6 +641,7 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete }) {
           <div className="flex-1 min-w-0">
             {body}
             <Attachments attachments={message.attachments} />
+            {footer}
           </div>
         </div>
       </div>
@@ -490,6 +659,7 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete }) {
           </div>
           {body}
           <Attachments attachments={message.attachments} />
+          {footer}
         </div>
       </div>
     </div>

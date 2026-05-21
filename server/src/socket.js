@@ -32,7 +32,8 @@ export function setupSocket(httpServer, corsOrigin) {
 
     socket.on("message:send", async (payload, ack) => {
       try {
-        const { channelId, body, scheduledAt, attachmentIds = [] } = payload || {};
+        const { channelId, body, scheduledAt, attachmentIds = [], parentId } =
+          payload || {};
         const trimmed = (body || "").trim();
         if (!channelId || (!trimmed && attachmentIds.length === 0)) {
           return ack?.({ error: "invalid_payload" });
@@ -41,6 +42,13 @@ export function setupSocket(httpServer, corsOrigin) {
           where: { userId_channelId: { userId, channelId } },
         });
         if (!member) return ack?.({ error: "not_a_member" });
+
+        if (parentId) {
+          const parent = await prisma.message.findUnique({ where: { id: parentId } });
+          if (!parent || parent.channelId !== channelId || !parent.delivered || parent.parentId) {
+            return ack?.({ error: "invalid_parent" });
+          }
+        }
 
         if (attachmentIds.length) {
           const valid = await prisma.attachment.findMany({
@@ -57,13 +65,15 @@ export function setupSocket(httpServer, corsOrigin) {
         }
 
         const scheduledDate = scheduledAt ? new Date(scheduledAt) : null;
-        const isScheduled = scheduledDate && scheduledDate.getTime() > Date.now() + 1000;
+        const isScheduled =
+          !parentId && scheduledDate && scheduledDate.getTime() > Date.now() + 1000;
 
         const msg = await prisma.message.create({
           data: {
             channelId,
             authorId: userId,
             body: encryptBody(trimmed),
+            parentId: parentId || null,
             scheduledAt: isScheduled ? scheduledDate : null,
             delivered: !isScheduled,
           },
@@ -86,7 +96,10 @@ export function setupSocket(httpServer, corsOrigin) {
         }
 
         const serialized = serializeMessage(msg);
-        io.to(`channel:${channelId}`).emit("message:new", serialized);
+        io.to(`channel:${channelId}`).emit(
+          msg.parentId ? "thread:reply" : "message:new",
+          serialized
+        );
 
         const channelMembers = await prisma.membership.findMany({
           where: { channelId },

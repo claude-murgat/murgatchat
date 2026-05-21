@@ -55,6 +55,7 @@ export const api = {
   createChannel: (body) => request("/channels", { method: "POST", body }),
   openDm: (userId) => request("/channels/dm", { method: "POST", body: { userId } }),
   messages: (channelId) => request(`/channels/${channelId}/messages`),
+  thread: (id) => request(`/channels/messages/${id}/thread`),
   editMessage: (id, body) =>
     request(`/channels/messages/${id}`, { method: "PATCH", body: { body } }),
   deleteMessage: (id) =>
