@@ -79,6 +79,7 @@ export default function Sidebar({
               onClick={() => onSelectChannel(c)}
               prefix={c.isPrivate ? "🔒" : "#"}
               label={c.name || "salon"}
+              unread={c.unread}
             />
           ))}
           {groups.length === 0 && (
@@ -97,6 +98,8 @@ export default function Sidebar({
                 className={`w-full flex items-center gap-2 px-2 py-1 rounded text-left ${
                   c.id === activeChannelId
                     ? "bg-slackblue text-white"
+                    : c.unread
+                    ? "text-white font-semibold hover:bg-aubergine-600"
                     : "text-aubergine-400 hover:bg-aubergine-600 hover:text-white"
                 }`}
               >
@@ -116,7 +119,10 @@ export default function Sidebar({
                   }`}
                   title={onlineUserIds?.has(other?.id) ? "En ligne" : "Hors ligne"}
                 />
-                <span className="truncate">{other?.displayName || "DM"}</span>
+                <span className="truncate flex-1">{other?.displayName || "DM"}</span>
+                {c.unread && c.id !== activeChannelId && (
+                  <span className="w-2 h-2 rounded-full bg-white shrink-0" />
+                )}
               </button>
             );
           })}
@@ -158,18 +164,23 @@ function SidebarSection({ title, onAdd, onBrowse, children }) {
   );
 }
 
-function SidebarItem({ active, onClick, prefix, label }) {
+function SidebarItem({ active, onClick, prefix, label, unread }) {
   return (
     <button
       onClick={onClick}
       className={`w-full text-left px-2 py-1 rounded flex items-center gap-2 ${
         active
           ? "bg-slackblue text-white"
+          : unread
+          ? "text-white font-semibold hover:bg-aubergine-600"
           : "text-aubergine-400 hover:bg-aubergine-600 hover:text-white"
       }`}
     >
       <span className="opacity-80">{prefix}</span>
-      <span className="truncate">{label}</span>
+      <span className="truncate flex-1">{label}</span>
+      {unread && !active && (
+        <span className="w-2 h-2 rounded-full bg-white shrink-0" />
+      )}
     </button>
   );
 }

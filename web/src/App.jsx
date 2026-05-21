@@ -28,6 +28,7 @@ export default function App() {
   const [onlineUserIds, setOnlineUserIds] = useState(() => new Set());
   const [typingByChannel, setTypingByChannel] = useState({});
   const typingTimers = useRef({});
+  const activeChannelIdRef = useRef(null);
 
   useEffect(() => {
     const token = getToken();
@@ -43,6 +44,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    activeChannelIdRef.current = activeChannelId;
+  }, [activeChannelId]);
+
+  useEffect(() => {
     if (!user) return;
     const token = getToken();
     const s = getSocket(token);
@@ -54,19 +59,24 @@ export default function App() {
 
     const onNew = (msg) => {
       setChannels((prev) =>
-        prev.map((c) =>
-          c.id === msg.channelId
-            ? {
-                ...c,
-                lastMessage: {
-                  id: msg.id,
-                  body: msg.body,
-                  createdAt: msg.createdAt,
-                  authorId: msg.author?.id,
-                },
-              }
-            : c
-        )
+        prev.map((c) => {
+          if (c.id !== msg.channelId) return c;
+          const isActive = activeChannelIdRef.current === c.id;
+          const fromMe = msg.author?.id === user.id;
+          let unread = c.unread;
+          if (isActive) unread = false;
+          else if (!fromMe) unread = true;
+          return {
+            ...c,
+            lastMessage: {
+              id: msg.id,
+              body: msg.body,
+              createdAt: msg.createdAt,
+              authorId: msg.author?.id,
+            },
+            unread,
+          };
+        })
       );
     };
     const onCreated = (channel) => {
@@ -193,6 +203,9 @@ export default function App() {
 
   const onSelectChannel = useCallback((c) => {
     setActiveChannelId(c.id);
+    setChannels((prev) =>
+      prev.map((ch) => (ch.id === c.id ? { ...ch, unread: false } : ch))
+    );
   }, []);
 
   const onNewChannelCreated = useCallback((channel) => {

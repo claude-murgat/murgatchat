@@ -420,6 +420,15 @@ export function serializeChannel(channel, viewerId) {
     displayName = other?.displayName || "Direct";
   }
   const last = channel.messages?.[0];
+  const viewerMembership = (channel.memberships || []).find(
+    (m) => m.userId === viewerId
+  );
+  const unread = !!(
+    last &&
+    last.authorId !== viewerId &&
+    viewerMembership?.lastReadAt &&
+    new Date(last.createdAt) > new Date(viewerMembership.lastReadAt)
+  );
   return {
     id: channel.id,
     name: channel.name,
@@ -437,6 +446,7 @@ export function serializeChannel(channel, viewerId) {
           authorId: last.authorId,
         }
       : null,
+    unread,
   };
 }
 
