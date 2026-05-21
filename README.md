@@ -261,6 +261,61 @@ Génère une clé prod avec : `openssl rand -hex 32`.
 Côté client → serveur : `channel:join`, `channel:read`, `message:send` (`{ channelId, body?, attachmentIds?, scheduledAt? }`).
 Côté serveur → client : `message:new`, `channel:created`, `notification`.
 
+## Décisions techniques
+
+Récap des choix faits pendant le build (et pourquoi), pour qu'on puisse les remettre en question facilement.
+
+### Stack
+- **Tauri 2 plutôt qu'Electron** pour le desktop : bundle ~3 Mo (vs ~150), WebView2 déjà présent sur Windows 10+, Rust backend, supporté en cross-compile depuis Linux. Coût : Rust à installer pour builder.
+- **Expo pour le mobile** : un seul codebase Android + iOS. iOS prêt sans réécriture, juste `expo run:ios` sur macOS.
+- **Prisma + Postgres** plutôt que Mongo/SQLite : relations natives (messages × channels × users × attachments), index, robuste pour l'historique.
+
+### Auth & sécurité
+- **JWT 30j sans refresh token** pour la simplicité MVP. À ajouter dès qu'on veut une vraie politique d'expiration.
+- **CORS `*`** : OK en dev, à restreindre en prod.
+- **Pas de HTTPS direct** sur le backend : à reverse-proxier (Caddy/nginx) en prod.
+
+### Chiffrement
+- **At-rest, pas E2E.** Choix fait pour garder fonctionnels :
+  - messages planifiés (le serveur doit pouvoir les délivrer en différé sans clé du destinataire)
+  - une future recherche full-text Postgres
+  - les notifications avec aperçu du contenu
+- **Bodies texte chiffrés, fichiers en clair** sur disque. À renforcer (stream-encrypt à l'upload) si on stocke des PJ sensibles.
+- **Clé symétrique serveur** via `MESSAGE_ENCRYPTION_KEY` (32 octets hex). Valeur dev par défaut + warning logué.
+- **AES-256-GCM** avec IV aléatoire 12 octets par message, format `enc1:<base64(iv||tag||ct)>` (le prefix permet le fallback plaintext pour les anciens messages).
+
+### Persistence
+- **`prisma db push` au démarrage**, pas de migrations versionnées. Optimisé MVP. Passer à `migrate deploy` + dossier `prisma/migrations/` en prod.
+- **Port Postgres host = 5433** (le 5432 du host était déjà occupé localement).
+
+### Real-time
+- **Socket.IO** plutôt que WebSocket pur : fallback long-polling, ack natif, rooms gérées.
+- **Auto-subscribe à la création d'un channel** côté serveur (`socketsJoin`) → pas besoin de refresh côté destinataire d'un nouveau DM.
+- **Dispatcher de messages planifiés en polling 10 s**, pas de cron/queue : assez précis pour du chat, zéro infra additionnelle.
+- **`createdAt` réécrit avec `scheduledAt` à la livraison** : l'heure affichée d'un message planifié est celle prévue par l'auteur, pas celle où il a appuyé sur *Planifier*.
+
+### Notifications
+- **Toast in-app TOUJOURS, toast système UNIQUEMENT si la fenêtre n'a pas le focus** : évite le double prompt.
+- **Tauri natif + fallback API `Notification` du navigateur** dans le même module ([web/src/desktop.js](web/src/desktop.js)).
+- **Pas de Push API** (nécessiterait service worker + VAPID + push service) : couvert par Tauri qui reste vivant via la tray.
+
+### Pièces jointes
+- **Max 25 Mo par fichier** (multer).
+- **Stockage disque local** (volume Docker `uploads-data`) plutôt que S3 : zéro dépendance externe. À migrer si on veut du multi-instance.
+- **Filename UTF-8 explicite** : multer décode en latin1 par défaut, on reconvertit côté serveur pour préserver accents/apostrophes.
+- **Paste support** (Cmd/Ctrl+V) en plus du picker : indispensable pour les captures d'écran.
+
+### Desktop / distribution
+- **Close = hide to tray** : l'app continue de tourner et de recevoir les messages.
+- **Pas de signature de code** : SmartScreen va râler à la première exécution. À fixer avec un certificat de signature si distribution publique.
+- **Cross-compile Linux → Windows GNU** via `mingw-w64` + `nsis` : produit du `.exe` NSIS, **pas de `.msi`** (WiX = Windows only). Pour le MSI, builder sur Windows ou via CI `windows-latest`.
+- **`VITE_API_URL` baked à la build** côté web et Tauri : le bundle pointe sur une URL fixe, à rebuilder si l'IP du serveur change. Compose lit la variable d'env, défaut `http://172.16.2.192:4000` (à adapter).
+- **Pas d'auto-start au boot** dans le bundle actuel : ajouter `tauri-plugin-autostart` plus tard si voulu.
+- **Installeur pré-buildé committé** dans [dist/](dist/) : pratique pour un MVP, à remplacer par une release GitHub si le projet grossit.
+
+### Mobile (Expo)
+- **Android d'abord** mais le même codebase couvre déjà iOS — il manque juste un build/distrib iOS.
+
 ## Pistes pour la suite
 
 - chiffrement at-rest des **fichiers** (stream-encrypt en plus du body)
