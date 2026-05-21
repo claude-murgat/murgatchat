@@ -605,6 +605,19 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply, 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.body || "");
   const [showPicker, setShowPicker] = useState(false);
+  const pickerRef = useRef(null);
+  const reactBtnRef = useRef(null);
+
+  useEffect(() => {
+    if (!showPicker) return;
+    function onDocMouseDown(e) {
+      if (pickerRef.current?.contains(e.target)) return;
+      if (reactBtnRef.current?.contains(e.target)) return;
+      setShowPicker(false);
+    }
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [showPicker]);
 
   function startEdit() {
     setDraft(message.body || "");
@@ -674,6 +687,7 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply, 
     <div className="absolute right-2 top-1 hidden group-hover:flex items-center gap-1 bg-white border border-slate-200 rounded shadow-sm">
       {onReact && (
         <button
+          ref={reactBtnRef}
           onClick={() => setShowPicker((v) => !v)}
           className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
           title="Réagir"
@@ -712,7 +726,7 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply, 
   );
 
   const picker = showPicker && onReact && (
-    <div className="absolute right-2 top-8 z-50 shadow-xl rounded">
+    <div ref={pickerRef} className="absolute right-2 top-8 z-50 shadow-xl rounded">
       <EmojiPicker
         onEmojiClick={(e) => {
           onReact(message.id, e.emoji);
