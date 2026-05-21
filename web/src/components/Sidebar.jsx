@@ -20,6 +20,7 @@ export default function Sidebar({
   onNewDm,
   onToggleDnd,
   onLogout,
+  onBrowseChannels,
   onlineUserIds,
   typingByChannel,
 }) {
@@ -70,7 +71,7 @@ export default function Sidebar({
       </div>
 
       <div className="flex-1 overflow-y-auto scroll-thin px-2 py-3 space-y-4">
-        <SidebarSection title="Salons" onAdd={onNewChannel}>
+        <SidebarSection title="Salons" onAdd={onNewChannel} onBrowse={onBrowseChannels}>
           {groups.map((c) => (
             <SidebarItem
               key={c.id}
@@ -128,18 +129,29 @@ export default function Sidebar({
   );
 }
 
-function SidebarSection({ title, onAdd, children }) {
+function SidebarSection({ title, onAdd, onBrowse, children }) {
   return (
     <div>
       <div className="flex items-center justify-between px-2 mb-1 text-xs uppercase tracking-wide text-aubergine-400">
         <span>{title}</span>
-        <button
-          onClick={onAdd}
-          className="hover:text-white"
-          title={`Ajouter — ${title}`}
-        >
-          +
-        </button>
+        <div className="flex items-center gap-1.5">
+          {onBrowse && (
+            <button
+              onClick={onBrowse}
+              className="hover:text-white text-[11px]"
+              title="Parcourir les salons publics"
+            >
+              🔍
+            </button>
+          )}
+          <button
+            onClick={onAdd}
+            className="hover:text-white"
+            title={`Ajouter — ${title}`}
+          >
+            +
+          </button>
+        </div>
       </div>
       <div className="space-y-0.5">{children}</div>
     </div>

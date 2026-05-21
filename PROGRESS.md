@@ -56,7 +56,7 @@ Dernière mise à jour : **2026-05-21**.
    le canal ne liste que les racines + `replyCount`. UI : panneau latéral droit,
    action « Répondre », pied « N réponses ».
 
-## Fonctionnalités en cours (branche `claude/feat/reactions-presence-typing`)
+## Fonctionnalités livrées — suite (mergées)
 
 5. **Réactions emoji** — modèle `Reaction` (unique `[messageId,userId,emoji]`,
    cascade) ; `POST /channels/messages/:id/reactions` en toggle ; `serializeMessage`
@@ -72,13 +72,29 @@ Dernière mise à jour : **2026-05-21**.
    d'écrire… » au-dessus du composer (throttle ~2s, expiration ~4s), et **avatar
    remplacé par « … »** dans la liste des DM quand l'autre tape.
 
+## Fonctionnalités en cours (branche `claude/feat/channel-membership`)
+
+8. **Salon par défaut « Général »** — `Channel.isDefault` (unique). Créé au
+   démarrage (`ensureDefaultChannel` dans index.js) ; tous les utilisateurs
+   existants y sont ajoutés, et chaque nouvel inscrit aussi (route register).
+9. **Rejoindre / parcourir les salons publics** — `GET /channels/public?q=`
+   (publics non rejoints) + `POST /channels/:id/join`. UI : modale « Parcourir
+   les salons » via le 🔍 de la section Salons.
+10. **Gérer les membres** — ajouter (`POST /channels/:id/members`), voir/retirer
+    (modale au clic sur « X membres » ; `DELETE /channels/:id/members/:userId`) et
+    **quitter** un salon (`POST /channels/:id/leave`). Retirer/quitter sont
+    interdits pour le salon par défaut. Émet `channel:removed` (+ socketsLeave) à
+    l'utilisateur concerné. UI : bouton « + Membres » + « X membres » cliquable.
+11. **UX modales** — toutes les modales se ferment au clic en dehors.
+
 ## Événements Socket.IO (catalogue)
 
 - Client → serveur : `channel:join`, `channel:read`, `message:send`
   (`{channelId, body?, attachmentIds?, scheduledAt?, parentId?}`), `typing {channelId}`.
 - Serveur → client : `message:new`, `message:updated`, `message:deleted`,
-  `thread:reply`, `reaction:update`, `channel:created`, `notification`,
-  `presence:state`, `presence:update`, `typing:update`.
+  `thread:reply`, `reaction:update`, `channel:created`, `channel:removed`,
+  `channel:members`, `notification`, `presence:state`, `presence:update`,
+  `typing:update`.
 
 ## Décisions notables
 

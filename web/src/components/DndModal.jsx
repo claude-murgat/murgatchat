@@ -7,8 +7,14 @@ export default function DndModal({ active, onClose, onPick }) {
     { label: "Toute la semaine", minutes: 60 * 24 * 7 },
   ];
   return (
-    <div className="fixed inset-0 bg-black/50 grid place-items-center z-50 p-4">
-      <div className="bg-white text-slate-900 rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
+    <div
+      className="fixed inset-0 bg-black/50 grid place-items-center z-50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white text-slate-900 rounded-xl shadow-2xl w-full max-w-sm overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="p-5 border-b border-slate-200">
           <h2 className="text-lg font-bold">Ne pas déranger</h2>
           <p className="text-sm text-slate-500">

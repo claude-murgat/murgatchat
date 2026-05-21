@@ -53,6 +53,14 @@ export const api = {
   listUsers: (q) => request(`/users${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   listChannels: () => request("/channels"),
   createChannel: (body) => request("/channels", { method: "POST", body }),
+  publicChannels: (q) =>
+    request(`/channels/public${q ? `?q=${encodeURIComponent(q)}` : ""}`),
+  joinChannel: (id) => request(`/channels/${id}/join`, { method: "POST" }),
+  addMembers: (id, userIds) =>
+    request(`/channels/${id}/members`, { method: "POST", body: { userIds } }),
+  leaveChannel: (id) => request(`/channels/${id}/leave`, { method: "POST" }),
+  removeMember: (id, userId) =>
+    request(`/channels/${id}/members/${userId}`, { method: "DELETE" }),
   openDm: (userId) => request("/channels/dm", { method: "POST", body: { userId } }),
   messages: (channelId) => request(`/channels/${channelId}/messages`),
   thread: (id) => request(`/channels/messages/${id}/thread`),

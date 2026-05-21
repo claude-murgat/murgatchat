@@ -34,6 +34,13 @@ router.post("/register", async (req, res) => {
     data: { email, username, displayName, passwordHash, avatarColor: color },
   });
 
+  const def = await prisma.channel.findFirst({ where: { isDefault: true } });
+  if (def) {
+    await prisma.membership
+      .create({ data: { userId: user.id, channelId: def.id } })
+      .catch(() => {});
+  }
+
   const token = signToken(user);
   res.json({ token, user: publicUser(user) });
 });
