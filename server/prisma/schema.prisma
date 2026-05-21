@@ -16,6 +16,9 @@ model User {
   avatarColor  String    @default("#4A154B")
   status       String    @default("active")
   dndUntil     DateTime?
+  dndScheduleEnabled Boolean @default(false)
+  dndStart     String?
+  dndEnd       String?
   createdAt    DateTime  @default(now())
 
   memberships Membership[]

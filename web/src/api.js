@@ -50,6 +50,11 @@ export const api = {
   login: (body) => request("/auth/login", { method: "POST", body, auth: false }),
   me: () => request("/auth/me"),
   setDnd: (minutes) => request("/auth/dnd", { method: "POST", body: { minutes } }),
+  setDndSchedule: (enabled, start, end) =>
+    request("/auth/dnd-schedule", {
+      method: "POST",
+      body: { enabled, start, end },
+    }),
   listUsers: (q) => request(`/users${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   listChannels: () => request("/channels"),
   createChannel: (body) => request("/channels", { method: "POST", body }),

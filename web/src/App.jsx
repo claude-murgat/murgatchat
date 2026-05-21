@@ -259,6 +259,11 @@ export default function App() {
     setShowDnd(false);
   }, []);
 
+  const applySchedule = useCallback(async ({ enabled, start, end }) => {
+    const res = await api.setDndSchedule(enabled, start, end);
+    setUser(res.user);
+  }, []);
+
   if (!bootstrapped) {
     return (
       <div className="h-screen grid place-items-center bg-aubergine-900 text-aubergine-400">
@@ -335,8 +340,10 @@ export default function App() {
       {showDnd && (
         <DndModal
           active={user.dndUntil && new Date(user.dndUntil) > new Date()}
+          user={user}
           onClose={() => setShowDnd(false)}
           onPick={applyDnd}
+          onSaveSchedule={applySchedule}
         />
       )}
 
