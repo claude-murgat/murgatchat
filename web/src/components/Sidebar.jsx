@@ -20,6 +20,7 @@ export default function Sidebar({
   onNewDm,
   onToggleDnd,
   onLogout,
+  onlineUserIds,
 }) {
   const [showMenu, setShowMenu] = useState(false);
   const groups = channels.filter((c) => !c.isDirect);
@@ -97,6 +98,12 @@ export default function Sidebar({
                 }`}
               >
                 <Avatar user={other} size={20} />
+                <span
+                  className={`w-2 h-2 rounded-full shrink-0 ${
+                    onlineUserIds?.has(other?.id) ? "bg-green-400" : "bg-slate-500"
+                  }`}
+                  title={onlineUserIds?.has(other?.id) ? "En ligne" : "Hors ligne"}
+                />
                 <span className="truncate">{other?.displayName || "DM"}</span>
               </button>
             );

@@ -75,7 +75,7 @@ function dayLabel(d) {
   return date.toLocaleDateString();
 }
 
-export default function ChannelView({ channel, currentUser, socket }) {
+export default function ChannelView({ channel, currentUser, socket, onlineUserIds }) {
   const [messages, setMessages] = useState([]);
   const [scheduled, setScheduled] = useState([]);
   const [showScheduled, setShowScheduled] = useState(false);
@@ -241,6 +241,10 @@ export default function ChannelView({ channel, currentUser, socket }) {
   const headerTitle = channel.isDirect
     ? channel.displayName
     : `# ${channel.name}`;
+  const dmOther = channel.isDirect
+    ? channel.members.find((m) => m.id !== currentUser?.id) || channel.members[0]
+    : null;
+  const dmOnline = dmOther && onlineUserIds?.has(dmOther.id);
 
   let lastDay = null;
 
@@ -251,7 +255,14 @@ export default function ChannelView({ channel, currentUser, socket }) {
         <div>
           <div className="font-bold">{headerTitle}</div>
           {channel.isDirect ? (
-            <div className="text-xs text-slate-500">Conversation directe</div>
+            <div className="text-xs text-slate-500 flex items-center gap-1.5">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  dmOnline ? "bg-green-500" : "bg-slate-400"
+                }`}
+              />
+              {dmOnline ? "En ligne" : "Hors ligne"}
+            </div>
           ) : (
             <div className="text-xs text-slate-500">
               {channel.members.length} membre{channel.members.length > 1 ? "s" : ""}

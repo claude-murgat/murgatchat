@@ -19,6 +19,7 @@ export default function App() {
   const [showNewDm, setShowNewDm] = useState(false);
   const [showDnd, setShowDnd] = useState(false);
   const [toast, setToast] = useState(null);
+  const [onlineUserIds, setOnlineUserIds] = useState(() => new Set());
 
   useEffect(() => {
     const token = getToken();
@@ -84,15 +85,28 @@ export default function App() {
       );
     };
 
+    const onPresenceState = ({ userIds }) => setOnlineUserIds(new Set(userIds));
+    const onPresenceUpdate = ({ userId, online }) =>
+      setOnlineUserIds((prev) => {
+        const next = new Set(prev);
+        if (online) next.add(userId);
+        else next.delete(userId);
+        return next;
+      });
+
     s.on("message:new", onNew);
     s.on("channel:created", onCreated);
     s.on("message:updated", onUpdated);
     s.on("message:deleted", onDeleted);
+    s.on("presence:state", onPresenceState);
+    s.on("presence:update", onPresenceUpdate);
     return () => {
       s.off("message:new", onNew);
       s.off("channel:created", onCreated);
       s.off("message:updated", onUpdated);
       s.off("message:deleted", onDeleted);
+      s.off("presence:state", onPresenceState);
+      s.off("presence:update", onPresenceUpdate);
     };
   }, [user]);
 
@@ -189,8 +203,14 @@ export default function App() {
         onNewDm={() => setShowNewDm(true)}
         onToggleDnd={toggleDnd}
         onLogout={onLogout}
+        onlineUserIds={onlineUserIds}
       />
-      <ChannelView channel={activeChannel} currentUser={user} socket={socket} />
+      <ChannelView
+        channel={activeChannel}
+        currentUser={user}
+        socket={socket}
+        onlineUserIds={onlineUserIds}
+      />
 
       {showNewChannel && (
         <NewChannelModal
