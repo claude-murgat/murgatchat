@@ -369,6 +369,34 @@ router.post("/:id/members", requireAuth, async (req, res) => {
   res.json({ channel: serializeChannel(full, req.userId) });
 });
 
+router.post("/:id/leave", requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const channel = await prisma.channel.findUnique({ where: { id } });
+  if (!channel || channel.isDirect) return res.status(404).json({ error: "not_found" });
+  if (channel.isDefault) return res.status(403).json({ error: "cannot_leave_default" });
+  await prisma.membership.deleteMany({ where: { channelId: id, userId: req.userId } });
+  req.io?.to(`user:${req.userId}`).emit("channel:removed", { channelId: id });
+  req.io?.in(`user:${req.userId}`).socketsLeave(`channel:${id}`);
+  res.json({ ok: true });
+});
+
+router.delete("/:id/members/:userId", requireAuth, async (req, res) => {
+  const { id, userId } = req.params;
+  const channel = await prisma.channel.findUnique({ where: { id } });
+  if (!channel || channel.isDirect) return res.status(404).json({ error: "not_found" });
+  if (channel.isDefault) {
+    return res.status(403).json({ error: "cannot_remove_from_default" });
+  }
+  const requester = await prisma.membership.findUnique({
+    where: { userId_channelId: { userId: req.userId, channelId: id } },
+  });
+  if (!requester) return res.status(403).json({ error: "not_a_member" });
+  await prisma.membership.deleteMany({ where: { channelId: id, userId } });
+  req.io?.to(`user:${userId}`).emit("channel:removed", { channelId: id });
+  req.io?.in(`user:${userId}`).socketsLeave(`channel:${id}`);
+  res.json({ ok: true });
+});
+
 export function serializeChannel(channel, viewerId) {
   const members = (channel.memberships || []).map((m) => publicUser(m.user));
   let displayName = channel.name;

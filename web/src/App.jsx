@@ -9,6 +9,7 @@ import NewChannelModal from "./components/NewChannelModal.jsx";
 import NewDmModal from "./components/NewDmModal.jsx";
 import BrowseChannelsModal from "./components/BrowseChannelsModal.jsx";
 import AddMembersModal from "./components/AddMembersModal.jsx";
+import MembersModal from "./components/MembersModal.jsx";
 import DndModal from "./components/DndModal.jsx";
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
   const [showDnd, setShowDnd] = useState(false);
   const [showBrowseChannels, setShowBrowseChannels] = useState(false);
   const [showAddMembers, setShowAddMembers] = useState(false);
+  const [showMembers, setShowMembers] = useState(false);
   const [toast, setToast] = useState(null);
   const [onlineUserIds, setOnlineUserIds] = useState(() => new Set());
   const [typingByChannel, setTypingByChannel] = useState({});
@@ -90,6 +92,10 @@ export default function App() {
         )
       );
     };
+    const onRemoved = ({ channelId }) => {
+      setChannels((prev) => prev.filter((c) => c.id !== channelId));
+      setActiveChannelId((curr) => (curr === channelId ? null : curr));
+    };
 
     const onPresenceState = ({ userIds }) => setOnlineUserIds(new Set(userIds));
     const onPresenceUpdate = ({ userId, online }) =>
@@ -120,6 +126,7 @@ export default function App() {
 
     s.on("message:new", onNew);
     s.on("channel:created", onCreated);
+    s.on("channel:removed", onRemoved);
     s.on("message:updated", onUpdated);
     s.on("message:deleted", onDeleted);
     s.on("presence:state", onPresenceState);
@@ -128,6 +135,7 @@ export default function App() {
     return () => {
       s.off("message:new", onNew);
       s.off("channel:created", onCreated);
+      s.off("channel:removed", onRemoved);
       s.off("message:updated", onUpdated);
       s.off("message:deleted", onDeleted);
       s.off("presence:state", onPresenceState);
@@ -209,6 +217,18 @@ export default function App() {
     setShowAddMembers(false);
   }, []);
 
+  const onLeftChannel = useCallback((channelId) => {
+    setChannels((prev) => prev.filter((c) => c.id !== channelId));
+    setActiveChannelId((curr) => (curr === channelId ? null : curr));
+    setShowMembers(false);
+  }, []);
+
+  const onMembersChanged = useCallback((channelId, members) => {
+    setChannels((prev) =>
+      prev.map((c) => (c.id === channelId ? { ...c, members } : c))
+    );
+  }, []);
+
   const toggleDnd = useCallback(() => {
     setShowDnd(true);
   }, []);
@@ -252,6 +272,7 @@ export default function App() {
         socket={socket}
         onlineUserIds={onlineUserIds}
         onAddMembers={() => setShowAddMembers(true)}
+        onShowMembers={() => setShowMembers(true)}
       />
 
       {showNewChannel && (
@@ -280,6 +301,15 @@ export default function App() {
           currentUserId={user.id}
           onClose={() => setShowAddMembers(false)}
           onAdded={onMembersAdded}
+        />
+      )}
+      {showMembers && activeChannel && !activeChannel.isDirect && (
+        <MembersModal
+          channel={activeChannel}
+          currentUser={user}
+          onClose={() => setShowMembers(false)}
+          onLeft={onLeftChannel}
+          onMembersChanged={onMembersChanged}
         />
       )}
       {showDnd && (
