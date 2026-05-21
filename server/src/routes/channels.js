@@ -118,6 +118,7 @@ router.get("/:id/messages", requireAuth, async (req, res) => {
     include: {
       author: true,
       attachments: true,
+      reactions: true,
       _count: { select: { replies: true } },
     },
     orderBy: { createdAt: "asc" },
@@ -133,6 +134,7 @@ router.get("/messages/:messageId/thread", requireAuth, async (req, res) => {
     include: {
       author: true,
       attachments: true,
+      reactions: true,
       _count: { select: { replies: true } },
     },
   });
@@ -144,7 +146,7 @@ router.get("/messages/:messageId/thread", requireAuth, async (req, res) => {
 
   const replies = await prisma.message.findMany({
     where: { parentId: messageId, delivered: true },
-    include: { author: true, attachments: true },
+    include: { author: true, attachments: true, reactions: true },
     orderBy: { createdAt: "asc" },
   });
   res.json({ parent: serializeMessage(parent), replies: replies.map(serializeMessage) });
@@ -228,6 +230,7 @@ router.patch("/messages/:messageId", requireAuth, async (req, res) => {
     include: {
       author: true,
       attachments: true,
+      reactions: true,
       _count: { select: { replies: true } },
     },
   });
@@ -249,6 +252,37 @@ router.delete("/messages/:messageId", requireAuth, async (req, res) => {
     ?.to(`channel:${channelId}`)
     .emit("message:deleted", { id: messageId, channelId, parentId });
   res.json({ ok: true });
+});
+
+router.post("/messages/:messageId/reactions", requireAuth, async (req, res) => {
+  const { messageId } = req.params;
+  const emoji = typeof req.body?.emoji === "string" ? req.body.emoji.trim() : "";
+  if (!emoji || emoji.length > 32) {
+    return res.status(400).json({ error: "invalid_emoji" });
+  }
+
+  const msg = await prisma.message.findUnique({ where: { id: messageId } });
+  if (!msg) return res.status(404).json({ error: "not_found" });
+  const member = await prisma.membership.findUnique({
+    where: { userId_channelId: { userId: req.userId, channelId: msg.channelId } },
+  });
+  if (!member) return res.status(403).json({ error: "not_a_member" });
+
+  const existing = await prisma.reaction.findUnique({
+    where: { messageId_userId_emoji: { messageId, userId: req.userId, emoji } },
+  });
+  if (existing) {
+    await prisma.reaction.delete({ where: { id: existing.id } });
+  } else {
+    await prisma.reaction.create({ data: { messageId, userId: req.userId, emoji } });
+  }
+
+  const reactions = await prisma.reaction.findMany({ where: { messageId } });
+  const grouped = groupReactions(reactions);
+  req.io
+    ?.to(`channel:${msg.channelId}`)
+    .emit("reaction:update", { messageId, reactions: grouped });
+  res.json({ messageId, reactions: grouped });
 });
 
 export function serializeChannel(channel, viewerId) {
@@ -287,6 +321,19 @@ export function serializeAttachment(a) {
   };
 }
 
+export function groupReactions(reactions) {
+  const map = new Map();
+  for (const r of reactions || []) {
+    if (!map.has(r.emoji)) map.set(r.emoji, []);
+    map.get(r.emoji).push(r.userId);
+  }
+  return Array.from(map, ([emoji, userIds]) => ({
+    emoji,
+    count: userIds.length,
+    userIds,
+  }));
+}
+
 export function serializeMessage(m) {
   return {
     id: m.id,
@@ -297,6 +344,7 @@ export function serializeMessage(m) {
     editedAt: m.editedAt ?? null,
     scheduledAt: m.scheduledAt,
     replyCount: m._count?.replies ?? 0,
+    reactions: groupReactions(m.reactions),
     author: m.author ? publicUser(m.author) : { id: m.authorId },
     attachments: (m.attachments || []).map(serializeAttachment),
   };

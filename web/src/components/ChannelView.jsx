@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import EmojiPicker from "emoji-picker-react";
 import Avatar from "./Avatar.jsx";
 import Composer from "./Composer.jsx";
 import { api, attachmentUrl } from "../api.js";
@@ -132,15 +133,22 @@ export default function ChannelView({ channel, currentUser, socket }) {
         )
       );
     }
+    function onReaction({ messageId, reactions }) {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, reactions } : m))
+      );
+    }
     socket.on("message:new", onNew);
     socket.on("message:updated", onUpdated);
     socket.on("message:deleted", onDeleted);
     socket.on("thread:reply", onReply);
+    socket.on("reaction:update", onReaction);
     return () => {
       socket.off("message:new", onNew);
       socket.off("message:updated", onUpdated);
       socket.off("message:deleted", onDeleted);
       socket.off("thread:reply", onReply);
+      socket.off("reaction:update", onReaction);
     };
   }, [socket, channel?.id]);
 
@@ -209,6 +217,14 @@ export default function ChannelView({ channel, currentUser, socket }) {
     try {
       await api.deleteMessage(message.id);
       setMessages((prev) => prev.filter((m) => m.id !== message.id));
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
+  async function reactToMessage(messageId, emoji) {
+    try {
+      await api.react(messageId, emoji);
     } catch (e) {
       alert(e.message);
     }
@@ -297,6 +313,7 @@ export default function ChannelView({ channel, currentUser, socket }) {
                 onEdit={editMessage}
                 onDelete={deleteMessage}
                 onReply={openThread}
+                onReact={reactToMessage}
               />
             </div>
           );
@@ -328,6 +345,7 @@ export default function ChannelView({ channel, currentUser, socket }) {
           onSend={sendReply}
           onEdit={editMessage}
           onDelete={deleteMessage}
+          onReact={reactToMessage}
         />
       )}
     </div>
@@ -425,7 +443,7 @@ function ScheduledRow({ message, onCancel, onSave }) {
   );
 }
 
-function ThreadPanel({ parentId, currentUser, socket, onClose, onSend, onEdit, onDelete }) {
+function ThreadPanel({ parentId, currentUser, socket, onClose, onSend, onEdit, onDelete, onReact }) {
   const [parent, setParent] = useState(null);
   const [replies, setReplies] = useState([]);
   const scrollRef = useRef(null);
@@ -458,13 +476,21 @@ function ThreadPanel({ parentId, currentUser, socket, onClose, onSend, onEdit, o
       if (pid !== parentId) return;
       setReplies((prev) => prev.filter((r) => r.id !== id));
     }
+    function onReaction({ messageId, reactions }) {
+      setParent((p) => (p && p.id === messageId ? { ...p, reactions } : p));
+      setReplies((prev) =>
+        prev.map((r) => (r.id === messageId ? { ...r, reactions } : r))
+      );
+    }
     socket.on("thread:reply", onReply);
     socket.on("message:updated", onUpdated);
     socket.on("message:deleted", onDeleted);
+    socket.on("reaction:update", onReaction);
     return () => {
       socket.off("thread:reply", onReply);
       socket.off("message:updated", onUpdated);
       socket.off("message:deleted", onDeleted);
+      socket.off("reaction:update", onReaction);
     };
   }, [socket, parentId]);
 
@@ -494,6 +520,7 @@ function ThreadPanel({ parentId, currentUser, socket, onClose, onSend, onEdit, o
               currentUser={currentUser}
               onEdit={onEdit}
               onDelete={onDelete}
+              onReact={onReact}
             />
           </div>
         )}
@@ -505,6 +532,7 @@ function ThreadPanel({ parentId, currentUser, socket, onClose, onSend, onEdit, o
             currentUser={currentUser}
             onEdit={onEdit}
             onDelete={onDelete}
+            onReact={onReact}
           />
         ))}
         {replies.length === 0 && (
@@ -520,10 +548,11 @@ function ThreadPanel({ parentId, currentUser, socket, onClose, onSend, onEdit, o
   );
 }
 
-function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply }) {
+function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply, onReact }) {
   const isOwn = message.author?.id === currentUser?.id;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.body || "");
+  const [showPicker, setShowPicker] = useState(false);
 
   function startEdit() {
     setDraft(message.body || "");
@@ -589,8 +618,17 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply }
     )
   );
 
-  const actions = !editing && (onReply || isOwn) && (
+  const actions = !editing && (onReact || onReply || isOwn) && (
     <div className="absolute right-2 top-1 hidden group-hover:flex items-center gap-1 bg-white border border-slate-200 rounded shadow-sm">
+      {onReact && (
+        <button
+          onClick={() => setShowPicker((v) => !v)}
+          className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
+          title="Réagir"
+        >
+          😀
+        </button>
+      )}
       {onReply && (
         <button
           onClick={() => onReply(message)}
@@ -621,6 +659,21 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply }
     </div>
   );
 
+  const picker = showPicker && onReact && (
+    <div className="absolute right-2 top-8 z-50 shadow-xl rounded">
+      <EmojiPicker
+        onEmojiClick={(e) => {
+          onReact(message.id, e.emoji);
+          setShowPicker(false);
+        }}
+        width={300}
+        height={380}
+        previewConfig={{ showPreview: false }}
+        lazyLoadEmojis
+      />
+    </div>
+  );
+
   const footer = onReply && message.replyCount > 0 && (
     <button
       onClick={() => onReply(message)}
@@ -630,10 +683,33 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply }
     </button>
   );
 
+  const reactionChips = message.reactions?.length > 0 && (
+    <div className="mt-1 flex flex-wrap gap-1">
+      {message.reactions.map((r) => {
+        const mine = r.userIds?.includes(currentUser?.id);
+        return (
+          <button
+            key={r.emoji}
+            onClick={() => onReact?.(message.id, r.emoji)}
+            className={`text-xs rounded-full border px-2 py-0.5 flex items-center gap-1 ${
+              mine
+                ? "border-aubergine-700 bg-aubergine-700/10 text-aubergine-800"
+                : "border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700"
+            }`}
+          >
+            <span>{r.emoji}</span>
+            <span>{r.count}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
   if (grouped) {
     return (
       <div className="relative pl-12 pr-4 py-0.5 hover:bg-slate-50 group">
         {actions}
+        {picker}
         <div className="flex items-start gap-2">
           <div className="text-xs text-slate-400 w-0 group-hover:w-10 overflow-hidden transition-all">
             {formatDate(message.createdAt)}
@@ -642,6 +718,7 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply }
             {body}
             <Attachments attachments={message.attachments} />
             {footer}
+            {reactionChips}
           </div>
         </div>
       </div>
@@ -650,6 +727,7 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply }
   return (
     <div className="relative px-2 py-1.5 hover:bg-slate-50 rounded group">
       {actions}
+      {picker}
       <div className="flex items-start gap-2">
         <Avatar user={message.author} size={36} />
         <div className="flex-1 min-w-0">
@@ -660,6 +738,7 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply }
           {body}
           <Attachments attachments={message.attachments} />
           {footer}
+          {reactionChips}
         </div>
       </div>
     </div>

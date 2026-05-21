@@ -21,6 +21,7 @@ model User {
   memberships Membership[]
   messages    Message[]
   attachments Attachment[]
+  reactions   Reaction[]
 }
 
 model Channel {
@@ -64,6 +65,7 @@ model Message {
   attachments Attachment[]
   parent      Message?     @relation("MessageThread", fields: [parentId], references: [id], onDelete: Cascade)
   replies     Message[]    @relation("MessageThread")
+  reactions   Reaction[]
 
   @@index([channelId, createdAt])
   @@index([scheduledAt, delivered])
@@ -85,4 +87,18 @@ model Attachment {
 
   @@index([messageId])
   @@index([uploadedBy])
+}
+
+model Reaction {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
 }
