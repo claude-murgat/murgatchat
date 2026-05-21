@@ -44,8 +44,14 @@ export default function AddMembersModal({ channel, currentUserId, onClose, onAdd
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 grid place-items-center z-50 p-4">
-      <div className="bg-white text-slate-900 rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col">
+    <div
+      className="fixed inset-0 bg-black/50 grid place-items-center z-50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white text-slate-900 rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="p-5 border-b border-slate-200 flex items-center justify-between">
           <h2 className="text-xl font-bold">
             Ajouter des membres {channel.name ? `à #${channel.name}` : ""}

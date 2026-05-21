@@ -80,17 +80,20 @@ Dernière mise à jour : **2026-05-21**.
 9. **Rejoindre / parcourir les salons publics** — `GET /channels/public?q=`
    (publics non rejoints) + `POST /channels/:id/join`. UI : modale « Parcourir
    les salons » via le 🔍 de la section Salons.
-10. **Ajouter des membres** — `POST /channels/:id/members {userIds}` (tout membre
-    peut ajouter, hors DM ; émet `channel:created` + auto-abonnement aux ajoutés).
-    UI : bouton « + Membres » dans l'en-tête → recherche/sélection.
+10. **Gérer les membres** — ajouter (`POST /channels/:id/members`), voir/retirer
+    (modale au clic sur « X membres » ; `DELETE /channels/:id/members/:userId`) et
+    **quitter** un salon (`POST /channels/:id/leave`). Retirer/quitter sont
+    interdits pour le salon par défaut. Émet `channel:removed` (+ socketsLeave) à
+    l'utilisateur concerné. UI : bouton « + Membres » + « X membres » cliquable.
+11. **UX modales** — toutes les modales se ferment au clic en dehors.
 
 ## Événements Socket.IO (catalogue)
 
 - Client → serveur : `channel:join`, `channel:read`, `message:send`
   (`{channelId, body?, attachmentIds?, scheduledAt?, parentId?}`), `typing {channelId}`.
 - Serveur → client : `message:new`, `message:updated`, `message:deleted`,
-  `thread:reply`, `reaction:update`, `channel:created`, `notification`,
-  `presence:state`, `presence:update`, `typing:update`.
+  `thread:reply`, `reaction:update`, `channel:created`, `channel:removed`,
+  `notification`, `presence:state`, `presence:update`, `typing:update`.
 
 ## Décisions notables
 

@@ -47,9 +47,13 @@ export default function NewChannelModal({ onClose, onCreated, currentUserId }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 grid place-items-center z-50 p-4">
+    <div
+      className="fixed inset-0 bg-black/50 grid place-items-center z-50 p-4"
+      onClick={onClose}
+    >
       <form
         onSubmit={submit}
+        onClick={(e) => e.stopPropagation()}
         className="bg-white text-slate-900 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col"
       >
         <div className="p-5 border-b border-slate-200">
