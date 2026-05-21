@@ -3,7 +3,7 @@ import express from "express";
 import cors from "cors";
 import authRouter from "./routes/auth.js";
 import usersRouter from "./routes/users.js";
-import channelsRouter from "./routes/channels.js";
+import channelsRouter, { ensureDefaultChannel } from "./routes/channels.js";
 import uploadsRouter from "./routes/uploads.js";
 import { setupSocket, dispatchScheduledMessages } from "./socket.js";
 
@@ -36,4 +36,7 @@ setInterval(() => {
 
 server.listen(PORT, () => {
   console.log(`Chat server listening on :${PORT}`);
+  ensureDefaultChannel()
+    .then((c) => console.log(`Default channel ready: ${c.name} (${c.id})`))
+    .catch((e) => console.error("ensureDefaultChannel error", e));
 });

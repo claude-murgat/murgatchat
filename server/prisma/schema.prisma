@@ -29,6 +29,7 @@ model Channel {
   name        String?
   isDirect    Boolean  @default(false)
   isPrivate   Boolean  @default(false)
+  isDefault   Boolean  @default(false)
   description String?
   createdAt   DateTime @default(now())
 

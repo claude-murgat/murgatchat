@@ -292,6 +292,83 @@ router.post("/messages/:messageId/reactions", requireAuth, async (req, res) => {
   res.json({ messageId, reactions: grouped });
 });
 
+router.get("/public", requireAuth, async (req, res) => {
+  const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+  const channels = await prisma.channel.findMany({
+    where: {
+      isDirect: false,
+      isPrivate: false,
+      memberships: { none: { userId: req.userId } },
+      ...(q ? { name: { contains: q, mode: "insensitive" } } : {}),
+    },
+    include: {
+      memberships: { include: { user: true } },
+      messages: { orderBy: { createdAt: "desc" }, take: 1 },
+    },
+    orderBy: { createdAt: "asc" },
+    take: 50,
+  });
+  res.json({ channels: channels.map((c) => serializeChannel(c, req.userId)) });
+});
+
+router.post("/:id/join", requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const channel = await prisma.channel.findUnique({ where: { id } });
+  if (!channel || channel.isDirect || channel.isPrivate) {
+    return res.status(404).json({ error: "not_found" });
+  }
+  await prisma.membership
+    .create({ data: { userId: req.userId, channelId: id } })
+    .catch(() => {});
+  const full = await prisma.channel.findUnique({
+    where: { id },
+    include: {
+      memberships: { include: { user: true } },
+      messages: { orderBy: { createdAt: "desc" }, take: 1 },
+    },
+  });
+  const personalized = serializeChannel(full, req.userId);
+  req.io?.to(`user:${req.userId}`).emit("channel:created", personalized);
+  req.io?.in(`user:${req.userId}`).socketsJoin(`channel:${id}`);
+  res.json({ channel: personalized });
+});
+
+router.post("/:id/members", requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const userIds = Array.isArray(req.body?.userIds) ? req.body.userIds : [];
+  if (userIds.length === 0) return res.status(400).json({ error: "no_users" });
+
+  const channel = await prisma.channel.findUnique({ where: { id } });
+  if (!channel || channel.isDirect) return res.status(404).json({ error: "not_found" });
+  const requester = await prisma.membership.findUnique({
+    where: { userId_channelId: { userId: req.userId, channelId: id } },
+  });
+  if (!requester) return res.status(403).json({ error: "not_a_member" });
+
+  const valid = await prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true },
+  });
+  await prisma.membership.createMany({
+    data: valid.map((u) => ({ userId: u.id, channelId: id })),
+    skipDuplicates: true,
+  });
+
+  const full = await prisma.channel.findUnique({
+    where: { id },
+    include: {
+      memberships: { include: { user: true } },
+      messages: { orderBy: { createdAt: "desc" }, take: 1 },
+    },
+  });
+  for (const u of valid) {
+    const personalized = serializeChannel(full, u.id);
+    req.io?.to(`user:${u.id}`).emit("channel:created", personalized);
+    req.io?.in(`user:${u.id}`).socketsJoin(`channel:${id}`);
+  }
+  res.json({ channel: serializeChannel(full, req.userId) });
+});
+
 export function serializeChannel(channel, viewerId) {
   const members = (channel.memberships || []).map((m) => publicUser(m.user));
   let displayName = channel.name;
@@ -306,6 +383,7 @@ export function serializeChannel(channel, viewerId) {
     displayName,
     isDirect: channel.isDirect,
     isPrivate: channel.isPrivate,
+    isDefault: channel.isDefault,
     description: channel.description,
     members,
     lastMessage: last
@@ -366,6 +444,28 @@ export function serializeScheduled(m) {
     scheduledAt: m.scheduledAt,
     attachments: (m.attachments || []).map(serializeAttachment),
   };
+}
+
+export async function ensureDefaultChannel() {
+  let channel = await prisma.channel.findFirst({ where: { isDefault: true } });
+  if (!channel) {
+    channel = await prisma.channel.create({
+      data: { name: "Général", isDefault: true, isPrivate: false, isDirect: false },
+    });
+  }
+  const users = await prisma.user.findMany({ select: { id: true } });
+  const members = await prisma.membership.findMany({
+    where: { channelId: channel.id },
+    select: { userId: true },
+  });
+  const have = new Set(members.map((m) => m.userId));
+  const toAdd = users
+    .filter((u) => !have.has(u.id))
+    .map((u) => ({ userId: u.id, channelId: channel.id }));
+  if (toAdd.length) {
+    await prisma.membership.createMany({ data: toAdd, skipDuplicates: true });
+  }
+  return channel;
 }
 
 export default router;

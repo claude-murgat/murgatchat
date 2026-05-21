@@ -7,6 +7,8 @@ import Sidebar from "./components/Sidebar.jsx";
 import ChannelView from "./components/ChannelView.jsx";
 import NewChannelModal from "./components/NewChannelModal.jsx";
 import NewDmModal from "./components/NewDmModal.jsx";
+import BrowseChannelsModal from "./components/BrowseChannelsModal.jsx";
+import AddMembersModal from "./components/AddMembersModal.jsx";
 import DndModal from "./components/DndModal.jsx";
 
 export default function App() {
@@ -18,6 +20,8 @@ export default function App() {
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [showNewDm, setShowNewDm] = useState(false);
   const [showDnd, setShowDnd] = useState(false);
+  const [showBrowseChannels, setShowBrowseChannels] = useState(false);
+  const [showAddMembers, setShowAddMembers] = useState(false);
   const [toast, setToast] = useState(null);
   const [onlineUserIds, setOnlineUserIds] = useState(() => new Set());
   const [typingByChannel, setTypingByChannel] = useState({});
@@ -192,6 +196,19 @@ export default function App() {
     setShowNewDm(false);
   }, []);
 
+  const onChannelJoined = useCallback((channel) => {
+    setChannels((prev) =>
+      prev.some((c) => c.id === channel.id) ? prev : [...prev, channel]
+    );
+    setActiveChannelId(channel.id);
+    setShowBrowseChannels(false);
+  }, []);
+
+  const onMembersAdded = useCallback((channel) => {
+    setChannels((prev) => prev.map((c) => (c.id === channel.id ? channel : c)));
+    setShowAddMembers(false);
+  }, []);
+
   const toggleDnd = useCallback(() => {
     setShowDnd(true);
   }, []);
@@ -223,6 +240,7 @@ export default function App() {
         onSelectChannel={onSelectChannel}
         onNewChannel={() => setShowNewChannel(true)}
         onNewDm={() => setShowNewDm(true)}
+        onBrowseChannels={() => setShowBrowseChannels(true)}
         onToggleDnd={toggleDnd}
         onLogout={onLogout}
         onlineUserIds={onlineUserIds}
@@ -233,6 +251,7 @@ export default function App() {
         currentUser={user}
         socket={socket}
         onlineUserIds={onlineUserIds}
+        onAddMembers={() => setShowAddMembers(true)}
       />
 
       {showNewChannel && (
@@ -247,6 +266,20 @@ export default function App() {
           currentUserId={user.id}
           onClose={() => setShowNewDm(false)}
           onOpened={onDmOpened}
+        />
+      )}
+      {showBrowseChannels && (
+        <BrowseChannelsModal
+          onClose={() => setShowBrowseChannels(false)}
+          onJoined={onChannelJoined}
+        />
+      )}
+      {showAddMembers && activeChannel && !activeChannel.isDirect && (
+        <AddMembersModal
+          channel={activeChannel}
+          currentUserId={user.id}
+          onClose={() => setShowAddMembers(false)}
+          onAdded={onMembersAdded}
         />
       )}
       {showDnd && (

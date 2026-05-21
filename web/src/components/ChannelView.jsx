@@ -97,7 +97,7 @@ function reactionLabel(users) {
   return `${names[0]}, ${names[1]} et ${others} autre${others > 1 ? "s" : ""} ont réagi`;
 }
 
-export default function ChannelView({ channel, currentUser, socket, onlineUserIds }) {
+export default function ChannelView({ channel, currentUser, socket, onlineUserIds, onAddMembers }) {
   const [messages, setMessages] = useState([]);
   const [scheduled, setScheduled] = useState([]);
   const [showScheduled, setShowScheduled] = useState(false);
@@ -315,14 +315,25 @@ export default function ChannelView({ channel, currentUser, socket, onlineUserId
             </div>
           )}
         </div>
-        <button
-          onClick={() => setShowScheduled((v) => !v)}
-          className={`text-xs px-2 py-1 rounded ${
-            showScheduled ? "bg-aubergine-700 text-white" : "border border-slate-300"
-          }`}
-        >
-          Planifiés ({scheduled.length})
-        </button>
+        <div className="flex items-center gap-2">
+          {!channel.isDirect && (
+            <button
+              onClick={onAddMembers}
+              className="text-xs px-2 py-1 rounded border border-slate-300 hover:bg-slate-100"
+              title="Ajouter des membres"
+            >
+              + Membres
+            </button>
+          )}
+          <button
+            onClick={() => setShowScheduled((v) => !v)}
+            className={`text-xs px-2 py-1 rounded ${
+              showScheduled ? "bg-aubergine-700 text-white" : "border border-slate-300"
+            }`}
+          >
+            Planifiés ({scheduled.length})
+          </button>
+        </div>
       </header>
 
       {showScheduled && (
