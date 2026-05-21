@@ -107,11 +107,17 @@ export default function ChannelView({ channel, currentUser, socket }) {
       if (!channel || msg.channelId !== channel.id) return;
       setMessages((prev) => prev.map((m) => (m.id === msg.id ? msg : m)));
     }
+    function onDeleted({ id, channelId }) {
+      if (!channel || channelId !== channel.id) return;
+      setMessages((prev) => prev.filter((m) => m.id !== id));
+    }
     socket.on("message:new", onNew);
     socket.on("message:updated", onUpdated);
+    socket.on("message:deleted", onDeleted);
     return () => {
       socket.off("message:new", onNew);
       socket.off("message:updated", onUpdated);
+      socket.off("message:deleted", onDeleted);
     };
   }, [socket, channel?.id]);
 
@@ -158,6 +164,16 @@ export default function ChannelView({ channel, currentUser, socket }) {
     } catch (e) {
       alert(e.message);
       return false;
+    }
+  }
+
+  async function deleteMessage(message) {
+    if (!window.confirm("Supprimer ce message ?")) return;
+    try {
+      await api.deleteMessage(message.id);
+      setMessages((prev) => prev.filter((m) => m.id !== message.id));
+    } catch (e) {
+      alert(e.message);
     }
   }
 
@@ -241,6 +257,7 @@ export default function ChannelView({ channel, currentUser, socket }) {
                 grouped={groupWithPrev}
                 currentUser={currentUser}
                 onEdit={editMessage}
+                onDelete={deleteMessage}
               />
             </div>
           );
@@ -357,7 +374,7 @@ function ScheduledRow({ message, onCancel, onSave }) {
   );
 }
 
-function MessageRow({ message, grouped, currentUser, onEdit }) {
+function MessageRow({ message, grouped, currentUser, onEdit, onDelete }) {
   const isOwn = message.author?.id === currentUser?.id;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.body || "");
@@ -434,6 +451,13 @@ function MessageRow({ message, grouped, currentUser, onEdit }) {
         title="Modifier"
       >
         Modifier
+      </button>
+      <button
+        onClick={() => onDelete(message)}
+        className="text-xs text-slate-600 hover:text-red-600 px-2 py-1"
+        title="Supprimer"
+      >
+        Supprimer
       </button>
     </div>
   );

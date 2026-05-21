@@ -205,6 +205,18 @@ router.patch("/messages/:messageId", requireAuth, async (req, res) => {
   res.json({ message: serialized });
 });
 
+router.delete("/messages/:messageId", requireAuth, async (req, res) => {
+  const { messageId } = req.params;
+  const msg = await prisma.message.findUnique({ where: { id: messageId } });
+  if (!msg || msg.authorId !== req.userId || !msg.delivered) {
+    return res.status(404).json({ error: "not_found" });
+  }
+  const { channelId } = msg;
+  await prisma.message.delete({ where: { id: messageId } });
+  req.io?.to(`channel:${channelId}`).emit("message:deleted", { id: messageId, channelId });
+  res.json({ ok: true });
+});
+
 export function serializeChannel(channel, viewerId) {
   const members = (channel.memberships || []).map((m) => publicUser(m.user));
   let displayName = channel.name;

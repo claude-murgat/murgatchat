@@ -57,6 +57,8 @@ export const api = {
   messages: (channelId) => request(`/channels/${channelId}/messages`),
   editMessage: (id, body) =>
     request(`/channels/messages/${id}`, { method: "PATCH", body: { body } }),
+  deleteMessage: (id) =>
+    request(`/channels/messages/${id}`, { method: "DELETE" }),
   scheduled: (channelId) => request(`/channels/${channelId}/scheduled`),
   deleteScheduled: (id) => request(`/channels/scheduled/${id}`, { method: "DELETE" }),
   updateScheduled: (id, body) =>
