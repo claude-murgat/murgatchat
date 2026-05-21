@@ -1,0 +1,83 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  username     String    @unique
+  displayName  String
+  passwordHash String
+  avatarColor  String    @default("#4A154B")
+  status       String    @default("active")
+  dndUntil     DateTime?
+  createdAt    DateTime  @default(now())
+
+  memberships Membership[]
+  messages    Message[]
+  attachments Attachment[]
+}
+
+model Channel {
+  id          String   @id @default(cuid())
+  name        String?
+  isDirect    Boolean  @default(false)
+  isPrivate   Boolean  @default(false)
+  description String?
+  createdAt   DateTime @default(now())
+
+  memberships Membership[]
+  messages    Message[]
+}
+
+model Membership {
+  id        String   @id @default(cuid())
+  userId    String
+  channelId String
+  joinedAt  DateTime @default(now())
+  lastReadAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, channelId])
+}
+
+model Message {
+  id          String    @id @default(cuid())
+  channelId   String
+  authorId    String
+  body        String
+  createdAt   DateTime  @default(now())
+  scheduledAt DateTime?
+  delivered   Boolean   @default(true)
+
+  channel     Channel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  author      User         @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  attachments Attachment[]
+
+  @@index([channelId, createdAt])
+  @@index([scheduledAt, delivered])
+}
+
+model Attachment {
+  id          String   @id @default(cuid())
+  messageId   String?
+  uploadedBy  String
+  filename    String
+  mimeType    String
+  size        Int
+  storagePath String   @unique
+  createdAt   DateTime @default(now())
+
+  message Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User?    @relation(fields: [uploadedBy], references: [id], onDelete: SetNull)
+
+  @@index([messageId])
+  @@index([uploadedBy])
+}

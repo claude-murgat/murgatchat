@@ -1,0 +1,27 @@
+# dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# build outputs
+web/dist/
+web/.vite/
+mobile/.expo/
+mobile/dist/
+mobile/web-build/
+
+# Tauri / Rust
+web/src-tauri/target/
+web/src-tauri/gen/
+web/src-tauri/.cargo/
+web/src-tauri/Cargo.lock
+
+# env & secrets
+.env
+.env.local
+.env.*.local
+
+# logs / OS junk
+*.log
+.DS_Store
+Thumbs.db
