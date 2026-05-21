@@ -3,15 +3,15 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: chat
-      POSTGRES_PASSWORD: chatpass
-      POSTGRES_DB: chat
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5433:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U chat -d chat"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -23,9 +23,9 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://chat:chatpass@db:5432/chat?schema=public
-      JWT_SECRET: change-me-in-prod
-      MESSAGE_ENCRYPTION_KEY: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public
+      JWT_SECRET: ${JWT_SECRET}
+      MESSAGE_ENCRYPTION_KEY: ${MESSAGE_ENCRYPTION_KEY}
       UPLOAD_DIR: /data/uploads
       PORT: "4000"
       CORS_ORIGIN: "*"
@@ -38,7 +38,7 @@ services:
     build:
       context: ./web
       args:
-        VITE_API_URL: ${VITE_API_URL:-http://172.16.2.192:4000}
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:4000}
     restart: unless-stopped
     depends_on:
       - server

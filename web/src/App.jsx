@@ -65,12 +65,34 @@ export default function App() {
         prev.some((c) => c.id === channel.id) ? prev : [...prev, channel]
       );
     };
+    const onUpdated = (msg) => {
+      setChannels((prev) =>
+        prev.map((c) =>
+          c.id === msg.channelId && c.lastMessage?.id === msg.id
+            ? { ...c, lastMessage: { ...c.lastMessage, body: msg.body } }
+            : c
+        )
+      );
+    };
+    const onDeleted = ({ id, channelId }) => {
+      setChannels((prev) =>
+        prev.map((c) =>
+          c.id === channelId && c.lastMessage?.id === id
+            ? { ...c, lastMessage: null }
+            : c
+        )
+      );
+    };
 
     s.on("message:new", onNew);
     s.on("channel:created", onCreated);
+    s.on("message:updated", onUpdated);
+    s.on("message:deleted", onDeleted);
     return () => {
       s.off("message:new", onNew);
       s.off("channel:created", onCreated);
+      s.off("message:updated", onUpdated);
+      s.off("message:deleted", onDeleted);
     };
   }, [user]);
 
