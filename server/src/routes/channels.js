@@ -118,7 +118,7 @@ router.get("/:id/messages", requireAuth, async (req, res) => {
     include: {
       author: true,
       attachments: true,
-      reactions: true,
+      reactions: { include: { user: true } },
       _count: { select: { replies: true } },
     },
     orderBy: { createdAt: "asc" },
@@ -134,7 +134,7 @@ router.get("/messages/:messageId/thread", requireAuth, async (req, res) => {
     include: {
       author: true,
       attachments: true,
-      reactions: true,
+      reactions: { include: { user: true } },
       _count: { select: { replies: true } },
     },
   });
@@ -146,7 +146,11 @@ router.get("/messages/:messageId/thread", requireAuth, async (req, res) => {
 
   const replies = await prisma.message.findMany({
     where: { parentId: messageId, delivered: true },
-    include: { author: true, attachments: true, reactions: true },
+    include: {
+      author: true,
+      attachments: true,
+      reactions: { include: { user: true } },
+    },
     orderBy: { createdAt: "asc" },
   });
   res.json({ parent: serializeMessage(parent), replies: replies.map(serializeMessage) });
@@ -230,7 +234,7 @@ router.patch("/messages/:messageId", requireAuth, async (req, res) => {
     include: {
       author: true,
       attachments: true,
-      reactions: true,
+      reactions: { include: { user: true } },
       _count: { select: { replies: true } },
     },
   });
@@ -277,7 +281,10 @@ router.post("/messages/:messageId/reactions", requireAuth, async (req, res) => {
     await prisma.reaction.create({ data: { messageId, userId: req.userId, emoji } });
   }
 
-  const reactions = await prisma.reaction.findMany({ where: { messageId } });
+  const reactions = await prisma.reaction.findMany({
+    where: { messageId },
+    include: { user: true },
+  });
   const grouped = groupReactions(reactions);
   req.io
     ?.to(`channel:${msg.channelId}`)
@@ -325,12 +332,12 @@ export function groupReactions(reactions) {
   const map = new Map();
   for (const r of reactions || []) {
     if (!map.has(r.emoji)) map.set(r.emoji, []);
-    map.get(r.emoji).push(r.userId);
+    map.get(r.emoji).push({ id: r.userId, displayName: r.user?.displayName });
   }
-  return Array.from(map, ([emoji, userIds]) => ({
+  return Array.from(map, ([emoji, users]) => ({
     emoji,
-    count: userIds.length,
-    userIds,
+    count: users.length,
+    users,
   }));
 }
 

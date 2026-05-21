@@ -60,9 +60,10 @@ Dernière mise à jour : **2026-05-21**.
 
 5. **Réactions emoji** — modèle `Reaction` (unique `[messageId,userId,emoji]`,
    cascade) ; `POST /channels/messages/:id/reactions` en toggle ; `serializeMessage`
-   expose `reactions: [{emoji,count,userIds}]` ; temps réel `reaction:update`.
-   UI : sélecteur **emoji-picker-react** (bouton 😀, se ferme au clic extérieur),
-   chips cliquables, « mine » calculé côté client.
+   expose `reactions: [{emoji, count, users:[{id,displayName}]}]` ; temps réel
+   `reaction:update`. UI : sélecteur **emoji-picker-react** (bouton 😀, fermeture
+   au clic extérieur), chips cliquables, **tooltip stylé au survol** listant qui a
+   réagi (« X a réagi » / « X et Y ont réagi » / « X, Y et N autres ont réagi »).
 6. **Présence en ligne** — suivi en mémoire des sockets par utilisateur ;
    `presence:state` (à la connexion) + `presence:update` (transitions 0↔1 socket).
    UI : pastille verte/grise sur les DM + statut dans l'en-tête.

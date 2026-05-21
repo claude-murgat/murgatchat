@@ -88,6 +88,15 @@ function typingLabel(userIds, channel, currentUser) {
   return "Plusieurs personnes écrivent";
 }
 
+function reactionLabel(users) {
+  const names = (users || []).map((u) => u.displayName || "Quelqu'un");
+  if (names.length === 0) return "";
+  if (names.length === 1) return `${names[0]} a réagi`;
+  if (names.length === 2) return `${names[0]} et ${names[1]} ont réagi`;
+  const others = names.length - 2;
+  return `${names[0]}, ${names[1]} et ${others} autre${others > 1 ? "s" : ""} ont réagi`;
+}
+
 export default function ChannelView({ channel, currentUser, socket, onlineUserIds }) {
   const [messages, setMessages] = useState([]);
   const [scheduled, setScheduled] = useState([]);
@@ -752,20 +761,24 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply, 
   const reactionChips = message.reactions?.length > 0 && (
     <div className="mt-1 flex flex-wrap gap-1">
       {message.reactions.map((r) => {
-        const mine = r.userIds?.includes(currentUser?.id);
+        const mine = r.users?.some((u) => u.id === currentUser?.id);
         return (
-          <button
-            key={r.emoji}
-            onClick={() => onReact?.(message.id, r.emoji)}
-            className={`text-xs rounded-full border px-2 py-0.5 flex items-center gap-1 ${
-              mine
-                ? "border-aubergine-700 bg-aubergine-700/10 text-aubergine-800"
-                : "border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700"
-            }`}
-          >
-            <span>{r.emoji}</span>
-            <span>{r.count}</span>
-          </button>
+          <div key={r.emoji} className="relative group/chip">
+            <button
+              onClick={() => onReact?.(message.id, r.emoji)}
+              className={`text-xs rounded-full border px-2 py-0.5 flex items-center gap-1 ${
+                mine
+                  ? "border-aubergine-700 bg-aubergine-700/10 text-aubergine-800"
+                  : "border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700"
+              }`}
+            >
+              <span>{r.emoji}</span>
+              <span>{r.count}</span>
+            </button>
+            <div className="pointer-events-none absolute bottom-full left-0 z-50 mb-1 hidden whitespace-nowrap rounded-md bg-slate-800 px-2 py-1 text-xs text-white shadow-lg group-hover/chip:block">
+              {reactionLabel(r.users)}
+            </div>
+          </div>
         );
       })}
     </div>
