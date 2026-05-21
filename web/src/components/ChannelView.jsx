@@ -103,9 +103,15 @@ export default function ChannelView({ channel, currentUser, socket }) {
       setMessages((prev) => [...prev, msg]);
       socket.emit("channel:read", { channelId: channel.id });
     }
+    function onUpdated(msg) {
+      if (!channel || msg.channelId !== channel.id) return;
+      setMessages((prev) => prev.map((m) => (m.id === msg.id ? msg : m)));
+    }
     socket.on("message:new", onNew);
+    socket.on("message:updated", onUpdated);
     return () => {
       socket.off("message:new", onNew);
+      socket.off("message:updated", onUpdated);
     };
   }, [socket, channel?.id]);
 
@@ -137,6 +143,17 @@ export default function ChannelView({ channel, currentUser, socket }) {
     try {
       const res = await api.updateScheduled(id, body);
       setScheduled((prev) => prev.map((m) => (m.id === id ? res.scheduled : m)));
+      return true;
+    } catch (e) {
+      alert(e.message);
+      return false;
+    }
+  }
+
+  async function editMessage(id, body) {
+    try {
+      const res = await api.editMessage(id, body);
+      setMessages((prev) => prev.map((m) => (m.id === id ? res.message : m)));
       return true;
     } catch (e) {
       alert(e.message);
@@ -219,7 +236,12 @@ export default function ChannelView({ channel, currentUser, socket }) {
                   <div className="flex-1 border-t border-slate-200" />
                 </div>
               )}
-              <MessageRow message={m} grouped={groupWithPrev} />
+              <MessageRow
+                message={m}
+                grouped={groupWithPrev}
+                currentUser={currentUser}
+                onEdit={editMessage}
+              />
             </div>
           );
         })}
@@ -335,20 +357,97 @@ function ScheduledRow({ message, onCancel, onSave }) {
   );
 }
 
-function MessageRow({ message, grouped }) {
+function MessageRow({ message, grouped, currentUser, onEdit }) {
+  const isOwn = message.author?.id === currentUser?.id;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(message.body || "");
+
+  function startEdit() {
+    setDraft(message.body || "");
+    setEditing(true);
+  }
+  async function save() {
+    const trimmed = draft.trim();
+    if (!trimmed) return;
+    if (trimmed === message.body) {
+      setEditing(false);
+      return;
+    }
+    const ok = await onEdit(message.id, trimmed);
+    if (ok) setEditing(false);
+  }
+  function onKeyDown(e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      save();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setEditing(false);
+    }
+  }
+
+  const body = editing ? (
+    <div className="mt-0.5">
+      <textarea
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={onKeyDown}
+        rows={2}
+        className="w-full border border-slate-300 rounded px-2 py-1 text-slate-900 resize-none outline-none focus:border-aubergine-700"
+      />
+      <div className="flex items-center gap-2 mt-1 text-xs">
+        <button
+          onClick={save}
+          disabled={!draft.trim()}
+          className="bg-slackgreen text-white px-2 py-1 rounded font-medium disabled:opacity-50"
+        >
+          Enregistrer
+        </button>
+        <button onClick={() => setEditing(false)} className="text-slate-600 hover:underline">
+          Annuler
+        </button>
+        <span className="text-slate-400">Entrée pour enregistrer · Échap pour annuler</span>
+      </div>
+    </div>
+  ) : (
+    message.body && (
+      <div className="text-slate-900 whitespace-pre-wrap break-words">
+        {message.body}
+        {message.editedAt && (
+          <span
+            className="text-xs text-slate-400 ml-1"
+            title={`Modifié le ${new Date(message.editedAt).toLocaleString()}`}
+          >
+            (modifié)
+          </span>
+        )}
+      </div>
+    )
+  );
+
+  const actions = isOwn && !editing && (
+    <div className="absolute right-2 top-1 hidden group-hover:flex items-center gap-1 bg-white border border-slate-200 rounded shadow-sm">
+      <button
+        onClick={startEdit}
+        className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
+        title="Modifier"
+      >
+        Modifier
+      </button>
+    </div>
+  );
+
   if (grouped) {
     return (
-      <div className="pl-12 pr-4 py-0.5 hover:bg-slate-50 group">
+      <div className="relative pl-12 pr-4 py-0.5 hover:bg-slate-50 group">
+        {actions}
         <div className="flex items-start gap-2">
           <div className="text-xs text-slate-400 w-0 group-hover:w-10 overflow-hidden transition-all">
             {formatDate(message.createdAt)}
           </div>
           <div className="flex-1 min-w-0">
-            {message.body && (
-              <div className="text-slate-900 whitespace-pre-wrap break-words">
-                {message.body}
-              </div>
-            )}
+            {body}
             <Attachments attachments={message.attachments} />
           </div>
         </div>
@@ -356,21 +455,16 @@ function MessageRow({ message, grouped }) {
     );
   }
   return (
-    <div className="px-2 py-1.5 hover:bg-slate-50 rounded">
+    <div className="relative px-2 py-1.5 hover:bg-slate-50 rounded group">
+      {actions}
       <div className="flex items-start gap-2">
         <Avatar user={message.author} size={36} />
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2">
             <span className="font-bold">{message.author?.displayName}</span>
-            <span className="text-xs text-slate-500">
-              {formatDate(message.createdAt)}
-            </span>
+            <span className="text-xs text-slate-500">{formatDate(message.createdAt)}</span>
           </div>
-          {message.body && (
-            <div className="text-slate-900 whitespace-pre-wrap break-words">
-              {message.body}
-            </div>
-          )}
+          {body}
           <Attachments attachments={message.attachments} />
         </div>
       </div>

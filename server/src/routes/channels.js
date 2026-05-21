@@ -182,6 +182,29 @@ router.patch("/scheduled/:messageId", requireAuth, async (req, res) => {
   res.json({ scheduled: serializeScheduled(updated) });
 });
 
+router.patch("/messages/:messageId", requireAuth, async (req, res) => {
+  const { messageId } = req.params;
+  const { body } = req.body || {};
+
+  const msg = await prisma.message.findUnique({ where: { id: messageId } });
+  if (!msg || msg.authorId !== req.userId || !msg.delivered) {
+    return res.status(404).json({ error: "not_found" });
+  }
+
+  const trimmed = typeof body === "string" ? body.trim() : "";
+  if (!trimmed) return res.status(400).json({ error: "empty_body" });
+
+  const updated = await prisma.message.update({
+    where: { id: messageId },
+    data: { body: encryptBody(trimmed), editedAt: new Date() },
+    include: { author: true, attachments: true },
+  });
+
+  const serialized = serializeMessage(updated);
+  req.io?.to(`channel:${updated.channelId}`).emit("message:updated", serialized);
+  res.json({ message: serialized });
+});
+
 export function serializeChannel(channel, viewerId) {
   const members = (channel.memberships || []).map((m) => publicUser(m.user));
   let displayName = channel.name;
@@ -224,6 +247,7 @@ export function serializeMessage(m) {
     channelId: m.channelId,
     body: decryptBody(m.body),
     createdAt: m.createdAt,
+    editedAt: m.editedAt ?? null,
     scheduledAt: m.scheduledAt,
     author: m.author ? publicUser(m.author) : { id: m.authorId },
     attachments: (m.attachments || []).map(serializeAttachment),
