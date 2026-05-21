@@ -7,6 +7,17 @@ import { encryptBody, decryptBody } from "../crypto.js";
 
 const router = Router();
 
+async function broadcastMembers(io, channelId) {
+  const memberships = await prisma.membership.findMany({
+    where: { channelId },
+    include: { user: true },
+  });
+  io?.to(`channel:${channelId}`).emit("channel:members", {
+    channelId,
+    members: memberships.map((m) => publicUser(m.user)),
+  });
+}
+
 router.get("/", requireAuth, async (req, res) => {
   const memberships = await prisma.membership.findMany({
     where: { userId: req.userId },
@@ -330,6 +341,7 @@ router.post("/:id/join", requireAuth, async (req, res) => {
   const personalized = serializeChannel(full, req.userId);
   req.io?.to(`user:${req.userId}`).emit("channel:created", personalized);
   req.io?.in(`user:${req.userId}`).socketsJoin(`channel:${id}`);
+  await broadcastMembers(req.io, id);
   res.json({ channel: personalized });
 });
 
@@ -366,6 +378,7 @@ router.post("/:id/members", requireAuth, async (req, res) => {
     req.io?.to(`user:${u.id}`).emit("channel:created", personalized);
     req.io?.in(`user:${u.id}`).socketsJoin(`channel:${id}`);
   }
+  await broadcastMembers(req.io, id);
   res.json({ channel: serializeChannel(full, req.userId) });
 });
 
@@ -377,6 +390,7 @@ router.post("/:id/leave", requireAuth, async (req, res) => {
   await prisma.membership.deleteMany({ where: { channelId: id, userId: req.userId } });
   req.io?.to(`user:${req.userId}`).emit("channel:removed", { channelId: id });
   req.io?.in(`user:${req.userId}`).socketsLeave(`channel:${id}`);
+  await broadcastMembers(req.io, id);
   res.json({ ok: true });
 });
 
@@ -394,6 +408,7 @@ router.delete("/:id/members/:userId", requireAuth, async (req, res) => {
   await prisma.membership.deleteMany({ where: { channelId: id, userId } });
   req.io?.to(`user:${userId}`).emit("channel:removed", { channelId: id });
   req.io?.in(`user:${userId}`).socketsLeave(`channel:${id}`);
+  await broadcastMembers(req.io, id);
   res.json({ ok: true });
 });
 

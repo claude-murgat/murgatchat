@@ -96,6 +96,11 @@ export default function App() {
       setChannels((prev) => prev.filter((c) => c.id !== channelId));
       setActiveChannelId((curr) => (curr === channelId ? null : curr));
     };
+    const onMembers = ({ channelId, members }) => {
+      setChannels((prev) =>
+        prev.map((c) => (c.id === channelId ? { ...c, members } : c))
+      );
+    };
 
     const onPresenceState = ({ userIds }) => setOnlineUserIds(new Set(userIds));
     const onPresenceUpdate = ({ userId, online }) =>
@@ -127,6 +132,7 @@ export default function App() {
     s.on("message:new", onNew);
     s.on("channel:created", onCreated);
     s.on("channel:removed", onRemoved);
+    s.on("channel:members", onMembers);
     s.on("message:updated", onUpdated);
     s.on("message:deleted", onDeleted);
     s.on("presence:state", onPresenceState);
@@ -136,6 +142,7 @@ export default function App() {
       s.off("message:new", onNew);
       s.off("channel:created", onCreated);
       s.off("channel:removed", onRemoved);
+      s.off("channel:members", onMembers);
       s.off("message:updated", onUpdated);
       s.off("message:deleted", onDeleted);
       s.off("presence:state", onPresenceState);

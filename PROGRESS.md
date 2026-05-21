@@ -93,7 +93,8 @@ Dernière mise à jour : **2026-05-21**.
   (`{channelId, body?, attachmentIds?, scheduledAt?, parentId?}`), `typing {channelId}`.
 - Serveur → client : `message:new`, `message:updated`, `message:deleted`,
   `thread:reply`, `reaction:update`, `channel:created`, `channel:removed`,
-  `notification`, `presence:state`, `presence:update`, `typing:update`.
+  `channel:members`, `notification`, `presence:state`, `presence:update`,
+  `typing:update`.
 
 ## Décisions notables
 
