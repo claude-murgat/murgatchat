@@ -21,6 +21,7 @@ export default function Sidebar({
   onToggleDnd,
   onLogout,
   onlineUserIds,
+  typingByChannel,
 }) {
   const [showMenu, setShowMenu] = useState(false);
   const groups = channels.filter((c) => !c.isDirect);
@@ -87,6 +88,7 @@ export default function Sidebar({
         <SidebarSection title="Messages directs" onAdd={onNewDm}>
           {dms.map((c) => {
             const other = c.members.find((m) => m.id !== user.id) || c.members[0];
+            const isTyping = typingByChannel?.[c.id]?.includes(other?.id);
             return (
               <button
                 key={c.id}
@@ -97,7 +99,16 @@ export default function Sidebar({
                     : "text-aubergine-400 hover:bg-aubergine-600 hover:text-white"
                 }`}
               >
-                <Avatar user={other} size={20} />
+                {isTyping ? (
+                  <span
+                    className="w-5 h-5 shrink-0 rounded grid place-items-center bg-aubergine-500 text-white text-[11px] font-bold animate-pulse"
+                    title="En train d'écrire…"
+                  >
+                    …
+                  </span>
+                ) : (
+                  <Avatar user={other} size={20} />
+                )}
                 <span
                   className={`w-2 h-2 rounded-full shrink-0 ${
                     onlineUserIds?.has(other?.id) ? "bg-green-400" : "bg-slate-500"

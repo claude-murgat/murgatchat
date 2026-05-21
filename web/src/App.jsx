@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { api, getToken, setToken } from "./api.js";
 import { getSocket, closeSocket } from "./socket.js";
 import { notify, isWindowFocused, ensureReady } from "./desktop.js";
@@ -20,6 +20,8 @@ export default function App() {
   const [showDnd, setShowDnd] = useState(false);
   const [toast, setToast] = useState(null);
   const [onlineUserIds, setOnlineUserIds] = useState(() => new Set());
+  const [typingByChannel, setTypingByChannel] = useState({});
+  const typingTimers = useRef({});
 
   useEffect(() => {
     const token = getToken();
@@ -94,12 +96,31 @@ export default function App() {
         return next;
       });
 
+    const onTyping = ({ channelId, userId }) => {
+      const key = `${channelId}:${userId}`;
+      setTypingByChannel((prev) => {
+        const list = prev[channelId] || [];
+        return list.includes(userId)
+          ? prev
+          : { ...prev, [channelId]: [...list, userId] };
+      });
+      clearTimeout(typingTimers.current[key]);
+      typingTimers.current[key] = setTimeout(() => {
+        setTypingByChannel((prev) => ({
+          ...prev,
+          [channelId]: (prev[channelId] || []).filter((id) => id !== userId),
+        }));
+        delete typingTimers.current[key];
+      }, 4000);
+    };
+
     s.on("message:new", onNew);
     s.on("channel:created", onCreated);
     s.on("message:updated", onUpdated);
     s.on("message:deleted", onDeleted);
     s.on("presence:state", onPresenceState);
     s.on("presence:update", onPresenceUpdate);
+    s.on("typing:update", onTyping);
     return () => {
       s.off("message:new", onNew);
       s.off("channel:created", onCreated);
@@ -107,6 +128,7 @@ export default function App() {
       s.off("message:deleted", onDeleted);
       s.off("presence:state", onPresenceState);
       s.off("presence:update", onPresenceUpdate);
+      s.off("typing:update", onTyping);
     };
   }, [user]);
 
@@ -204,6 +226,7 @@ export default function App() {
         onToggleDnd={toggleDnd}
         onLogout={onLogout}
         onlineUserIds={onlineUserIds}
+        typingByChannel={typingByChannel}
       />
       <ChannelView
         channel={activeChannel}
