@@ -75,16 +75,33 @@ function dayLabel(d) {
   return date.toLocaleDateString();
 }
 
+function typingLabel(userIds, channel, currentUser) {
+  const names = userIds
+    .filter((id) => id !== currentUser?.id)
+    .map(
+      (id) =>
+        channel.members?.find((m) => m.id === id)?.displayName || "Quelqu'un"
+    );
+  if (names.length === 0) return "";
+  if (names.length === 1) return `${names[0]} est en train d'écrire`;
+  if (names.length === 2) return `${names[0]} et ${names[1]} écrivent`;
+  return "Plusieurs personnes écrivent";
+}
+
 export default function ChannelView({ channel, currentUser, socket, onlineUserIds }) {
   const [messages, setMessages] = useState([]);
   const [scheduled, setScheduled] = useState([]);
   const [showScheduled, setShowScheduled] = useState(false);
   const [threadParentId, setThreadParentId] = useState(null);
+  const [typingUserIds, setTypingUserIds] = useState([]);
   const scrollRef = useRef(null);
+  const typingTimers = useRef({});
+  const lastTypingSent = useRef(0);
 
   useEffect(() => {
     if (!channel) return;
     let cancelled = false;
+    setTypingUserIds([]);
     api.messages(channel.id).then((res) => {
       if (!cancelled) setMessages(res.messages);
     });
@@ -138,17 +155,28 @@ export default function ChannelView({ channel, currentUser, socket, onlineUserId
         prev.map((m) => (m.id === messageId ? { ...m, reactions } : m))
       );
     }
+    function onTyping({ channelId, userId }) {
+      if (!channel || channelId !== channel.id || userId === currentUser?.id) return;
+      setTypingUserIds((prev) => (prev.includes(userId) ? prev : [...prev, userId]));
+      clearTimeout(typingTimers.current[userId]);
+      typingTimers.current[userId] = setTimeout(() => {
+        setTypingUserIds((prev) => prev.filter((id) => id !== userId));
+        delete typingTimers.current[userId];
+      }, 4000);
+    }
     socket.on("message:new", onNew);
     socket.on("message:updated", onUpdated);
     socket.on("message:deleted", onDeleted);
     socket.on("thread:reply", onReply);
     socket.on("reaction:update", onReaction);
+    socket.on("typing:update", onTyping);
     return () => {
       socket.off("message:new", onNew);
       socket.off("message:updated", onUpdated);
       socket.off("message:deleted", onDeleted);
       socket.off("thread:reply", onReply);
       socket.off("reaction:update", onReaction);
+      socket.off("typing:update", onTyping);
     };
   }, [socket, channel?.id]);
 
@@ -180,6 +208,14 @@ export default function ChannelView({ channel, currentUser, socket, onlineUserId
         if (resp?.error) alert(resp.error);
       }
     );
+  }
+
+  function notifyTyping() {
+    if (!channel || !socket) return;
+    const now = Date.now();
+    if (now - lastTypingSent.current < 2000) return;
+    lastTypingSent.current = now;
+    socket.emit("typing", { channelId: channel.id });
   }
 
   const openThread = (message) => setThreadParentId(message.id);
@@ -336,9 +372,14 @@ export default function ChannelView({ channel, currentUser, socket, onlineUserId
         )}
       </div>
 
-      <div className="p-3 border-t border-slate-200">
+      <div className="border-t border-slate-200 px-3 pt-1 pb-3">
+        <div className="h-4 px-1 text-xs italic text-slate-500">
+          {typingUserIds.length > 0 &&
+            `${typingLabel(typingUserIds, channel, currentUser)}…`}
+        </div>
         <Composer
           onSend={send}
+          onTyping={notifyTyping}
           placeholder={
             channel.isDirect
               ? `Message à ${channel.displayName}`

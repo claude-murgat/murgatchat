@@ -38,6 +38,11 @@ export function setupSocket(httpServer, corsOrigin) {
       socket.join(`channel:${channelId}`);
     });
 
+    socket.on("typing", ({ channelId } = {}) => {
+      if (!channelId) return;
+      socket.to(`channel:${channelId}`).emit("typing:update", { channelId, userId });
+    });
+
     socket.on("message:send", async (payload, ack) => {
       try {
         const { channelId, body, scheduledAt, attachmentIds = [], parentId } =
