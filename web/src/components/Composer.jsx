@@ -12,7 +12,7 @@ function fmtBytes(n) {
   return `${(n / 1024 / 1024).toFixed(1)} Mo`;
 }
 
-export default function Composer({ onSend, placeholder, allowSchedule = true }) {
+export default function Composer({ onSend, placeholder, allowSchedule = true, onTyping }) {
   const [text, setText] = useState("");
   const [showSchedule, setShowSchedule] = useState(false);
   const defaultSched = new Date(Date.now() + 60 * 60_000);
@@ -96,7 +96,10 @@ export default function Composer({ onSend, placeholder, allowSchedule = true }) 
         ref={taRef}
         rows={1}
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value);
+          onTyping?.();
+        }}
         onKeyDown={onKeyDown}
         onPaste={onPaste}
         placeholder={placeholder || "Écrire un message..."}

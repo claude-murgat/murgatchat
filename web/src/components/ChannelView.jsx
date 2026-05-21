@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import EmojiPicker from "emoji-picker-react";
 import Avatar from "./Avatar.jsx";
 import Composer from "./Composer.jsx";
 import { api, attachmentUrl } from "../api.js";
@@ -74,16 +75,42 @@ function dayLabel(d) {
   return date.toLocaleDateString();
 }
 
-export default function ChannelView({ channel, currentUser, socket }) {
+function typingLabel(userIds, channel, currentUser) {
+  const names = userIds
+    .filter((id) => id !== currentUser?.id)
+    .map(
+      (id) =>
+        channel.members?.find((m) => m.id === id)?.displayName || "Quelqu'un"
+    );
+  if (names.length === 0) return "";
+  if (names.length === 1) return `${names[0]} est en train d'écrire`;
+  if (names.length === 2) return `${names[0]} et ${names[1]} écrivent`;
+  return "Plusieurs personnes écrivent";
+}
+
+function reactionLabel(users) {
+  const names = (users || []).map((u) => u.displayName || "Quelqu'un");
+  if (names.length === 0) return "";
+  if (names.length === 1) return `${names[0]} a réagi`;
+  if (names.length === 2) return `${names[0]} et ${names[1]} ont réagi`;
+  const others = names.length - 2;
+  return `${names[0]}, ${names[1]} et ${others} autre${others > 1 ? "s" : ""} ont réagi`;
+}
+
+export default function ChannelView({ channel, currentUser, socket, onlineUserIds }) {
   const [messages, setMessages] = useState([]);
   const [scheduled, setScheduled] = useState([]);
   const [showScheduled, setShowScheduled] = useState(false);
   const [threadParentId, setThreadParentId] = useState(null);
+  const [typingUserIds, setTypingUserIds] = useState([]);
   const scrollRef = useRef(null);
+  const typingTimers = useRef({});
+  const lastTypingSent = useRef(0);
 
   useEffect(() => {
     if (!channel) return;
     let cancelled = false;
+    setTypingUserIds([]);
     api.messages(channel.id).then((res) => {
       if (!cancelled) setMessages(res.messages);
     });
@@ -132,15 +159,33 @@ export default function ChannelView({ channel, currentUser, socket }) {
         )
       );
     }
+    function onReaction({ messageId, reactions }) {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, reactions } : m))
+      );
+    }
+    function onTyping({ channelId, userId }) {
+      if (!channel || channelId !== channel.id || userId === currentUser?.id) return;
+      setTypingUserIds((prev) => (prev.includes(userId) ? prev : [...prev, userId]));
+      clearTimeout(typingTimers.current[userId]);
+      typingTimers.current[userId] = setTimeout(() => {
+        setTypingUserIds((prev) => prev.filter((id) => id !== userId));
+        delete typingTimers.current[userId];
+      }, 4000);
+    }
     socket.on("message:new", onNew);
     socket.on("message:updated", onUpdated);
     socket.on("message:deleted", onDeleted);
     socket.on("thread:reply", onReply);
+    socket.on("reaction:update", onReaction);
+    socket.on("typing:update", onTyping);
     return () => {
       socket.off("message:new", onNew);
       socket.off("message:updated", onUpdated);
       socket.off("message:deleted", onDeleted);
       socket.off("thread:reply", onReply);
+      socket.off("reaction:update", onReaction);
+      socket.off("typing:update", onTyping);
     };
   }, [socket, channel?.id]);
 
@@ -172,6 +217,14 @@ export default function ChannelView({ channel, currentUser, socket }) {
         if (resp?.error) alert(resp.error);
       }
     );
+  }
+
+  function notifyTyping() {
+    if (!channel || !socket) return;
+    const now = Date.now();
+    if (now - lastTypingSent.current < 2000) return;
+    lastTypingSent.current = now;
+    socket.emit("typing", { channelId: channel.id });
   }
 
   const openThread = (message) => setThreadParentId(message.id);
@@ -214,6 +267,14 @@ export default function ChannelView({ channel, currentUser, socket }) {
     }
   }
 
+  async function reactToMessage(messageId, emoji) {
+    try {
+      await api.react(messageId, emoji);
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
   if (!channel) {
     return (
       <div className="flex-1 grid place-items-center text-slate-400">
@@ -225,6 +286,10 @@ export default function ChannelView({ channel, currentUser, socket }) {
   const headerTitle = channel.isDirect
     ? channel.displayName
     : `# ${channel.name}`;
+  const dmOther = channel.isDirect
+    ? channel.members.find((m) => m.id !== currentUser?.id) || channel.members[0]
+    : null;
+  const dmOnline = dmOther && onlineUserIds?.has(dmOther.id);
 
   let lastDay = null;
 
@@ -235,7 +300,14 @@ export default function ChannelView({ channel, currentUser, socket }) {
         <div>
           <div className="font-bold">{headerTitle}</div>
           {channel.isDirect ? (
-            <div className="text-xs text-slate-500">Conversation directe</div>
+            <div className="text-xs text-slate-500 flex items-center gap-1.5">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  dmOnline ? "bg-green-500" : "bg-slate-400"
+                }`}
+              />
+              {dmOnline ? "En ligne" : "Hors ligne"}
+            </div>
           ) : (
             <div className="text-xs text-slate-500">
               {channel.members.length} membre{channel.members.length > 1 ? "s" : ""}
@@ -297,6 +369,7 @@ export default function ChannelView({ channel, currentUser, socket }) {
                 onEdit={editMessage}
                 onDelete={deleteMessage}
                 onReply={openThread}
+                onReact={reactToMessage}
               />
             </div>
           );
@@ -308,9 +381,14 @@ export default function ChannelView({ channel, currentUser, socket }) {
         )}
       </div>
 
-      <div className="p-3 border-t border-slate-200">
+      <div className="border-t border-slate-200 px-3 pt-1 pb-3">
+        <div className="h-4 px-1 text-xs italic text-slate-500">
+          {typingUserIds.length > 0 &&
+            `${typingLabel(typingUserIds, channel, currentUser)}…`}
+        </div>
         <Composer
           onSend={send}
+          onTyping={notifyTyping}
           placeholder={
             channel.isDirect
               ? `Message à ${channel.displayName}`
@@ -328,6 +406,7 @@ export default function ChannelView({ channel, currentUser, socket }) {
           onSend={sendReply}
           onEdit={editMessage}
           onDelete={deleteMessage}
+          onReact={reactToMessage}
         />
       )}
     </div>
@@ -425,7 +504,7 @@ function ScheduledRow({ message, onCancel, onSave }) {
   );
 }
 
-function ThreadPanel({ parentId, currentUser, socket, onClose, onSend, onEdit, onDelete }) {
+function ThreadPanel({ parentId, currentUser, socket, onClose, onSend, onEdit, onDelete, onReact }) {
   const [parent, setParent] = useState(null);
   const [replies, setReplies] = useState([]);
   const scrollRef = useRef(null);
@@ -458,13 +537,21 @@ function ThreadPanel({ parentId, currentUser, socket, onClose, onSend, onEdit, o
       if (pid !== parentId) return;
       setReplies((prev) => prev.filter((r) => r.id !== id));
     }
+    function onReaction({ messageId, reactions }) {
+      setParent((p) => (p && p.id === messageId ? { ...p, reactions } : p));
+      setReplies((prev) =>
+        prev.map((r) => (r.id === messageId ? { ...r, reactions } : r))
+      );
+    }
     socket.on("thread:reply", onReply);
     socket.on("message:updated", onUpdated);
     socket.on("message:deleted", onDeleted);
+    socket.on("reaction:update", onReaction);
     return () => {
       socket.off("thread:reply", onReply);
       socket.off("message:updated", onUpdated);
       socket.off("message:deleted", onDeleted);
+      socket.off("reaction:update", onReaction);
     };
   }, [socket, parentId]);
 
@@ -494,6 +581,7 @@ function ThreadPanel({ parentId, currentUser, socket, onClose, onSend, onEdit, o
               currentUser={currentUser}
               onEdit={onEdit}
               onDelete={onDelete}
+              onReact={onReact}
             />
           </div>
         )}
@@ -505,6 +593,7 @@ function ThreadPanel({ parentId, currentUser, socket, onClose, onSend, onEdit, o
             currentUser={currentUser}
             onEdit={onEdit}
             onDelete={onDelete}
+            onReact={onReact}
           />
         ))}
         {replies.length === 0 && (
@@ -520,10 +609,24 @@ function ThreadPanel({ parentId, currentUser, socket, onClose, onSend, onEdit, o
   );
 }
 
-function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply }) {
+function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply, onReact }) {
   const isOwn = message.author?.id === currentUser?.id;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.body || "");
+  const [showPicker, setShowPicker] = useState(false);
+  const pickerRef = useRef(null);
+  const reactBtnRef = useRef(null);
+
+  useEffect(() => {
+    if (!showPicker) return;
+    function onDocMouseDown(e) {
+      if (pickerRef.current?.contains(e.target)) return;
+      if (reactBtnRef.current?.contains(e.target)) return;
+      setShowPicker(false);
+    }
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [showPicker]);
 
   function startEdit() {
     setDraft(message.body || "");
@@ -589,8 +692,18 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply }
     )
   );
 
-  const actions = !editing && (onReply || isOwn) && (
+  const actions = !editing && (onReact || onReply || isOwn) && (
     <div className="absolute right-2 top-1 hidden group-hover:flex items-center gap-1 bg-white border border-slate-200 rounded shadow-sm">
+      {onReact && (
+        <button
+          ref={reactBtnRef}
+          onClick={() => setShowPicker((v) => !v)}
+          className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
+          title="Réagir"
+        >
+          😀
+        </button>
+      )}
       {onReply && (
         <button
           onClick={() => onReply(message)}
@@ -621,6 +734,21 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply }
     </div>
   );
 
+  const picker = showPicker && onReact && (
+    <div ref={pickerRef} className="absolute right-2 top-8 z-50 shadow-xl rounded">
+      <EmojiPicker
+        onEmojiClick={(e) => {
+          onReact(message.id, e.emoji);
+          setShowPicker(false);
+        }}
+        width={300}
+        height={380}
+        previewConfig={{ showPreview: false }}
+        lazyLoadEmojis
+      />
+    </div>
+  );
+
   const footer = onReply && message.replyCount > 0 && (
     <button
       onClick={() => onReply(message)}
@@ -630,10 +758,37 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply }
     </button>
   );
 
+  const reactionChips = message.reactions?.length > 0 && (
+    <div className="mt-1 flex flex-wrap gap-1">
+      {message.reactions.map((r) => {
+        const mine = r.users?.some((u) => u.id === currentUser?.id);
+        return (
+          <div key={r.emoji} className="relative group/chip">
+            <button
+              onClick={() => onReact?.(message.id, r.emoji)}
+              className={`text-xs rounded-full border px-2 py-0.5 flex items-center gap-1 ${
+                mine
+                  ? "border-aubergine-700 bg-aubergine-700/10 text-aubergine-800"
+                  : "border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700"
+              }`}
+            >
+              <span>{r.emoji}</span>
+              <span>{r.count}</span>
+            </button>
+            <div className="pointer-events-none absolute bottom-full left-0 z-50 mb-1 hidden whitespace-nowrap rounded-md bg-slate-800 px-2 py-1 text-xs text-white shadow-lg group-hover/chip:block">
+              {reactionLabel(r.users)}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
   if (grouped) {
     return (
       <div className="relative pl-12 pr-4 py-0.5 hover:bg-slate-50 group">
         {actions}
+        {picker}
         <div className="flex items-start gap-2">
           <div className="text-xs text-slate-400 w-0 group-hover:w-10 overflow-hidden transition-all">
             {formatDate(message.createdAt)}
@@ -642,6 +797,7 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply }
             {body}
             <Attachments attachments={message.attachments} />
             {footer}
+            {reactionChips}
           </div>
         </div>
       </div>
@@ -650,6 +806,7 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply }
   return (
     <div className="relative px-2 py-1.5 hover:bg-slate-50 rounded group">
       {actions}
+      {picker}
       <div className="flex items-start gap-2">
         <Avatar user={message.author} size={36} />
         <div className="flex-1 min-w-0">
@@ -660,6 +817,7 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply }
           {body}
           <Attachments attachments={message.attachments} />
           {footer}
+          {reactionChips}
         </div>
       </div>
     </div>

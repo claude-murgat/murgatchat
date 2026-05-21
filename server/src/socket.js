@@ -9,6 +9,9 @@ export function setupSocket(httpServer, corsOrigin) {
     cors: { origin: corsOrigin || "*", credentials: false },
   });
 
+  // userId -> number of active sockets (a user can have several tabs/devices)
+  const online = new Map();
+
   io.use((socket, next) => {
     const token =
       socket.handshake.auth?.token ||
@@ -26,8 +29,18 @@ export function setupSocket(httpServer, corsOrigin) {
     const memberships = await prisma.membership.findMany({ where: { userId } });
     for (const m of memberships) socket.join(`channel:${m.channelId}`);
 
+    const prevCount = online.get(userId) || 0;
+    online.set(userId, prevCount + 1);
+    if (prevCount === 0) io.emit("presence:update", { userId, online: true });
+    socket.emit("presence:state", { userIds: [...online.keys()] });
+
     socket.on("channel:join", (channelId) => {
       socket.join(`channel:${channelId}`);
+    });
+
+    socket.on("typing", ({ channelId } = {}) => {
+      if (!channelId) return;
+      socket.to(`channel:${channelId}`).emit("typing:update", { channelId, userId });
     });
 
     socket.on("message:send", async (payload, ack) => {
@@ -130,6 +143,16 @@ export function setupSocket(httpServer, corsOrigin) {
           data: { lastReadAt: new Date() },
         })
         .catch(() => {});
+    });
+
+    socket.on("disconnect", () => {
+      const count = (online.get(userId) || 1) - 1;
+      if (count <= 0) {
+        online.delete(userId);
+        io.emit("presence:update", { userId, online: false });
+      } else {
+        online.set(userId, count);
+      }
     });
   });
 
