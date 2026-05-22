@@ -132,11 +132,19 @@ Dernière mise à jour : **2026-05-22**.
   lancée sur l'émulateur `alarm_dev` (Android 11), **login OK contre l'API Docker**
   (`10.0.2.2:4000`). ⚠ Le release bloque le HTTP en clair : `usesCleartextTraffic` requis
   pour un backend HTTP/LAN (ou HTTPS en prod).
+- **Notifications push « si loin de l'ordi »** — sur mobile, push système uniquement
+  quand l'app n'est pas active / le téléphone verrouillé, **et** que le web+desktop sont
+  inactifs depuis ≥ 10 min, **et** que le compte n'est pas en DND. Serveur : modèle
+  `PushToken`, `POST/DELETE /auth/push-token`, suivi `lastWebActivity` (sockets taggés par
+  plateforme au handshake), `notifyMembers` → push Expo + purge des tokens invalides.
+  Web/desktop : heartbeat `activity`. Mobile : `expo-notifications`. Gating vérifié côté
+  serveur ; **livraison réelle = projectId Expo + FCM (`google-services.json`) à câbler**.
 
 ## Événements Socket.IO (catalogue)
 
 - Client → serveur : `channel:join`, `channel:read`, `message:send`
-  (`{channelId, body?, attachmentIds?, scheduledAt?, parentId?}`), `typing {channelId}`.
+  (`{channelId, body?, attachmentIds?, scheduledAt?, parentId?}`), `typing {channelId}`,
+  `activity` (heartbeat web/desktop). Handshake : `auth.platform` (`web`/`desktop`/`mobile`).
 - Serveur → client : `message:new`, `message:updated`, `message:deleted`,
   `thread:reply`, `reaction:update`, `channel:created`, `channel:removed`,
   `channel:members`, `notification`, `presence:state`, `presence:update`,
@@ -147,8 +155,8 @@ Dernière mise à jour : **2026-05-22**.
 - **Auteur uniquement** pour éditer/supprimer/répondre/réagir n'est pas restreint
   (réagir & répondre ouverts à tous ; éditer/supprimer = auteur). Pas de rôle admin.
 - **Pas de threads imbriqués** (répondre à une réponse est refusé).
-- **Réactions/présence/typing** ne touchent pas le mobile (Expo) : le backend les
-  sert, mais l'UI React Native n'est pas faite.
+- **Mobile (Expo)** désormais à parité complète avec le web (réactions, présence,
+  typing, threads, gestion des membres, DM de groupe, planning DND, push).
 - Présence & typing : état **en mémoire** (perdu au redémarrage serveur, OK pour ce stade).
 
 ## Limites connues / pistes
@@ -160,7 +168,6 @@ Dernière mise à jour : **2026-05-22**.
 - **Mobile** : envoi de **pièces jointes** non porté (l'affichage marche ; l'upload
   demande un picker natif). Build Android à faire hors d'un chemin avec espace ; l'APK
   release est signée avec la **clé debug** (à remplacer par une vraie clé pour distribuer).
-- **En cours / prochaine étape** : **notifications push mobiles** — push système quand
-  l'app n'est pas active / le téléphone verrouillé, que le web+desktop sont inactifs
-  depuis 10 min, et que le compte n'est pas en DND (routage « notifie le mobile seulement
-  si l'utilisateur est loin de son ordi »). Nécessite Expo/FCM côté infra.
+- **Notifications push** (livrées — voir plus haut) : reste à câbler côté infra un
+  **projectId Expo + FCM** (`google-services.json` + `android.googleServicesFile`) pour
+  la livraison réelle sur device, et `usesCleartextTraffic` (ou HTTPS) pour joindre l'API.
