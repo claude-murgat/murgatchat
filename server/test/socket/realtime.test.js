@@ -177,6 +177,19 @@ describe("typing + channel:read", () => {
     }
     expect(advanced).toBe(true);
   });
+
+  it("syncs channel:read to the user's other devices (not the sender)", async () => {
+    const alice = await registerUser(srv.app);
+    const ch = (await authed(srv.app, alice.token).post("/channels").send({ name: "sync" })).body.channel;
+    const dev1 = await ready(alice.token, ch.id);
+    const dev2 = await ready(alice.token, ch.id);
+
+    const readOnDev2 = waitForEvent(dev2, "channel:read", (e) => e.channelId === ch.id);
+    const senderSilent = expectNoEvent(dev1, "channel:read", 600);
+    dev1.emit("channel:read", { channelId: ch.id });
+    expect((await readOnDev2).channelId).toBe(ch.id);
+    await senderSilent; // the device that read does not receive its own echo
+  });
 });
 
 describe("presence", () => {
