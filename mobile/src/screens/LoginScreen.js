@@ -9,7 +9,7 @@ import {
   Platform,
   Alert,
 } from "react-native";
-import { api, setToken } from "../api";
+import { api, setToken, getApiBaseUrl, setApiBaseUrl, pingServer } from "../api";
 import { useChat } from "../ChatContext";
 import { colors } from "../theme";
 
@@ -22,8 +22,33 @@ export default function LoginScreen() {
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [serverUrl, setServerUrl] = useState(() => getApiBaseUrl());
+  const [serverStatus, setServerStatus] = useState(null);
+  const [testing, setTesting] = useState(false);
+
+  async function testServer() {
+    setTesting(true);
+    setServerStatus(null);
+    try {
+      await pingServer(serverUrl);
+      setServerStatus({ ok: true, msg: "Serveur joignable ✓" });
+    } catch (e) {
+      setServerStatus({ ok: false, msg: `Injoignable : ${e.message || "erreur"}` });
+    } finally {
+      setTesting(false);
+    }
+  }
 
   async function submit() {
+    const base = await setApiBaseUrl(serverUrl);
+    if (!base) {
+      Alert.alert(
+        "Serveur requis",
+        "Indiquez l'adresse du serveur (ex. https://chat.exemple.fr)."
+      );
+      return;
+    }
+    setServerUrl(base);
     setBusy(true);
     try {
       const res =
@@ -49,6 +74,42 @@ export default function LoginScreen() {
         <Text style={styles.subtitle}>
           {mode === "login" ? "Bon retour parmi nous." : "Créez votre compte."}
         </Text>
+
+        <Text style={styles.label}>Adresse du serveur</Text>
+        <View style={styles.serverRow}>
+          <TextInput
+            style={[styles.input, styles.serverInput]}
+            placeholder="https://chat.exemple.fr"
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            value={serverUrl}
+            onChangeText={(t) => {
+              setServerUrl(t);
+              setServerStatus(null);
+            }}
+          />
+          <TouchableOpacity
+            style={[
+              styles.testBtn,
+              (testing || !serverUrl.trim()) && styles.testBtnDisabled,
+            ]}
+            disabled={testing || !serverUrl.trim()}
+            onPress={testServer}
+          >
+            <Text style={styles.testBtnText}>{testing ? "…" : "Tester"}</Text>
+          </TouchableOpacity>
+        </View>
+        {serverStatus && (
+          <Text
+            style={[
+              styles.serverStatus,
+              { color: serverStatus.ok ? "#16A34A" : "#DC2626" },
+            ]}
+          >
+            {serverStatus.msg}
+          </Text>
+        )}
 
         {mode === "login" ? (
           <TextInput
@@ -138,6 +199,41 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 10,
     color: colors.text,
+  },
+  label: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.textMuted,
+    marginBottom: 4,
+  },
+  serverRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    marginBottom: 4,
+  },
+  serverInput: {
+    flex: 1,
+    marginBottom: 0,
+  },
+  testBtn: {
+    borderWidth: 1,
+    borderColor: colors.aubergine,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    justifyContent: "center",
+  },
+  testBtnDisabled: {
+    opacity: 0.5,
+  },
+  testBtnText: {
+    color: colors.aubergine,
+    fontWeight: "600",
+  },
+  serverStatus: {
+    fontSize: 12,
+    marginBottom: 10,
   },
   btn: {
     backgroundColor: colors.aubergine,
