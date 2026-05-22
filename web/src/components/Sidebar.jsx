@@ -113,10 +113,10 @@ export default function Sidebar({
                   </span>
                 ) : isGroup ? (
                   <span
-                    className="w-5 h-5 shrink-0 rounded grid place-items-center bg-aubergine-500 text-white text-[11px]"
-                    title="Groupe"
+                    className="w-5 h-5 shrink-0 rounded grid place-items-center bg-aubergine-500 text-white text-[11px] font-semibold"
+                    title={`Groupe · ${c.members.length} personnes`}
                   >
-                    👥
+                    {c.members.length}
                   </span>
                 ) : (
                   <Avatar user={other} size={20} />
