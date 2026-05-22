@@ -1,4 +1,45 @@
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+// The server address is configurable at runtime from the login screen and
+// persisted in localStorage, so the same build can point at any server (and the
+// URL isn't baked into a public bundle). Falls back to the build-time
+// VITE_API_URL, then localhost.
+const DEFAULT_API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+const API_BASE_KEY = "chat_api_base";
+
+export function normalizeBaseUrl(raw) {
+  let s = (raw || "").trim();
+  if (!s) return "";
+  if (!/^https?:\/\//i.test(s)) s = `http://${s}`;
+  return s.replace(/\/+$/, "");
+}
+
+export function getDefaultBaseUrl() {
+  return DEFAULT_API_URL;
+}
+
+export function getApiBaseUrl() {
+  const stored =
+    typeof localStorage !== "undefined" ? localStorage.getItem(API_BASE_KEY) : null;
+  return normalizeBaseUrl(stored) || DEFAULT_API_URL;
+}
+
+export function setApiBaseUrl(url) {
+  const normalized = normalizeBaseUrl(url);
+  if (typeof localStorage !== "undefined") {
+    if (normalized) localStorage.setItem(API_BASE_KEY, normalized);
+    else localStorage.removeItem(API_BASE_KEY);
+  }
+  return normalized;
+}
+
+// Quick reachability probe for the "Tester" button on the login screen.
+export async function pingServer(url) {
+  const base = normalizeBaseUrl(url) || DEFAULT_API_URL;
+  const res = await fetch(`${base}/health`, { method: "GET" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json().catch(() => ({}));
+  if (!data || data.ok !== true) throw new Error("réponse inattendue");
+  return true;
+}
 
 export function getToken() {
   return localStorage.getItem("chat_token");
@@ -14,7 +55,7 @@ async function request(path, { method = "GET", body, auth = true } = {}) {
     const token = getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
   }
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(`${getApiBaseUrl()}${path}`, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
@@ -29,7 +70,7 @@ export async function uploadFile(file) {
   const fd = new FormData();
   fd.append("file", file);
   const token = getToken();
-  const res = await fetch(`${API_URL}/uploads`, {
+  const res = await fetch(`${getApiBaseUrl()}/uploads`, {
     method: "POST",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: fd,
@@ -41,11 +82,13 @@ export async function uploadFile(file) {
 
 export function attachmentUrl(id) {
   const token = getToken();
-  return `${API_URL}/uploads/${id}?token=${encodeURIComponent(token || "")}`;
+  return `${getApiBaseUrl()}/uploads/${id}?token=${encodeURIComponent(token || "")}`;
 }
 
 export const api = {
-  url: API_URL,
+  get url() {
+    return getApiBaseUrl();
+  },
   register: (body) => request("/auth/register", { method: "POST", body, auth: false }),
   login: (body) => request("/auth/login", { method: "POST", body, auth: false }),
   me: () => request("/auth/me"),

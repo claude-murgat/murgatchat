@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, setToken } from "../api.js";
+import { api, setToken, getApiBaseUrl, setApiBaseUrl, pingServer } from "../api.js";
 
 export default function Login({ onLoggedIn }) {
   const [mode, setMode] = useState("login");
@@ -12,13 +12,35 @@ export default function Login({ onLoggedIn }) {
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [serverUrl, setServerUrl] = useState(() => getApiBaseUrl());
+  const [serverStatus, setServerStatus] = useState(null);
+  const [testing, setTesting] = useState(false);
 
   function update(k, v) {
     setForm((f) => ({ ...f, [k]: v }));
   }
 
+  async function testServer() {
+    setTesting(true);
+    setServerStatus(null);
+    try {
+      await pingServer(serverUrl);
+      setServerStatus({ ok: true, msg: "Serveur joignable ✓" });
+    } catch (err) {
+      setServerStatus({ ok: false, msg: `Injoignable : ${err.message || "erreur"}` });
+    } finally {
+      setTesting(false);
+    }
+  }
+
   async function submit(e) {
     e.preventDefault();
+    const base = setApiBaseUrl(serverUrl);
+    if (!base) {
+      setError("Indiquez l'adresse du serveur (ex. https://chat.exemple.fr).");
+      return;
+    }
+    setServerUrl(base);
     setBusy(true);
     setError(null);
     try {
@@ -56,6 +78,39 @@ export default function Login({ onLoggedIn }) {
           </p>
         </div>
         <form onSubmit={submit} className="p-6 space-y-3">
+          <div className="space-y-1 pb-2 border-b border-slate-100">
+            <label className="text-xs font-medium text-slate-600">
+              Adresse du serveur
+            </label>
+            <div className="flex gap-2">
+              <input
+                className="flex-1 border rounded-md px-3 py-2 text-sm"
+                placeholder="Adresse du serveur (ex. https://chat.exemple.fr)"
+                value={serverUrl}
+                onChange={(e) => {
+                  setServerUrl(e.target.value);
+                  setServerStatus(null);
+                }}
+              />
+              <button
+                type="button"
+                onClick={testServer}
+                disabled={testing || !serverUrl.trim()}
+                className="px-3 py-2 text-sm rounded-md border border-slate-300 hover:bg-slate-50 disabled:opacity-50 whitespace-nowrap"
+              >
+                {testing ? "…" : "Tester"}
+              </button>
+            </div>
+            {serverStatus && (
+              <div
+                className={`text-xs ${
+                  serverStatus.ok ? "text-green-600" : "text-red-600"
+                }`}
+              >
+                {serverStatus.msg}
+              </div>
+            )}
+          </div>
           {mode === "login" ? (
             <input
               className="w-full border rounded-md px-3 py-2"

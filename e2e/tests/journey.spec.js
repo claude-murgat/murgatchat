@@ -9,9 +9,18 @@ import { test, expect } from "@playwright/test";
 
 const tag = () => `e2e_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e4)}`;
 
+// Server address the client should talk to (configurable from the login screen).
+const API_URL = process.env.E2E_API_URL || "http://localhost:4001";
+
 async function register(page) {
   const t = tag();
   await page.goto("/");
+  // Configure + test the server address (the new runtime-configurable field).
+  const server = page.getByPlaceholder(/Adresse du serveur/);
+  await expect(server).toBeVisible();
+  await server.fill(API_URL);
+  await page.getByRole("button", { name: "Tester" }).click();
+  await expect(page.getByText(/joignable/)).toBeVisible();
   await page.getByRole("button", { name: "Pas encore de compte ? S'inscrire" }).click();
   await page.getByPlaceholder("Nom affiché").fill(`E2E ${t}`);
   await page.getByPlaceholder("Nom d'utilisateur").fill(t);
