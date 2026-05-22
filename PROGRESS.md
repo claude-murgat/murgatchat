@@ -72,7 +72,7 @@ Dernière mise à jour : **2026-05-21**.
    d'écrire… » au-dessus du composer (throttle ~2s, expiration ~4s), et **avatar
    remplacé par « … »** dans la liste des DM quand l'autre tape.
 
-## Fonctionnalités en cours (branche `claude/feat/channel-membership`)
+## Fonctionnalités livrées — gestion des membres (mergées)
 
 8. **Salon par défaut « Général »** — `Channel.isDefault` (unique). Créé au
    démarrage (`ensureDefaultChannel` dans index.js) ; tous les utilisateurs
@@ -86,6 +86,22 @@ Dernière mise à jour : **2026-05-21**.
     interdits pour le salon par défaut. Émet `channel:removed` (+ socketsLeave) à
     l'utilisateur concerné. UI : bouton « + Membres » + « X membres » cliquable.
 11. **UX modales** — toutes les modales se ferment au clic en dehors.
+
+## Fonctionnalités en cours (branche `claude/feat/messaging-extras`)
+
+12. **Emojis dans les messages** — bouton 😀 dans le composer (emoji-picker-react) ;
+    l'emoji s'insère dans le texte. Ferme au clic extérieur.
+13. **Indicateur de messages non lus** — `serializeChannel` expose `unread`
+    (dernier message après le `lastReadAt` du membre, hors soi) ; suivi client en
+    temps réel (message:new sur canal non actif → non lu, effacé à la sélection) ;
+    sidebar en gras + pastille.
+14. **DM de groupe** — `POST /channels/dm` accepte `userIds[]` : 2+ → conversation
+    directe à 3+ membres, réutilisée si l'ensemble existe déjà ; affichée par les
+    noms des participants joints (icône groupe, présence en 1-1 seulement).
+15. **Planning DND** — `User.dndScheduleEnabled/dndStart/dndEnd` (HH:MM) +
+    `POST /auth/dnd-schedule` ; `isUserDnd` gate les notifs (fenêtre ponctuelle OU
+    plage quotidienne avec passage de minuit). ⚠ La plage utilise l'**heure du
+    serveur** (pas le fuseau du client) — à affiner si besoin.
 
 ## Événements Socket.IO (catalogue)
 

@@ -4,6 +4,21 @@ import { prisma } from "./db.js";
 import { serializeMessage } from "./routes/channels.js";
 import { encryptBody } from "./crypto.js";
 
+// DnD actif si fenêtre ponctuelle (dndUntil) OU plage quotidienne (heure serveur)
+export function isUserDnd(user, now = new Date()) {
+  if (user.dndUntil && user.dndUntil > now) return true;
+  if (user.dndScheduleEnabled && user.dndStart && user.dndEnd) {
+    const cur = now.getHours() * 60 + now.getMinutes();
+    const [sh, sm] = user.dndStart.split(":").map(Number);
+    const [eh, em] = user.dndEnd.split(":").map(Number);
+    const start = sh * 60 + sm;
+    const end = eh * 60 + em;
+    if (start === end) return false;
+    return start < end ? cur >= start && cur < end : cur >= start || cur < end;
+  }
+  return false;
+}
+
 export function setupSocket(httpServer, corsOrigin) {
   const io = new Server(httpServer, {
     cors: { origin: corsOrigin || "*", credentials: false },
@@ -120,7 +135,7 @@ export function setupSocket(httpServer, corsOrigin) {
         });
         for (const cm of channelMembers) {
           if (cm.userId === userId) continue;
-          const isDnd = cm.user.dndUntil && cm.user.dndUntil > new Date();
+          const isDnd = isUserDnd(cm.user);
           if (!isDnd) {
             io.to(`user:${cm.userId}`).emit("notification", {
               channelId,

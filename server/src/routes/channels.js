@@ -72,48 +72,57 @@ router.post("/", requireAuth, async (req, res) => {
 });
 
 router.post("/dm", requireAuth, async (req, res) => {
-  const { userId: otherId } = req.body || {};
-  if (!otherId || otherId === req.userId) {
+  const body = req.body || {};
+  let ids = Array.isArray(body.userIds)
+    ? body.userIds
+    : body.userId
+    ? [body.userId]
+    : [];
+  ids = [...new Set(ids.filter((id) => id && id !== req.userId))];
+  if (ids.length === 0) return res.status(400).json({ error: "invalid_target" });
+
+  const found = await prisma.user.findMany({
+    where: { id: { in: ids } },
+    select: { id: true },
+  });
+  if (found.length !== ids.length) {
     return res.status(400).json({ error: "invalid_target" });
   }
 
-  const existing = await prisma.channel.findFirst({
+  const targetIds = [...new Set([req.userId, ...ids])];
+  const include = {
+    memberships: { include: { user: true } },
+    messages: { orderBy: { createdAt: "desc" }, take: 1 },
+  };
+
+  // Réutiliser un DM existant avec exactement le même ensemble de membres
+  const candidates = await prisma.channel.findMany({
     where: {
       isDirect: true,
-      AND: [
-        { memberships: { some: { userId: req.userId } } },
-        { memberships: { some: { userId: otherId } } },
-      ],
+      AND: targetIds.map((uid) => ({ memberships: { some: { userId: uid } } })),
     },
-    include: {
-      memberships: { include: { user: true } },
-      messages: { orderBy: { createdAt: "desc" }, take: 1 },
-    },
+    include: { memberships: { select: { userId: true } } },
   });
-
-  if (existing) {
-    return res.json({ channel: serializeChannel(existing, req.userId) });
+  const existingId = candidates.find(
+    (c) => c.memberships.length === targetIds.length
+  )?.id;
+  if (existingId) {
+    const full = await prisma.channel.findUnique({ where: { id: existingId }, include });
+    return res.json({ channel: serializeChannel(full, req.userId) });
   }
 
   const channel = await prisma.channel.create({
     data: {
       isDirect: true,
-      memberships: {
-        create: [{ userId: req.userId }, { userId: otherId }],
-      },
+      memberships: { create: targetIds.map((userId) => ({ userId })) },
     },
-    include: {
-      memberships: { include: { user: true } },
-      messages: { orderBy: { createdAt: "desc" }, take: 1 },
-    },
+    include,
   });
-
   for (const m of channel.memberships) {
     const personalized = serializeChannel(channel, m.userId);
     req.io?.to(`user:${m.userId}`).emit("channel:created", personalized);
     req.io?.in(`user:${m.userId}`).socketsJoin(`channel:${channel.id}`);
   }
-
   res.json({ channel: serializeChannel(channel, req.userId) });
 });
 
@@ -416,10 +425,19 @@ export function serializeChannel(channel, viewerId) {
   const members = (channel.memberships || []).map((m) => publicUser(m.user));
   let displayName = channel.name;
   if (channel.isDirect) {
-    const other = members.find((u) => u.id !== viewerId) || members[0];
-    displayName = other?.displayName || "Direct";
+    const others = members.filter((u) => u.id !== viewerId);
+    displayName = others.map((u) => u.displayName).join(", ") || "Direct";
   }
   const last = channel.messages?.[0];
+  const viewerMembership = (channel.memberships || []).find(
+    (m) => m.userId === viewerId
+  );
+  const unread = !!(
+    last &&
+    last.authorId !== viewerId &&
+    viewerMembership?.lastReadAt &&
+    new Date(last.createdAt) > new Date(viewerMembership.lastReadAt)
+  );
   return {
     id: channel.id,
     name: channel.name,
@@ -437,6 +455,7 @@ export function serializeChannel(channel, viewerId) {
           authorId: last.authorId,
         }
       : null,
+    unread,
   };
 }
 

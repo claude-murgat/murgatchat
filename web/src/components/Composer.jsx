@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import EmojiPicker from "emoji-picker-react";
 import { uploadFile } from "../api.js";
 
 function formatLocalIso(dt) {
@@ -21,6 +22,9 @@ export default function Composer({ onSend, placeholder, allowSchedule = true, on
   const [uploading, setUploading] = useState(false);
   const taRef = useRef(null);
   const fileRef = useRef(null);
+  const [showEmoji, setShowEmoji] = useState(false);
+  const emojiRef = useRef(null);
+  const emojiBtnRef = useRef(null);
 
   useEffect(() => {
     const ta = taRef.current;
@@ -28,6 +32,17 @@ export default function Composer({ onSend, placeholder, allowSchedule = true, on
     ta.style.height = "auto";
     ta.style.height = Math.min(ta.scrollHeight, 160) + "px";
   }, [text]);
+
+  useEffect(() => {
+    if (!showEmoji) return;
+    function onDocMouseDown(e) {
+      if (emojiRef.current?.contains(e.target)) return;
+      if (emojiBtnRef.current?.contains(e.target)) return;
+      setShowEmoji(false);
+    }
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [showEmoji]);
 
   async function ingestFiles(files) {
     if (!files.length) return;
@@ -91,7 +106,24 @@ export default function Composer({ onSend, placeholder, allowSchedule = true, on
   }
 
   return (
-    <div className="border border-slate-300 rounded-lg bg-white shadow-sm">
+    <div className="relative border border-slate-300 rounded-lg bg-white shadow-sm">
+      {showEmoji && (
+        <div
+          ref={emojiRef}
+          className="absolute bottom-full left-2 mb-2 z-50 shadow-xl rounded"
+        >
+          <EmojiPicker
+            onEmojiClick={(e) => {
+              setText((t) => t + e.emoji);
+              setShowEmoji(false);
+            }}
+            width={300}
+            height={380}
+            previewConfig={{ showPreview: false }}
+            lazyLoadEmojis
+          />
+        </div>
+      )}
       <textarea
         ref={taRef}
         rows={1}
@@ -144,6 +176,14 @@ export default function Composer({ onSend, placeholder, allowSchedule = true, on
       )}
       <div className="flex items-center justify-between px-2 py-1 border-t border-slate-200">
         <div className="flex items-center gap-1">
+          <button
+            ref={emojiBtnRef}
+            onClick={() => setShowEmoji((v) => !v)}
+            className="text-slate-500 hover:text-slate-800 px-2 py-1 text-base leading-none"
+            title="Emoji"
+          >
+            😀
+          </button>
           <input
             ref={fileRef}
             type="file"

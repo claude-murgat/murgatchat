@@ -86,6 +86,23 @@ router.post("/dnd", requireAuth, async (req, res) => {
   res.json({ user: publicUser(user) });
 });
 
+router.post("/dnd-schedule", requireAuth, async (req, res) => {
+  const { enabled, start, end } = req.body || {};
+  const timeRe = /^([01]\d|2[0-3]):[0-5]\d$/;
+  if (enabled && (!timeRe.test(start || "") || !timeRe.test(end || ""))) {
+    return res.status(400).json({ error: "invalid_time" });
+  }
+  const user = await prisma.user.update({
+    where: { id: req.userId },
+    data: {
+      dndScheduleEnabled: !!enabled,
+      dndStart: enabled ? start : null,
+      dndEnd: enabled ? end : null,
+    },
+  });
+  res.json({ user: publicUser(user) });
+});
+
 export function publicUser(u) {
   return {
     id: u.id,
@@ -95,6 +112,9 @@ export function publicUser(u) {
     avatarColor: u.avatarColor,
     status: u.status,
     dndUntil: u.dndUntil,
+    dndScheduleEnabled: u.dndScheduleEnabled,
+    dndStart: u.dndStart,
+    dndEnd: u.dndEnd,
   };
 }
 

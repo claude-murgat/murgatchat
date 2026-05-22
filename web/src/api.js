@@ -50,6 +50,11 @@ export const api = {
   login: (body) => request("/auth/login", { method: "POST", body, auth: false }),
   me: () => request("/auth/me"),
   setDnd: (minutes) => request("/auth/dnd", { method: "POST", body: { minutes } }),
+  setDndSchedule: (enabled, start, end) =>
+    request("/auth/dnd-schedule", {
+      method: "POST",
+      body: { enabled, start, end },
+    }),
   listUsers: (q) => request(`/users${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   listChannels: () => request("/channels"),
   createChannel: (body) => request("/channels", { method: "POST", body }),
@@ -61,7 +66,8 @@ export const api = {
   leaveChannel: (id) => request(`/channels/${id}/leave`, { method: "POST" }),
   removeMember: (id, userId) =>
     request(`/channels/${id}/members/${userId}`, { method: "DELETE" }),
-  openDm: (userId) => request("/channels/dm", { method: "POST", body: { userId } }),
+  openDm: (userIds) =>
+    request("/channels/dm", { method: "POST", body: { userIds } }),
   messages: (channelId) => request(`/channels/${channelId}/messages`),
   thread: (id) => request(`/channels/messages/${id}/thread`),
   react: (id, emoji) =>

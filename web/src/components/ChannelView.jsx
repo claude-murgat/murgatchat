@@ -300,14 +300,20 @@ export default function ChannelView({ channel, currentUser, socket, onlineUserId
         <div>
           <div className="font-bold">{headerTitle}</div>
           {channel.isDirect ? (
-            <div className="text-xs text-slate-500 flex items-center gap-1.5">
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  dmOnline ? "bg-green-500" : "bg-slate-400"
-                }`}
-              />
-              {dmOnline ? "En ligne" : "Hors ligne"}
-            </div>
+            channel.members.length > 2 ? (
+              <div className="text-xs text-slate-500">
+                Groupe · {channel.members.length} personnes
+              </div>
+            ) : (
+              <div className="text-xs text-slate-500 flex items-center gap-1.5">
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    dmOnline ? "bg-green-500" : "bg-slate-400"
+                  }`}
+                />
+                {dmOnline ? "En ligne" : "Hors ligne"}
+              </div>
+            )
           ) : (
             <div className="text-xs text-slate-500">
               <button onClick={onShowMembers} className="hover:underline">
