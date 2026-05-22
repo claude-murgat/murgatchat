@@ -88,4 +88,8 @@ export const api = {
   deleteScheduled: (id) => request(`/channels/scheduled/${id}`, { method: "DELETE" }),
   updateScheduled: (id, body) =>
     request(`/channels/scheduled/${id}`, { method: "PATCH", body }),
+  registerPushToken: (token, platform) =>
+    request("/auth/push-token", { method: "POST", body: { token, platform } }),
+  removePushToken: (token) =>
+    request("/auth/push-token", { method: "DELETE", body: { token } }),
 };

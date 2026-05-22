@@ -25,6 +25,7 @@ model User {
   messages    Message[]
   attachments Attachment[]
   reactions   Reaction[]
+  pushTokens  PushToken[]
 }
 
 model Channel {
@@ -105,4 +106,17 @@ model Reaction {
 
   @@unique([messageId, userId, emoji])
   @@index([messageId])
+}
+
+model PushToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  platform  String   @default("android")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

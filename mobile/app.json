@@ -2,7 +2,7 @@
   "expo": {
     "name": "Chat",
     "slug": "chat",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "splash": {
@@ -21,6 +21,6 @@
     "extra": {
       "API_URL": "http://10.0.2.2:4000"
     },
-    "plugins": []
+    "plugins": ["expo-notifications"]
   }
 }

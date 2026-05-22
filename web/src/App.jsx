@@ -166,6 +166,28 @@ export default function App() {
     ensureReady();
   }, [user]);
 
+  // Signal web/desktop activity so the server pushes to mobile only when the
+  // user is away from their computer (no activity for 10 min).
+  useEffect(() => {
+    if (!socket) return;
+    const ping = () => {
+      if (typeof document === "undefined" || document.hasFocus()) socket.emit("activity");
+    };
+    ping();
+    const onFocus = () => socket.emit("activity");
+    const onVisible = () => {
+      if (document.visibilityState === "visible") socket.emit("activity");
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    const iv = setInterval(ping, 60_000);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+      clearInterval(iv);
+    };
+  }, [socket]);
+
   useEffect(() => {
     if (!socket) return;
     const onNotif = (data) => {
