@@ -25,3 +25,10 @@ web/src-tauri/Cargo.lock
 *.log
 .DS_Store
 Thumbs.db
+
+# test artifacts
+server/.test-uploads/
+e2e/test-results/
+e2e/playwright-report/
+e2e/blob-report/
+e2e/.playwright/
