@@ -7,7 +7,7 @@ import { encryptBody, decryptBody } from "../crypto.js";
 
 const router = Router();
 
-async function broadcastMembers(io, channelId) {
+export async function broadcastMembers(io, channelId) {
   const memberships = await prisma.membership.findMany({
     where: { channelId },
     include: { user: true },
