@@ -6,7 +6,7 @@ import {
   useState,
   useCallback,
 } from "react";
-import { api, getToken, setToken } from "./api";
+import { api, getToken, setToken, loadApiBaseUrl } from "./api";
 import { getSocket, closeSocket } from "./socket";
 import { registerForPush } from "./push";
 
@@ -40,9 +40,10 @@ export function ChatProvider({ children }) {
     if (user) registerForPush();
   }, [user]);
 
-  // Bootstrap from stored token.
+  // Bootstrap: load the configured server address, then resume any stored session.
   useEffect(() => {
     (async () => {
+      await loadApiBaseUrl();
       const token = await getToken();
       if (!token) {
         setBootstrapped(true);

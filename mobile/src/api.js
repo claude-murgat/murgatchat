@@ -1,11 +1,64 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 
-// Precedence: explicit env override (used for web/dev) > app.json extra > Android-emulator default.
-export const API_URL =
-  process.env.EXPO_PUBLIC_API_URL ||
-  Constants.expoConfig?.extra?.API_URL ||
-  "http://10.0.2.2:4000";
+// The server address is configured at runtime from the login screen and stored
+// in AsyncStorage, so the SAME build can target any server. Crucially, the
+// public Store build ships WITHOUT a baked server (empty default): a random
+// downloader can't reach our server without knowing and typing its address.
+// EXPO_PUBLIC_API_URL (or app.json extra.API_URL) only provides a DEV default.
+const ENV_DEFAULT =
+  process.env.EXPO_PUBLIC_API_URL || Constants.expoConfig?.extra?.API_URL || "";
+const BASE_KEY = "chat_api_base";
+
+// In-memory, read synchronously by request()/socket; hydrated from storage at
+// startup via loadApiBaseUrl() (AsyncStorage is async).
+let currentBaseUrl = ENV_DEFAULT;
+
+export function normalizeBaseUrl(raw) {
+  let s = (raw || "").trim();
+  if (!s) return "";
+  if (!/^https?:\/\//i.test(s)) s = `http://${s}`;
+  return s.replace(/\/+$/, "");
+}
+
+export function getApiBaseUrl() {
+  return currentBaseUrl;
+}
+
+export function getDefaultBaseUrl() {
+  return ENV_DEFAULT;
+}
+
+// Call once at startup, before any authenticated request.
+export async function loadApiBaseUrl() {
+  try {
+    const stored = await AsyncStorage.getItem(BASE_KEY);
+    const n = normalizeBaseUrl(stored);
+    if (n) currentBaseUrl = n;
+  } catch {}
+  return currentBaseUrl;
+}
+
+export async function setApiBaseUrl(url) {
+  const n = normalizeBaseUrl(url);
+  currentBaseUrl = n || ENV_DEFAULT;
+  try {
+    if (n) await AsyncStorage.setItem(BASE_KEY, n);
+    else await AsyncStorage.removeItem(BASE_KEY);
+  } catch {}
+  return currentBaseUrl;
+}
+
+// Reachability probe for the "Tester" button on the login screen.
+export async function pingServer(url) {
+  const base = normalizeBaseUrl(url) || currentBaseUrl;
+  if (!base) throw new Error("adresse vide");
+  const res = await fetch(`${base}/health`, { method: "GET" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json().catch(() => ({}));
+  if (!data || data.ok !== true) throw new Error("réponse inattendue");
+  return true;
+}
 
 const TOKEN_KEY = "chat_token";
 let cachedToken = null;
@@ -27,7 +80,7 @@ async function request(path, { method = "GET", body, auth = true } = {}) {
     const token = await getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
   }
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(`${getApiBaseUrl()}${path}`, {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
@@ -43,7 +96,7 @@ export async function uploadFile(file) {
   const fd = new FormData();
   fd.append("file", file);
   const token = await getToken();
-  const res = await fetch(`${API_URL}/uploads`, {
+  const res = await fetch(`${getApiBaseUrl()}/uploads`, {
     method: "POST",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: fd,
@@ -54,11 +107,13 @@ export async function uploadFile(file) {
 }
 
 export function attachmentUrl(id) {
-  return `${API_URL}/uploads/${id}?token=${encodeURIComponent(cachedToken || "")}`;
+  return `${getApiBaseUrl()}/uploads/${id}?token=${encodeURIComponent(cachedToken || "")}`;
 }
 
 export const api = {
-  url: API_URL,
+  get url() {
+    return getApiBaseUrl();
+  },
   register: (body) => request("/auth/register", { method: "POST", body, auth: false }),
   login: (body) => request("/auth/login", { method: "POST", body, auth: false }),
   me: () => request("/auth/me"),
