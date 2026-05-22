@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-05-21**.
+Dernière mise à jour : **2026-05-22**.
 
 ---
 
@@ -26,7 +26,13 @@ Dernière mise à jour : **2026-05-21**.
 
 ## Lancer le projet (cette machine)
 
-- **Pas de Node en local** → tout passe par **Docker** : `docker compose up -d --build`.
+- **Toolchains installées (2026-05-22)** : Node 20, Rust 1.95 (GNU) + mingw-w64
+  (build Tauri), JDK 17 + Android SDK + émulateur `alarm_dev` (build/test APK). Le
+  stack serveur/web reste lancé via **Docker** : `docker compose up -d --build`.
+- ⚠️ **Piège « chemin avec espace »** : le projet est sous `…\Projets Claude\…`. Les
+  builds natifs cassent sur l'espace (`dlltool`/`as` pour Tauri ; `ninja` pour Android).
+  Builder hors d'un chemin avec espace : Tauri via `CARGO_TARGET_DIR=C:\murgat-build` ;
+  APK en copiant `mobile/` vers `C:\murgat-mobile`.
 - Le bundle web **fige `VITE_API_URL` à la build**. IP LAN de la machine =
   **`172.16.2.191`**. Builder le web avec
   `VITE_API_URL=http://172.16.2.191:4000 docker compose up -d --build web`
@@ -87,7 +93,7 @@ Dernière mise à jour : **2026-05-21**.
     l'utilisateur concerné. UI : bouton « + Membres » + « X membres » cliquable.
 11. **UX modales** — toutes les modales se ferment au clic en dehors.
 
-## Fonctionnalités en cours (branche `claude/feat/messaging-extras`)
+## Fonctionnalités livrées — extras messagerie (mergées)
 
 12. **Emojis dans les messages** — bouton 😀 dans le composer (emoji-picker-react) ;
     l'emoji s'insère dans le texte. Ferme au clic extérieur.
@@ -102,6 +108,30 @@ Dernière mise à jour : **2026-05-21**.
     `POST /auth/dnd-schedule` ; `isUserDnd` gate les notifs (fenêtre ponctuelle OU
     plage quotidienne avec passage de minuit). ⚠ La plage utilise l'**heure du
     serveur** (pas le fuseau du client) — à affiner si besoin.
+
+## Correctifs (mergés)
+
+16. **Diffusion des membres à l'inscription** — `broadcastMembers` est désormais
+    appelé après l'auto-ajout au salon par défaut dans `POST /auth/register` (était
+    oublié ; les membres connectés voyaient un décompte de membres obsolète).
+
+## Clients Web / Desktop / Mobile (mergés 2026-05-22)
+
+- **Mobile (Expo) à parité complète avec le web** — refonte React Native autour d'un
+  `ChatContext` (état + Socket.IO temps réel). Liste avec sections / non-lus / présence /
+  typing / badges de groupe ; salon avec réactions / édition / suppression / threads /
+  typing / planifiés ; gestion des membres, parcourir-rejoindre, DM de groupe, planning
+  DND, EmojiPicker maison (sans dépendance native). `api.js` couvre tous les endpoints ;
+  URL surchargée par `EXPO_PUBLIC_API_URL`. **Support Expo Web** ajouté
+  (`react-native-web`) → l'app se lance et se teste dans un navigateur.
+- **Desktop (Tauri) rebuildé en 0.2.0** — n'embarque que le bundle web (hérite de toutes
+  les features). `dist/Chat_0.2.0_x64-setup.exe` reconstruit avec
+  `VITE_API_URL=http://172.16.2.191:4000` (l'ancien défaut `.192` était faux). Build natif
+  GNU + mingw-w64 (recette dans le README).
+- **APK Android testée** — release APK standalone (Gradle, ABI x86_64), installée et
+  lancée sur l'émulateur `alarm_dev` (Android 11), **login OK contre l'API Docker**
+  (`10.0.2.2:4000`). ⚠ Le release bloque le HTTP en clair : `usesCleartextTraffic` requis
+  pour un backend HTTP/LAN (ou HTTPS en prod).
 
 ## Événements Socket.IO (catalogue)
 
@@ -123,12 +153,14 @@ Dernière mise à jour : **2026-05-21**.
 
 ## Limites connues / pistes
 
-- **`web/package-lock.json` désynchronisé** : `emoji-picker-react` a été ajouté à
-  `package.json` sans régénérer le lock (pas de Node local). Le build Docker
-  (`npm install`) tolère ; lancer un `npm install` pour resynchroniser (sinon
-  `npm ci` échouerait).
 - Suppression d'un message avec PJ : lignes `Attachment` supprimées en cascade,
   mais **fichiers orphelins** sur disque.
 - Sécurité (mise de côté pour l'instant) : `JWT_SECRET` à 30j sans refresh, CORS `*`,
   pas de HTTPS, `prisma db push` au démarrage. Voir le README pour le détail.
-- Mobile : éditer/supprimer/threads/réactions/présence/typing à porter côté Expo.
+- **Mobile** : envoi de **pièces jointes** non porté (l'affichage marche ; l'upload
+  demande un picker natif). Build Android à faire hors d'un chemin avec espace ; l'APK
+  release est signée avec la **clé debug** (à remplacer par une vraie clé pour distribuer).
+- **En cours / prochaine étape** : **notifications push mobiles** — push système quand
+  l'app n'est pas active / le téléphone verrouillé, que le web+desktop sont inactifs
+  depuis 10 min, et que le compte n'est pas en DND (routage « notifie le mobile seulement
+  si l'utilisateur est loin de son ordi »). Nécessite Expo/FCM côté infra.
