@@ -7,7 +7,7 @@ export function getSocket(token) {
   if (socket && socket.connected) return socket;
   if (socket) socket.disconnect();
   socket = io(API_URL, {
-    auth: { token },
+    auth: { token, platform: "mobile" },
     transports: ["websocket", "polling"],
   });
   return socket;

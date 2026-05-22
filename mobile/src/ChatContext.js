@@ -8,6 +8,7 @@ import {
 } from "react";
 import { api, getToken, setToken } from "./api";
 import { getSocket, closeSocket } from "./socket";
+import { registerForPush } from "./push";
 
 const ChatContext = createContext(null);
 
@@ -33,6 +34,11 @@ export function ChatProvider({ children }) {
   const setActiveChannel = useCallback((id) => {
     activeChannelIdRef.current = id;
   }, []);
+
+  // Register for push notifications once authenticated (no-op until push creds set).
+  useEffect(() => {
+    if (user) registerForPush();
+  }, [user]);
 
   // Bootstrap from stored token.
   useEffect(() => {

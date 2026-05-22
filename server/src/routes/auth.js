@@ -105,6 +105,27 @@ router.post("/dnd-schedule", requireAuth, async (req, res) => {
   res.json({ user: publicUser(user) });
 });
 
+router.post("/push-token", requireAuth, async (req, res) => {
+  const { token, platform } = req.body || {};
+  if (typeof token !== "string" || !token.trim()) {
+    return res.status(400).json({ error: "invalid_token" });
+  }
+  await prisma.pushToken.upsert({
+    where: { token },
+    update: { userId: req.userId, platform: platform || "android" },
+    create: { token, userId: req.userId, platform: platform || "android" },
+  });
+  res.json({ ok: true });
+});
+
+router.delete("/push-token", requireAuth, async (req, res) => {
+  const { token } = req.body || {};
+  if (token) {
+    await prisma.pushToken.deleteMany({ where: { token, userId: req.userId } });
+  }
+  res.json({ ok: true });
+});
+
 export function publicUser(u) {
   return {
     id: u.id,

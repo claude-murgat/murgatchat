@@ -3,6 +3,7 @@ import { verifyToken } from "./auth.js";
 import { prisma } from "./db.js";
 import { serializeMessage } from "./routes/channels.js";
 import { encryptBody } from "./crypto.js";
+import { sendExpoPush } from "./push.js";
 
 // DnD actif si fenêtre ponctuelle (dndUntil) OU plage quotidienne (heure serveur)
 export function isUserDnd(user, now = new Date()) {
@@ -17,6 +18,49 @@ export function isUserDnd(user, now = new Date()) {
     return start < end ? cur >= start && cur < end : cur >= start || cur < end;
   }
   return false;
+}
+
+const TEN_MIN_MS = 10 * 60 * 1000;
+// userId -> last activity timestamp (ms), from web/desktop clients only
+const lastWebActivity = new Map();
+
+function markWebActivity(userId) {
+  lastWebActivity.set(userId, Date.now());
+}
+// True if no web/desktop activity in the last 10 min (user likely away from computer).
+function webDesktopInactive(userId) {
+  const last = lastWebActivity.get(userId);
+  return !last || Date.now() - last > TEN_MIN_MS;
+}
+
+// Notify channel members (except author) who aren't in DnD: in-app "notification"
+// event, plus a mobile push for those whose web/desktop has been idle >= 10 min.
+async function notifyMembers(io, channelId, authorId, serialized) {
+  const members = await prisma.membership.findMany({
+    where: { channelId },
+    include: { user: true },
+  });
+  const awayUserIds = [];
+  for (const cm of members) {
+    if (cm.userId === authorId) continue;
+    if (isUserDnd(cm.user)) continue;
+    io.to(`user:${cm.userId}`).emit("notification", { channelId, message: serialized });
+    if (webDesktopInactive(cm.userId)) awayUserIds.push(cm.userId);
+  }
+  if (awayUserIds.length === 0) return;
+  const tokens = await prisma.pushToken.findMany({
+    where: { userId: { in: awayUserIds } },
+  });
+  if (tokens.length === 0) {
+    console.log("[push] away (web/desktop idle) but no device token:", awayUserIds.join(","));
+    return;
+  }
+  const title = serialized.author?.displayName || "Nouveau message";
+  const body = serialized.body || "(pièce jointe)";
+  console.log(`[push] notifying ${tokens.length} device(s) for ${awayUserIds.length} away user(s)`);
+  await sendExpoPush(
+    tokens.map((t) => ({ to: t.token, title, body, sound: "default", data: { channelId } }))
+  );
 }
 
 export function setupSocket(httpServer, corsOrigin) {
@@ -34,6 +78,7 @@ export function setupSocket(httpServer, corsOrigin) {
     const payload = token ? verifyToken(token) : null;
     if (!payload) return next(new Error("unauthorized"));
     socket.data.userId = payload.sub;
+    socket.data.platform = socket.handshake.auth?.platform || "web";
     next();
   });
 
@@ -48,6 +93,11 @@ export function setupSocket(httpServer, corsOrigin) {
     online.set(userId, prevCount + 1);
     if (prevCount === 0) io.emit("presence:update", { userId, online: true });
     socket.emit("presence:state", { userIds: [...online.keys()] });
+
+    if (socket.data.platform !== "mobile") markWebActivity(userId);
+    socket.on("activity", () => {
+      if (socket.data.platform !== "mobile") markWebActivity(userId);
+    });
 
     socket.on("channel:join", (channelId) => {
       socket.join(`channel:${channelId}`);
@@ -129,20 +179,7 @@ export function setupSocket(httpServer, corsOrigin) {
           serialized
         );
 
-        const channelMembers = await prisma.membership.findMany({
-          where: { channelId },
-          include: { user: true },
-        });
-        for (const cm of channelMembers) {
-          if (cm.userId === userId) continue;
-          const isDnd = isUserDnd(cm.user);
-          if (!isDnd) {
-            io.to(`user:${cm.userId}`).emit("notification", {
-              channelId,
-              message: serialized,
-            });
-          }
-        }
+        await notifyMembers(io, channelId, userId, serialized);
         ack?.({ ok: true, message: serialized });
       } catch (err) {
         console.error("message:send", err);
@@ -190,19 +227,6 @@ export async function dispatchScheduledMessages(io) {
     const serialized = serializeMessage(updated);
     io.to(`channel:${msg.channelId}`).emit("message:new", serialized);
 
-    const channelMembers = await prisma.membership.findMany({
-      where: { channelId: msg.channelId },
-      include: { user: true },
-    });
-    for (const cm of channelMembers) {
-      if (cm.userId === msg.authorId) continue;
-      const isDnd = cm.user.dndUntil && cm.user.dndUntil > new Date();
-      if (!isDnd) {
-        io.to(`user:${cm.userId}`).emit("notification", {
-          channelId: msg.channelId,
-          message: serialized,
-        });
-      }
-    }
+    await notifyMembers(io, msg.channelId, msg.authorId, serialized);
   }
 }
