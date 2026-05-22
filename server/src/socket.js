@@ -195,6 +195,9 @@ export function setupSocket(httpServer, corsOrigin) {
           data: { lastReadAt: new Date() },
         })
         .catch(() => {});
+      // Sync the read state to the user's OTHER devices/tabs so their unread
+      // badge clears too (the sender already cleared locally).
+      socket.to(`user:${userId}`).emit("channel:read", { channelId });
     });
 
     socket.on("disconnect", () => {

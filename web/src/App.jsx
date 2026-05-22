@@ -139,6 +139,12 @@ export default function App() {
       }, 4000);
     };
 
+    // Another of this user's devices/tabs read a channel -> clear its unread here.
+    const onRead = ({ channelId }) =>
+      setChannels((prev) =>
+        prev.map((c) => (c.id === channelId ? { ...c, unread: false } : c))
+      );
+
     s.on("message:new", onNew);
     s.on("channel:created", onCreated);
     s.on("channel:removed", onRemoved);
@@ -148,6 +154,7 @@ export default function App() {
     s.on("presence:state", onPresenceState);
     s.on("presence:update", onPresenceUpdate);
     s.on("typing:update", onTyping);
+    s.on("channel:read", onRead);
     return () => {
       s.off("message:new", onNew);
       s.off("channel:created", onCreated);
@@ -158,6 +165,7 @@ export default function App() {
       s.off("presence:state", onPresenceState);
       s.off("presence:update", onPresenceUpdate);
       s.off("typing:update", onTyping);
+      s.off("channel:read", onRead);
     };
   }, [user]);
 

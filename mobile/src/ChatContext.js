@@ -167,6 +167,12 @@ export function ChatProvider({ children }) {
         });
       };
 
+      // Read on another of this user's devices -> clear unread here too.
+      const onRead = ({ channelId }) =>
+        setChannels((prev) =>
+          prev.map((c) => (c.id === channelId ? { ...c, unread: false } : c))
+        );
+
       s.on("message:new", onNew);
       s.on("channel:created", onCreated);
       s.on("channel:removed", onRemoved);
@@ -177,6 +183,7 @@ export function ChatProvider({ children }) {
       s.on("presence:update", onPresenceUpdate);
       s.on("typing:update", onTyping);
       s.on("notification", onNotif);
+      s.on("channel:read", onRead);
 
       s._detach = () => {
         s.off("message:new", onNew);
@@ -189,6 +196,7 @@ export function ChatProvider({ children }) {
         s.off("presence:update", onPresenceUpdate);
         s.off("typing:update", onTyping);
         s.off("notification", onNotif);
+        s.off("channel:read", onRead);
       };
     })();
 
