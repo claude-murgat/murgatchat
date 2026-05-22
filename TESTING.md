@@ -7,11 +7,13 @@ organisée en trois couches, par ordre de valeur :
 | Couche | Outil | Ce qu'elle protège | Vérifiée |
 | --- | --- | --- | --- |
 | **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push — **la source de vérité** pour web/desktop/mobile | ✅ 70 tests |
-| **E2E Web** (priorité 2) | Playwright | Câblage de l'UI web (auth, envoi, édition, suppression, threads, persistance) | Prête à lancer |
+| **E2E Web** (priorité 2) | Playwright | Câblage de l'UI web (auth, envoi, édition, suppression, threads, persistance) | ✅ parcours vert |
 | **Mobile** (priorité 3) | `expo export` + smoke APK | Le bundle RN se compile ; l'app se lance | Documentée |
+| **Charge** (k6) | k6 (HTTP + Socket.IO) | Tenue à 150 utilisateurs simultanés (REST + temps réel) | ✅ script validé (smoke) |
 
 La base de dev (`db-data`, port hôte **5433**) n'est **jamais** touchée : le backend
-utilise un Postgres jetable sur le port 5434, l'E2E un stack isolé sur 5435/4001/5174.
+utilise un Postgres jetable sur le port 5434 ; l'E2E **et** la charge k6 visent le stack
+isolé (5435/4001/5174).
 
 ---
 
@@ -109,6 +111,46 @@ Smoke APK complet (build x86_64 hors chemin à espace, install émulateur `alarm
 launch + login) : voir la recette dans [PROGRESS.md](PROGRESS.md) et le README.
 
 ---
+
+## 4. Charge (k6)
+
+[load/k6/chat-load.js](load/k6/chat-load.js) — test de charge mixte **HTTP + Socket.IO**.
+
+### Profil (par défaut)
+- **150 utilisateurs simultanés** au pic, répartis en deux scénarios partageant le
+  même timing :
+  - **100 « chatters »** : connexions Socket.IO persistantes (handshake `40{auth}`,
+    `message:send`, `typing`, `channel:read`, heartbeat `activity`, réponse aux pings).
+  - **50 « readers »** : boucles REST (`/auth/me`, `/channels`, `/channels/:id/messages`,
+    `/channels/public`, réactions, `/auth/dnd`) avec think-time.
+- **Montée 1 min → plateau 8 min 30 → descente 30 s** (≈ 10 min).
+- `setup()` enregistre les 150 comptes + des salons partagés (chaque envoi fait donc
+  un vrai fan-out vers les membres). Aucun appel Expo réel (les comptes n'ont pas de
+  push-token → `notifyMembers` n'émet pas de push).
+
+### Prérequis
+- [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/) (`winget install k6`,
+  `choco install k6`, ou binaire portable).
+
+### Lancer (contre le stack isolé — ne touche pas la base de dev)
+```bash
+docker compose -f docker-compose.e2e.yml up -d --build      # API sur :4001
+k6 run load/k6/chat-load.js                                  # profil complet (~10 min)
+docker compose -f docker-compose.e2e.yml down -v
+```
+Overrides : `-e BASE_URL=http://…`, `-e CHATTERS=120 -e READERS=30`, `-e CHANNELS=20`.
+
+### Validation rapide (smoke, ~35 s, 6 VUs)
+```bash
+k6 run -e SMOKE=1 load/k6/chat-load.js
+```
+
+### Seuils (échec du run si dépassés)
+`http_req_failed < 5%`, `http_req_duration p95 < 3 s`, `checks > 90%`,
+`ws_connect_success > 95%`.
+
+> Non câblé en CI (un run de ~10 min n'est pas un gate par PR) — à lancer à la demande,
+> idéalement avant une montée de version.
 
 ## CI (GitHub Actions)
 
