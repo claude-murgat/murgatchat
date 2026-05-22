@@ -94,7 +94,7 @@ Sur l'émulateur Android, `http://10.0.2.2:4000` est le hôte (déjà configuré
 
 ### Desktop (Tauri — Windows / macOS / Linux)
 
-**Installeur Windows pré-buildé** : [dist/Chat_0.1.0_x64-setup.exe](dist/Chat_0.1.0_x64-setup.exe) (1,4 Mo, NSIS, non signé — SmartScreen va râler une fois) — pointe sur `http://172.16.2.192:4000` par défaut. Aussi disponible : [dist/Chat-portable.exe](dist/Chat-portable.exe) (3,3 Mo, autonome, sans installation).
+**Installeur Windows pré-buildé** : [dist/Chat_0.2.0_x64-setup.exe](dist/Chat_0.2.0_x64-setup.exe) (1,2 Mo, NSIS, non signé — SmartScreen va râler une fois) — pointe sur `http://172.16.2.191:4000` par défaut. Aussi disponible : [dist/Chat-portable.exe](dist/Chat-portable.exe) (3,3 Mo, autonome, sans installation).
 
 Le scaffold complet est dans [web/src-tauri/](web/src-tauri/). Tauri lance Vite en dev et embarque le `dist/` en release.
 
@@ -121,6 +121,10 @@ L'app pointe par défaut vers `http://localhost:4000` pour l'API. Lance la stack
 ```bash
 npm run tauri:build        # produit src-tauri/target/release/bundle/{msi,nsis}/Chat_*.msi|.exe
 ```
+
+> **Build natif avec la toolchain GNU (sans MSVC).** L'installeur `0.2.0` de [dist/](dist/) a été produit ainsi, sans les *MS C++ Build Tools* : `rustup default stable-x86_64-pc-windows-gnu` + **mingw-w64 sur le `PATH`** (fournit `dlltool` et `windres`, que la toolchain Rust GNU n'embarque pas). Deux pièges rencontrés :
+> - `dlltool` échoue si le chemin de build contient une **espace** (ex. « Projets Claude ») : `as exited with status 1`. Builder depuis un chemin sans espace **ou** rediriger la sortie : `set CARGO_TARGET_DIR=C:\murgat-build`.
+> - Limiter au bundle NSIS : `npm run tauri:build -- --bundles nsis` (le `.msi`/WiX n'existe pas pour la cible GNU). Tauri télécharge NSIS tout seul au premier build.
 
 **Cross-compile depuis Linux** (utilisé pour produire l'installeur dans [dist/](dist/)) :
 
