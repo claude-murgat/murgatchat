@@ -8,7 +8,7 @@ export function getSocket(token) {
   if (socket) socket.disconnect();
   socket = io(API_URL, {
     auth: { token },
-    transports: ["websocket"],
+    transports: ["websocket", "polling"],
   });
   return socket;
 }

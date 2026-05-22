@@ -1,230 +1,326 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback, useLayoutEffect } from "react";
 import {
   View,
   Text,
   FlatList,
-  TextInput,
-  TouchableOpacity,
+  Pressable,
+  Modal,
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
-  Alert,
 } from "react-native";
-import { api, getToken } from "../api";
-import { getSocket } from "../socket";
+import { useFocusEffect } from "@react-navigation/native";
+import { api } from "../api";
+import { useChat } from "../ChatContext";
+import MessageItem from "../components/MessageItem";
+import Composer from "../components/Composer";
+import PresenceDot from "../components/PresenceDot";
 import { colors } from "../theme";
+import { dayLabel, typingLabel } from "../format";
 
 export default function ChannelScreen({ route, navigation }) {
-  const { channel, user } = route.params;
+  const { channelId } = route.params;
+  const { user, socket, channels, onlineUserIds, setActiveChannel, markRead } = useChat();
+  const channel = channels.find((c) => c.id === channelId);
+
   const [messages, setMessages] = useState([]);
-  const [body, setBody] = useState("");
-  const [scheduleMinutes, setScheduleMinutes] = useState("");
+  const [typingUserIds, setTypingUserIds] = useState([]);
+  const [scheduled, setScheduled] = useState([]);
+  const [showScheduled, setShowScheduled] = useState(false);
   const listRef = useRef(null);
-  const socketRef = useRef(null);
+  const typingTimers = useRef({});
+  const lastTypingSent = useRef(0);
 
-  const headerTitle = channel.isDirect
-    ? channel.displayName
-    : `#${channel.name}`;
+  // Mark active + read while focused.
+  useFocusEffect(
+    useCallback(() => {
+      setActiveChannel(channelId);
+      markRead(channelId);
+      return () => setActiveChannel(null);
+    }, [channelId, setActiveChannel, markRead])
+  );
 
+  // If the channel disappears (left/removed), go back.
   useEffect(() => {
-    navigation.setOptions({ title: headerTitle });
-  }, [navigation, headerTitle]);
+    if (channels.length && !channel) navigation.goBack();
+  }, [channel, channels.length, navigation]);
 
-  useEffect(() => {
-    let mounted = true;
-    api.messages(channel.id).then((res) => {
-      if (mounted) setMessages(res.messages);
+  const dmOther = channel?.isDirect
+    ? channel.members.find((m) => m.id !== user?.id) || channel.members[0]
+    : null;
+  const isGroup = channel?.isDirect && channel.members.length > 2;
+  const title = channel?.isDirect ? channel.displayName : `# ${channel?.name || ""}`;
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerTitle: () => (
+        <View>
+          <Text style={styles.hTitle} numberOfLines={1}>
+            {title}
+          </Text>
+          {channel?.isDirect ? (
+            isGroup ? (
+              <Text style={styles.hSub}>Groupe · {channel.members.length} personnes</Text>
+            ) : (
+              <View style={styles.hSubRow}>
+                <PresenceDot online={onlineUserIds?.has(dmOther?.id)} size={8} />
+                <Text style={styles.hSub}>
+                  {onlineUserIds?.has(dmOther?.id) ? "En ligne" : "Hors ligne"}
+                </Text>
+              </View>
+            )
+          ) : (
+            <Pressable onPress={() => navigation.navigate("Members", { channelId })}>
+              <Text style={styles.hSubLink}>
+                {channel?.members.length} membre{channel?.members.length > 1 ? "s" : ""}
+              </Text>
+            </Pressable>
+          )}
+        </View>
+      ),
+      headerRight: () => (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 14, paddingRight: 4 }}>
+          <Pressable onPress={() => setShowScheduled(true)}>
+            <Text style={styles.hAction}>⏰ {scheduled.length}</Text>
+          </Pressable>
+          {channel && !channel.isDirect && (
+            <Pressable onPress={() => navigation.navigate("AddMembers", { channelId })}>
+              <Text style={styles.hAction}>+ Membres</Text>
+            </Pressable>
+          )}
+        </View>
+      ),
     });
+  }, [navigation, title, channel, isGroup, dmOther, onlineUserIds, scheduled.length, channelId]);
 
-    let s;
-    (async () => {
-      const token = await getToken();
-      s = getSocket(token);
-      socketRef.current = s;
-      s.emit("channel:join", channel.id);
-      s.emit("channel:read", { channelId: channel.id });
-      s.on("message:new", onNew);
-    })();
-
-    function onNew(msg) {
-      if (msg.channelId !== channel.id) return;
-      setMessages((prev) => [...prev, msg]);
-    }
-
-    return () => {
-      mounted = false;
-      if (s) s.off("message:new", onNew);
-    };
-  }, [channel.id]);
-
+  // Load messages + scheduled, join room.
   useEffect(() => {
-    if (messages.length) {
-      requestAnimationFrame(() =>
-        listRef.current?.scrollToEnd({ animated: true })
+    let cancelled = false;
+    setTypingUserIds([]);
+    api.messages(channelId).then((res) => !cancelled && setMessages(res.messages));
+    api.scheduled(channelId).then((res) => !cancelled && setScheduled(res.scheduled));
+    socket?.emit("channel:join", channelId);
+    socket?.emit("channel:read", { channelId });
+    return () => {
+      cancelled = true;
+    };
+  }, [channelId, socket]);
+
+  // Message-level realtime.
+  useEffect(() => {
+    if (!socket) return;
+    function onNew(msg) {
+      if (msg.channelId !== channelId || msg.parentId) return;
+      setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+      socket.emit("channel:read", { channelId });
+    }
+    function onUpdated(msg) {
+      if (msg.channelId !== channelId) return;
+      setMessages((prev) => prev.map((m) => (m.id === msg.id ? msg : m)));
+    }
+    function onDeleted({ id, channelId: cid, parentId }) {
+      if (cid !== channelId) return;
+      if (parentId) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === parentId
+              ? { ...m, replyCount: Math.max(0, (m.replyCount || 0) - 1) }
+              : m
+          )
+        );
+      } else {
+        setMessages((prev) => prev.filter((m) => m.id !== id));
+      }
+    }
+    function onReply(msg) {
+      if (msg.channelId !== channelId) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === msg.parentId ? { ...m, replyCount: (m.replyCount || 0) + 1 } : m
+        )
       );
     }
+    function onReaction({ messageId, reactions }) {
+      setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, reactions } : m)));
+    }
+    function onTyping({ channelId: cid, userId }) {
+      if (cid !== channelId || userId === user?.id) return;
+      setTypingUserIds((prev) => (prev.includes(userId) ? prev : [...prev, userId]));
+      clearTimeout(typingTimers.current[userId]);
+      typingTimers.current[userId] = setTimeout(() => {
+        setTypingUserIds((prev) => prev.filter((id) => id !== userId));
+        delete typingTimers.current[userId];
+      }, 4000);
+    }
+    socket.on("message:new", onNew);
+    socket.on("message:updated", onUpdated);
+    socket.on("message:deleted", onDeleted);
+    socket.on("thread:reply", onReply);
+    socket.on("reaction:update", onReaction);
+    socket.on("typing:update", onTyping);
+    return () => {
+      socket.off("message:new", onNew);
+      socket.off("message:updated", onUpdated);
+      socket.off("message:deleted", onDeleted);
+      socket.off("thread:reply", onReply);
+      socket.off("reaction:update", onReaction);
+      socket.off("typing:update", onTyping);
+    };
+  }, [socket, channelId, user?.id]);
+
+  useEffect(() => {
+    if (messages.length)
+      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
   }, [messages.length]);
 
-  function send(schedule = false) {
-    const trimmed = body.trim();
-    if (!trimmed || !socketRef.current) return;
-    const payload = { channelId: channel.id, body: trimmed };
-    if (schedule) {
-      const minutes = parseInt(scheduleMinutes, 10);
-      if (!minutes || minutes <= 0) {
-        Alert.alert("Planification", "Indique un nombre de minutes > 0.");
-        return;
-      }
-      payload.scheduledAt = new Date(Date.now() + minutes * 60_000).toISOString();
-    }
-    socketRef.current.emit("message:send", payload, (resp) => {
-      if (resp?.error) Alert.alert("Erreur", resp.error);
-      else if (resp?.scheduled)
-        Alert.alert(
-          "Planifié",
-          `Envoi prévu à ${new Date(resp.scheduled.scheduledAt).toLocaleString()}`
-        );
+  function send(payload) {
+    if (!socket) return;
+    socket.emit("message:send", { channelId, ...payload }, (resp) => {
+      if (resp?.scheduled) setScheduled((prev) => [...prev, resp.scheduled]);
     });
-    setBody("");
-    setScheduleMinutes("");
   }
+
+  function notifyTyping() {
+    const now = Date.now();
+    if (now - lastTypingSent.current < 2000) return;
+    lastTypingSent.current = now;
+    socket?.emit("typing", { channelId });
+  }
+
+  async function editMessage(id, body) {
+    try {
+      const res = await api.editMessage(id, body);
+      setMessages((prev) => prev.map((m) => (m.id === id ? res.message : m)));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  async function deleteMessage(message) {
+    try {
+      await api.deleteMessage(message.id);
+      setMessages((prev) => prev.filter((m) => m.id !== message.id));
+    } catch {}
+  }
+  async function react(messageId, emoji) {
+    try {
+      await api.react(messageId, emoji);
+    } catch {}
+  }
+  async function cancelScheduled(id) {
+    await api.deleteScheduled(id);
+    setScheduled((prev) => prev.filter((m) => m.id !== id));
+  }
+
+  let lastDay = null;
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
       style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
       <FlatList
         ref={listRef}
         data={messages}
         keyExtractor={(m) => m.id}
-        contentContainerStyle={{ padding: 12 }}
+        contentContainerStyle={{ paddingVertical: 8 }}
         renderItem={({ item, index }) => {
           const prev = messages[index - 1];
+          const day = dayLabel(item.createdAt);
+          const showDay = day !== lastDay;
+          lastDay = day;
           const grouped =
             prev &&
+            !showDay &&
             prev.author?.id === item.author?.id &&
             new Date(item.createdAt) - new Date(prev.createdAt) < 5 * 60_000;
-          return <MessageItem message={item} grouped={grouped} />;
+          return (
+            <View>
+              {showDay && (
+                <View style={styles.dayRow}>
+                  <View style={styles.dayLine} />
+                  <Text style={styles.dayText}>{day}</Text>
+                  <View style={styles.dayLine} />
+                </View>
+              )}
+              <MessageItem
+                message={item}
+                grouped={grouped}
+                currentUser={user}
+                onReact={react}
+                onReply={(m) => navigation.navigate("Thread", { channelId, parentId: m.id })}
+                onEdit={editMessage}
+                onDelete={deleteMessage}
+              />
+            </View>
+          );
         }}
+        ListEmptyComponent={
+          <Text style={styles.empty}>Premier message dans cette conversation.</Text>
+        }
       />
 
-      <View style={styles.composer}>
-        <TextInput
-          style={styles.input}
-          placeholder={`Message dans ${headerTitle}`}
-          value={body}
-          onChangeText={setBody}
-          multiline
-        />
-        <View style={styles.composerRow}>
-          <TextInput
-            style={[styles.input, styles.scheduleInput]}
-            placeholder="minutes (planifié)"
-            keyboardType="number-pad"
-            value={scheduleMinutes}
-            onChangeText={setScheduleMinutes}
-          />
-          <TouchableOpacity
-            style={[styles.sendBtn, { backgroundColor: colors.blue }]}
-            onPress={() => send(true)}
-          >
-            <Text style={styles.sendText}>Planifier</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.sendBtn}
-            onPress={() => send(false)}
-            disabled={!body.trim()}
-          >
-            <Text style={styles.sendText}>Envoyer</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </KeyboardAvoidingView>
-  );
-}
+      {typingUserIds.length > 0 && (
+        <Text style={styles.typing}>{typingLabel(typingUserIds, channel, user)}</Text>
+      )}
 
-function MessageItem({ message, grouped }) {
-  if (grouped) {
-    return (
-      <View style={styles.msgGrouped}>
-        <Text style={styles.msgBody}>{message.body}</Text>
-      </View>
-    );
-  }
-  return (
-    <View style={styles.msgRow}>
-      <View
-        style={[
-          styles.avatar,
-          { backgroundColor: message.author?.avatarColor || colors.aubergine },
-        ]}
-      >
-        <Text style={styles.avatarText}>
-          {(message.author?.displayName || "?").slice(0, 1).toUpperCase()}
-        </Text>
-      </View>
-      <View style={{ flex: 1 }}>
-        <View style={styles.msgHeader}>
-          <Text style={styles.msgAuthor}>{message.author?.displayName}</Text>
-          <Text style={styles.msgTime}>
-            {new Date(message.createdAt).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </Text>
-        </View>
-        <Text style={styles.msgBody}>{message.body}</Text>
-      </View>
-    </View>
+      <Composer
+        onSend={send}
+        onTyping={notifyTyping}
+        placeholder={channel?.isDirect ? `Message à ${title}` : `Message dans ${title}`}
+      />
+
+      <Modal visible={showScheduled} transparent animationType="slide" onRequestClose={() => setShowScheduled(false)}>
+        <Pressable style={styles.backdrop} onPress={() => setShowScheduled(false)}>
+          <Pressable style={styles.schedSheet} onPress={() => {}}>
+            <Text style={styles.schedTitle}>Messages planifiés</Text>
+            {scheduled.length === 0 ? (
+              <Text style={styles.empty}>Aucun message planifié</Text>
+            ) : (
+              scheduled.map((m) => (
+                <View key={m.id} style={styles.schedRow}>
+                  <Text style={styles.schedWhen}>
+                    {new Date(m.scheduledAt).toLocaleString()}
+                  </Text>
+                  <Text style={styles.schedBody} numberOfLines={1}>
+                    {m.body}
+                  </Text>
+                  <Pressable onPress={() => cancelScheduled(m.id)}>
+                    <Text style={styles.schedCancel}>Annuler</Text>
+                  </Pressable>
+                </View>
+              ))
+            )}
+            <Pressable style={styles.closeBtn} onPress={() => setShowScheduled(false)}>
+              <Text style={styles.closeBtnText}>Fermer</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.white },
-  composer: {
-    padding: 8,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.white,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 6,
-    color: colors.text,
-  },
-  composerRow: { flexDirection: "row", gap: 6 },
-  scheduleInput: { flex: 1, marginBottom: 0 },
-  sendBtn: {
-    backgroundColor: colors.green,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    justifyContent: "center",
-  },
-  sendText: { color: colors.white, fontWeight: "600" },
-  msgRow: {
-    flexDirection: "row",
-    paddingVertical: 6,
-  },
-  msgGrouped: {
-    paddingVertical: 2,
-    paddingLeft: 48,
-  },
-  avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 6,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-  },
-  avatarText: { color: colors.white, fontWeight: "700" },
-  msgHeader: { flexDirection: "row", alignItems: "baseline", gap: 8 },
-  msgAuthor: { fontWeight: "700", color: colors.text },
-  msgTime: { color: colors.textMuted, fontSize: 11 },
-  msgBody: { color: colors.text, marginTop: 1 },
+  hTitle: { color: colors.white, fontWeight: "700", fontSize: 16, maxWidth: 220 },
+  hSub: { color: colors.aubergineMuted, fontSize: 12 },
+  hSubLink: { color: colors.aubergineMuted, fontSize: 12, textDecorationLine: "underline" },
+  hSubRow: { flexDirection: "row", alignItems: "center", gap: 5 },
+  hAction: { color: colors.white, fontSize: 13, fontWeight: "600" },
+  dayRow: { flexDirection: "row", alignItems: "center", marginVertical: 10, paddingHorizontal: 12 },
+  dayLine: { flex: 1, height: 1, backgroundColor: colors.border },
+  dayText: { paddingHorizontal: 10, color: colors.textMuted, fontSize: 12 },
+  empty: { textAlign: "center", color: colors.textMuted, padding: 24 },
+  typing: { paddingHorizontal: 14, paddingVertical: 2, fontStyle: "italic", color: colors.textMuted, fontSize: 12 },
+  backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)", justifyContent: "flex-end" },
+  schedSheet: { backgroundColor: colors.white, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 16, paddingBottom: 28 },
+  schedTitle: { fontSize: 17, fontWeight: "700", color: colors.text, marginBottom: 10 },
+  schedRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.border },
+  schedWhen: { fontSize: 12, color: colors.text, fontWeight: "600" },
+  schedBody: { flex: 1, color: colors.textMuted, fontSize: 13 },
+  schedCancel: { color: colors.red, fontWeight: "600", fontSize: 13 },
+  closeBtn: { marginTop: 16, alignSelf: "center" },
+  closeBtnText: { color: colors.aubergine, fontWeight: "600", fontSize: 15 },
 });
