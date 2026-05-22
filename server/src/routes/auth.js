@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { signToken, requireAuth } from "../auth.js";
+import { broadcastMembers } from "./channels.js";
 
 const router = Router();
 
@@ -39,6 +40,7 @@ router.post("/register", async (req, res) => {
     await prisma.membership
       .create({ data: { userId: user.id, channelId: def.id } })
       .catch(() => {});
+    await broadcastMembers(req.io, def.id);
   }
 
   const token = signToken(user);
