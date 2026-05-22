@@ -10,9 +10,11 @@ import {
   Alert,
 } from "react-native";
 import { api, setToken } from "../api";
+import { useChat } from "../ChatContext";
 import { colors } from "../theme";
 
-export default function LoginScreen({ onLoggedIn }) {
+export default function LoginScreen() {
+  const { login } = useChat();
   const [mode, setMode] = useState("login");
   const [emailOrUsername, setEmailOrUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -29,7 +31,7 @@ export default function LoginScreen({ onLoggedIn }) {
           ? await api.login({ emailOrUsername, password })
           : await api.register({ email, username, displayName, password });
       await setToken(res.token);
-      onLoggedIn(res.user);
+      login(res.user);
     } catch (err) {
       Alert.alert("Erreur", err.message || "Échec");
     } finally {
