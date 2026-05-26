@@ -94,7 +94,7 @@ Sur l'émulateur Android, `http://10.0.2.2:4000` est le hôte (déjà configuré
 
 ### Desktop (Tauri — Windows / macOS / Linux)
 
-**Installeur Windows pré-buildé** : [dist/Chat_0.2.0_x64-setup.exe](dist/Chat_0.2.0_x64-setup.exe) (1,2 Mo, NSIS, non signé — SmartScreen va râler une fois) — pointe sur `http://172.16.2.191:4000` par défaut. Aussi disponible : [dist/Chat-portable.exe](dist/Chat-portable.exe) (3,3 Mo, autonome, sans installation).
+**Installeur Windows pré-buildé** : [dist/Chat_0.2.0_x64-setup.exe](dist/Chat_0.2.0_x64-setup.exe) (NSIS, non signé — SmartScreen va râler une fois). Embarque `WebView2Loader.dll` (requise par le build GNU, sinon « WebView2Loader.dll introuvable » au lancement). L'adresse du serveur se configure désormais **dans l'app** (écran de connexion) ; le défaut baké est `http://172.16.2.191:4000`. Version portable : [dist/Chat-portable.zip](dist/Chat-portable.zip) (contient `chat-desktop.exe` + `WebView2Loader.dll` — garder les deux fichiers ensemble).
 
 Le scaffold complet est dans [web/src-tauri/](web/src-tauri/). Tauri lance Vite en dev et embarque le `dist/` en release.
 
