@@ -3,6 +3,7 @@ import EmojiPicker from "emoji-picker-react";
 import Avatar from "./Avatar.jsx";
 import Composer from "./Composer.jsx";
 import { api, attachmentUrl } from "../api.js";
+import { isWindowFocused } from "../desktop.js";
 
 function fmtBytes(n) {
   if (n < 1024) return `${n} o`;
@@ -118,9 +119,26 @@ export default function ChannelView({ channel, currentUser, socket, onlineUserId
       if (!cancelled) setScheduled(res.scheduled);
     });
     socket?.emit("channel:join", channel.id);
-    socket?.emit("channel:read", { channelId: channel.id });
+    // Only mark read when actually viewing (window focused + visible), not just
+    // because the channel is selected — a hidden window must not clear unread.
+    if (isWindowFocused()) socket?.emit("channel:read", { channelId: channel.id });
     return () => {
       cancelled = true;
+    };
+  }, [channel?.id, socket]);
+
+  // Returning to a backgrounded window/tab that has a channel open marks it read
+  // (covers messages received while it was hidden).
+  useEffect(() => {
+    if (!channel || !socket) return;
+    const markRead = () => {
+      if (isWindowFocused()) socket.emit("channel:read", { channelId: channel.id });
+    };
+    window.addEventListener("focus", markRead);
+    document.addEventListener("visibilitychange", markRead);
+    return () => {
+      window.removeEventListener("focus", markRead);
+      document.removeEventListener("visibilitychange", markRead);
     };
   }, [channel?.id, socket]);
 
@@ -129,7 +147,9 @@ export default function ChannelView({ channel, currentUser, socket, onlineUserId
     function onNew(msg) {
       if (!channel || msg.channelId !== channel.id) return;
       setMessages((prev) => [...prev, msg]);
-      socket.emit("channel:read", { channelId: channel.id });
+      // Don't auto-mark read when the window/tab is in the background, otherwise a
+      // hidden instance with this channel selected clears unread on every device.
+      if (isWindowFocused()) socket.emit("channel:read", { channelId: channel.id });
     }
     function onUpdated(msg) {
       if (!channel || msg.channelId !== channel.id) return;
