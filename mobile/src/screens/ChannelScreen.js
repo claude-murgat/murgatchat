@@ -8,6 +8,7 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  AppState,
 } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { api } from "../api";
@@ -100,11 +101,24 @@ export default function ChannelScreen({ route, navigation }) {
     api.messages(channelId).then((res) => !cancelled && setMessages(res.messages));
     api.scheduled(channelId).then((res) => !cancelled && setScheduled(res.scheduled));
     socket?.emit("channel:join", channelId);
-    socket?.emit("channel:read", { channelId });
+    // Only mark read when the app is actually in the foreground (not merely
+    // because this screen is mounted) — a backgrounded app must not clear unread
+    // on the user's other devices.
+    if (AppState.currentState === "active") socket?.emit("channel:read", { channelId });
     return () => {
       cancelled = true;
     };
   }, [channelId, socket]);
+
+  // Returning the app to the foreground with this channel open marks it read
+  // (covers messages received while it was backgrounded).
+  useEffect(() => {
+    if (!socket) return;
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") socket.emit("channel:read", { channelId });
+    });
+    return () => sub.remove();
+  }, [socket, channelId]);
 
   // Message-level realtime.
   useEffect(() => {
@@ -112,7 +126,8 @@ export default function ChannelScreen({ route, navigation }) {
     function onNew(msg) {
       if (msg.channelId !== channelId || msg.parentId) return;
       setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
-      socket.emit("channel:read", { channelId });
+      // Don't auto-mark read while the app is backgrounded (mirrors the web focus guard).
+      if (AppState.currentState === "active") socket.emit("channel:read", { channelId });
     }
     function onUpdated(msg) {
       if (msg.channelId !== channelId) return;
@@ -165,6 +180,8 @@ export default function ChannelScreen({ route, navigation }) {
       socket.off("thread:reply", onReply);
       socket.off("reaction:update", onReaction);
       socket.off("typing:update", onTyping);
+      Object.values(typingTimers.current).forEach(clearTimeout);
+      typingTimers.current = {};
     };
   }, [socket, channelId, user?.id]);
 
