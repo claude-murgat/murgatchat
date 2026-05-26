@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-05-22**.
+Dernière mise à jour : **2026-05-26**.
 
 ---
 
@@ -33,10 +33,14 @@ Dernière mise à jour : **2026-05-22**.
   builds natifs cassent sur l'espace (`dlltool`/`as` pour Tauri ; `ninja` pour Android).
   Builder hors d'un chemin avec espace : Tauri via `CARGO_TARGET_DIR=C:\murgat-build` ;
   APK en copiant `mobile/` vers `C:\murgat-mobile`.
-- Le bundle web **fige `VITE_API_URL` à la build**. IP LAN de la machine =
-  **`172.16.2.191`**. Builder le web avec
-  `VITE_API_URL=http://172.16.2.191:4000 docker compose up -d --build web`
-  pour que ça marche depuis le LAN (un `localhost` ne marche que sur cette machine).
+- **Adresse du serveur configurable au runtime** (écran de connexion, PR #12) :
+  `VITE_API_URL` (web) et `app.json extra.API_URL` (mobile) ne sont plus que des
+  **défauts de build**. IP LAN de la machine = **`172.16.2.191`** ; builder le web avec
+  `VITE_API_URL=http://172.16.2.191:4000 docker compose up -d --build web` pour un défaut
+  LAN-friendly. Le build mobile **public est livré sans serveur baké** (`extra.API_URL=""`).
+- ⚠️ **Desktop Tauri (toolchain GNU) : `WebView2Loader.dll` doit être embarquée**
+  (committée dans `web/src-tauri/`, référencée par `bundle.resources`) — sinon l'app ne
+  démarre pas (« WebView2Loader.dll introuvable »). Le « portable » est un zip(exe+dll). PR #14.
 - **Secrets dans un `.env` gitignoré** (interpolé par docker-compose) ; modèle
   versionné dans [.env.example](.env.example). Sur un nouveau checkout :
   `cp .env.example .env` puis remplir.
@@ -140,6 +144,34 @@ Dernière mise à jour : **2026-05-22**.
   Web/desktop : heartbeat `activity`. Mobile : `expo-notifications`. Gating vérifié côté
   serveur ; **livraison réelle = projectId Expo + FCM (`google-services.json`) à câbler**.
 
+## Itération 2026-05-26 — tests, serveur configurable, fixes & v0.2.1 (mergés)
+
+17. **Suite de tests anti-régression (PR #11)** — backend **Vitest** (70 tests : HTTP via
+    `supertest` + temps réel via `socket.io-client` + unitaires crypto / `isUserDnd` + gating
+    push avec `fetch` Expo mocké) contre un **Postgres jetable** (Docker port 5434, ou
+    `TEST_DATABASE_URL` en CI) ; **E2E Playwright** (parcours web complet, stack isolé
+    `docker-compose.e2e.yml`) ; **test de charge k6** (`load/k6/chat-load.js`, 150 VUs :
+    montée 1 min / plateau 8 min 30 / descente 30 s, 100 chatters WS + 50 readers HTTP) ;
+    **CI GitHub Actions** (backend + e2e sur PR) ; doc **`TESTING.md`**. `server/src/index.js`
+    exporte désormais `createServer()` / `startServer()` (bootable en mémoire pour les tests).
+18. **Adresse du serveur configurable au runtime (PR #12)** — champ « Adresse du serveur » +
+    bouton « Tester » (`GET /health`) sur l'écran de connexion (web/desktop **et** mobile),
+    persisté `localStorage` (`chat_api_base`) / `AsyncStorage`, utilisé pour le REST **et** le
+    Socket.IO. **Build mobile public sans serveur baké** (`extra.API_URL=""`) → un installeur
+    Store aléatoire ne peut pas rejoindre le serveur sans en connaître l'adresse.
+19. **Synchro « lu » multi-appareils (PR #13)** — le serveur rediffuse `channel:read` à la
+    room `user:<id>` (hors émetteur) ; web + mobile effacent leur badge non-lu en le recevant.
+20. **Fix desktop — `WebView2Loader.dll` (PR #14)** — le build Tauri GNU lie cette DLL en
+    dynamique ; embarquée via `bundle.resources` (committée dans `web/src-tauri/`), sinon l'app
+    ne démarrait pas. Portable = `dist/Chat-portable.zip` (exe + DLL).
+21. **Fix « lu » seulement au premier plan (PR #15) + release 0.2.1** — `channel:read` n'est
+    émis que si la fenêtre est focus + visible (`isWindowFocused`) côté web/desktop ; sinon une
+    instance **masquée** mais avec une conversation sélectionnée effaçait le non-lu sur toutes
+    les autres. Desktop + APK rebuildés en **0.2.1** (`dist/Chat_0.2.1_x64-setup.exe`).
+22. **Fix mobile — parité read-focus (2026-05-26)** — `ChannelScreen` n'émet `channel:read`
+    (ouverture + réception) que si `AppState === "active"`, + rattrapage au retour au premier
+    plan : même logique que le web, adaptée au cycle de vie mobile.
+
 ## Événements Socket.IO (catalogue)
 
 - Client → serveur : `channel:join`, `channel:read`, `message:send`
@@ -148,7 +180,8 @@ Dernière mise à jour : **2026-05-22**.
 - Serveur → client : `message:new`, `message:updated`, `message:deleted`,
   `thread:reply`, `reaction:update`, `channel:created`, `channel:removed`,
   `channel:members`, `notification`, `presence:state`, `presence:update`,
-  `typing:update`.
+  `typing:update`, **`channel:read`** (rediffusé aux autres appareils du même
+  utilisateur pour synchroniser les non-lus).
 
 ## Décisions notables
 
@@ -164,7 +197,10 @@ Dernière mise à jour : **2026-05-22**.
 - Suppression d'un message avec PJ : lignes `Attachment` supprimées en cascade,
   mais **fichiers orphelins** sur disque.
 - Sécurité (mise de côté pour l'instant) : `JWT_SECRET` à 30j sans refresh, CORS `*`,
-  pas de HTTPS, `prisma db push` au démarrage. Voir le README pour le détail.
+  pas de HTTPS, `prisma db push` au démarrage. **Inscription ouverte** : pas de garde-fou
+  serveur — l'URL configurable (PR #12) évite d'exposer l'adresse dans un build public mais
+  n'empêche pas l'inscription de qui la connaît ; un **code d'invitation / liste blanche**
+  côté serveur reste à faire. Voir le README pour le détail.
 - **Mobile** : envoi de **pièces jointes** non porté (l'affichage marche ; l'upload
   demande un picker natif). Build Android à faire hors d'un chemin avec espace ; l'APK
   release est signée avec la **clé debug** (à remplacer par une vraie clé pour distribuer).
