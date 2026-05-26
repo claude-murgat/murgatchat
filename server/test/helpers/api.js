@@ -1,23 +1,46 @@
 import request from "supertest";
+import { prisma } from "./db.js";
+import { signToken } from "../../src/auth.js";
 
 let seq = 0;
 
-// Register a fresh user through the real endpoint and return { token, user }.
-// Unique email/username each call so it survives even without a DB reset.
-export async function registerUser(app, overrides = {}) {
-  seq += 1;
-  const tag = `${Date.now().toString(36)}${seq}`;
-  const input = {
-    email: overrides.email ?? `u_${tag}@test.local`,
-    username: overrides.username ?? `u_${tag}`,
-    displayName: overrides.displayName ?? `User ${tag}`,
-    password: overrides.password ?? "test1234",
-  };
-  const res = await request(app).post("/auth/register").send(input);
+async function postRegister(app, input, token) {
+  const res = await request(app)
+    .post("/auth/register")
+    .send(token ? { ...input, token } : input);
   if (res.status !== 200) {
     throw new Error(`registerUser failed (${res.status}): ${JSON.stringify(res.body)}`);
   }
   return { token: res.body.token, user: res.body.user, input };
+}
+
+// Register a user, transparently handling invitation-only mode: the first user
+// (empty DB) bootstraps as admin; every subsequent user is invited by an existing
+// admin (token minted directly, then registered with the invitation token).
+export async function registerUser(app, overrides = {}) {
+  seq += 1;
+  const tag = `u_${Date.now().toString(36)}${seq}`.slice(0, 30);
+  const input = {
+    email: (overrides.email ?? `${tag}@test.local`).toLowerCase(),
+    username: overrides.username ?? tag,
+    displayName: overrides.displayName ?? `User ${tag}`,
+    password: overrides.password ?? "test1234",
+  };
+
+  if ((await prisma.user.count()) === 0) {
+    return postRegister(app, input, null); // bootstrap = admin, no invitation
+  }
+
+  const admin = await prisma.user.findFirst({ where: { isAdmin: true } });
+  if (!admin) throw new Error("registerUser: no admin available to invite");
+  const invite = await request(app)
+    .post("/auth/invitations")
+    .set("Authorization", `Bearer ${signToken(admin)}`)
+    .send({ email: input.email });
+  if (invite.status !== 200) {
+    throw new Error(`invite failed (${invite.status}): ${JSON.stringify(invite.body)}`);
+  }
+  return postRegister(app, input, invite.body.token);
 }
 
 // supertest request with the Authorization header pre-applied.

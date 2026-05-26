@@ -10,6 +10,7 @@ import {
 import { useChat } from "../ChatContext";
 import Avatar from "../components/Avatar";
 import PresenceDot from "../components/PresenceDot";
+import InviteModal from "../components/InviteModal";
 import { colors } from "../theme";
 
 function dndActive(user) {
@@ -19,6 +20,7 @@ function dndActive(user) {
 export default function ChannelListScreen({ navigation }) {
   const { user, channels, onlineUserIds, typingByChannel, markRead, logout } = useChat();
   const [menu, setMenu] = useState(false);
+  const [invite, setInvite] = useState(false);
 
   const groups = channels.filter((c) => !c.isDirect);
   const dms = channels.filter((c) => c.isDirect);
@@ -120,6 +122,17 @@ export default function ChannelListScreen({ navigation }) {
                 {dndActive(user) ? "Ne pas déranger (actif)" : "Ne pas déranger"}
               </Text>
             </Pressable>
+            {user?.isAdmin && (
+              <Pressable
+                style={styles.menuItem}
+                onPress={() => {
+                  setMenu(false);
+                  setInvite(true);
+                }}
+              >
+                <Text style={styles.menuText}>Inviter un utilisateur</Text>
+              </Pressable>
+            )}
             <Pressable
               style={styles.menuItem}
               onPress={() => {
@@ -132,6 +145,8 @@ export default function ChannelListScreen({ navigation }) {
           </View>
         </Pressable>
       </Modal>
+
+      <InviteModal visible={invite} onClose={() => setInvite(false)} />
     </View>
   );
 }

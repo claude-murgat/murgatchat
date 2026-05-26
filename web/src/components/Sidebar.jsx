@@ -20,6 +20,7 @@ export default function Sidebar({
   onNewDm,
   onToggleDnd,
   onLogout,
+  onInvite,
   onBrowseChannels,
   onlineUserIds,
   typingByChannel,
@@ -46,6 +47,17 @@ export default function Sidebar({
         </div>
         {showMenu && (
           <div className="absolute right-3 top-14 bg-white text-slate-800 rounded-md shadow-lg overflow-hidden z-30 w-56">
+            {user.isAdmin && (
+              <button
+                onClick={() => {
+                  setShowMenu(false);
+                  onInvite();
+                }}
+                className="block w-full text-left px-3 py-2 text-sm hover:bg-slate-100"
+              >
+                Inviter un utilisateur
+              </button>
+            )}
             <button
               onClick={() => {
                 setShowMenu(false);

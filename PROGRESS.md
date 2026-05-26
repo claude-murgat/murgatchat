@@ -171,6 +171,18 @@ Dernière mise à jour : **2026-05-26**.
 22. **Fix mobile — parité read-focus (2026-05-26)** — `ChannelScreen` n'émet `channel:read`
     (ouverture + réception) que si `AppState === "active"`, + rattrapage au retour au premier
     plan : même logique que le web, adaptée au cycle de vie mobile.
+23. **Inscription sur invitation, admin-only (2026-05-26)** — fini l'inscription ouverte :
+    `POST /auth/register` exige un `token` d'invitation valide (e-mail correspondant, non
+    utilisé, non expiré). **Exception bootstrap** : le tout premier compte (base vide) est créé
+    sans invitation et devient **admin** (`User.isAdmin`). Seuls les admins invitent :
+    `POST /auth/invitations` (crée + envoie l'e-mail via **nodemailer**),
+    `GET /auth/invitations` (liste), `GET /auth/invitations/:token` (public : valide + pré-remplit
+    l'e-mail). L'e-mail contient un **lien** (`APP_URL/?invite=<code>`) **et** un **code**.
+    Clients web/desktop + mobile : écran d'inscription avec code (pré-rempli depuis `?invite=` sur
+    le web), e-mail en lecture seule issu de l'invitation, + modale admin « Inviter un utilisateur ».
+    **Mailpit** (mail-catcher) ajouté au compose dev (SMTP `mail:1025`, UI http://localhost:8025) et
+    lancé en test (globalSetup) ; les tests vérifient que l'e-mail d'invitation est capturé avec le code.
+    `Invitation` model (`email`, `token` unique, `invitedBy`, `expiresAt`, `acceptedAt`).
 
 ## Événements Socket.IO (catalogue)
 
@@ -186,7 +198,8 @@ Dernière mise à jour : **2026-05-26**.
 ## Décisions notables
 
 - **Auteur uniquement** pour éditer/supprimer/répondre/réagir n'est pas restreint
-  (réagir & répondre ouverts à tous ; éditer/supprimer = auteur). Pas de rôle admin.
+  (réagir & répondre ouverts à tous ; éditer/supprimer = auteur). Rôle **admin minimal**
+  introduit (`User.isAdmin`, 1er compte bootstrap) uniquement pour gérer les invitations.
 - **Pas de threads imbriqués** (répondre à une réponse est refusé).
 - **Mobile (Expo)** désormais à parité complète avec le web (réactions, présence,
   typing, threads, gestion des membres, DM de groupe, planning DND, push).
@@ -197,10 +210,9 @@ Dernière mise à jour : **2026-05-26**.
 - Suppression d'un message avec PJ : lignes `Attachment` supprimées en cascade,
   mais **fichiers orphelins** sur disque.
 - Sécurité (mise de côté pour l'instant) : `JWT_SECRET` à 30j sans refresh, CORS `*`,
-  pas de HTTPS, `prisma db push` au démarrage. **Inscription ouverte** : pas de garde-fou
-  serveur — l'URL configurable (PR #12) évite d'exposer l'adresse dans un build public mais
-  n'empêche pas l'inscription de qui la connaît ; un **code d'invitation / liste blanche**
-  côté serveur reste à faire. Voir le README pour le détail.
+  pas de HTTPS, `prisma db push` au démarrage. **Inscription sur invitation** désormais en
+  place (admin-only — voir itération 2026-05-26) ; reste : livraison e-mail réelle (SMTP prod),
+  HTTPS. Voir le README pour le détail.
 - **Mobile** : envoi de **pièces jointes** non porté (l'affichage marche ; l'upload
   demande un picker natif). Build Android à faire hors d'un chemin avec espace ; l'APK
   release est signée avec la **clé debug** (à remplacer par une vraie clé pour distribuer).

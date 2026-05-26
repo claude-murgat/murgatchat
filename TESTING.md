@@ -42,9 +42,11 @@ npm test -- test/http/auth.test.js   # un fichier
   schéma (`prisma db push`). Il est supprimé en fin de run.
   - Si `TEST_DATABASE_URL` est défini (ex. en CI), aucun conteneur n'est créé :
     le schéma est poussé sur cette base.
-- **`vitest.config.js`** injecte `DATABASE_URL`, `JWT_SECRET`,
-  `MESSAGE_ENCRYPTION_KEY` (clé de test connue) et `UPLOAD_DIR` dans
-  `process.env` de chaque worker, avant l'import de `src/db.js` / `src/crypto.js`.
+  - Lève aussi **Mailpit** (`murgat-test-mail`, SMTP 1026 / API 8026) pour capturer les
+    e-mails d'invitation ; les tests interrogent son API HTTP pour vérifier l'envoi + le code.
+- **`vitest.config.js`** injecte `DATABASE_URL`, `JWT_SECRET`, `MESSAGE_ENCRYPTION_KEY`
+  (clé de test connue), `UPLOAD_DIR`, et `SMTP_HOST`/`SMTP_PORT`/`APP_URL` (→ Mailpit) dans
+  `process.env` de chaque worker, avant l'import de `src/db.js` / `src/crypto.js` / `src/mail.js`.
 - **`test/setup.js`** tronque toutes les tables avant chaque test (isolation).
   Les fichiers tournent en série (`fileParallelism: false`) pour partager sans
   risque l'unique base de test.
@@ -54,8 +56,10 @@ npm test -- test/http/auth.test.js   # un fichier
 ### Couverture
 - `test/unit/` — crypto (round-trip `enc1:`, fallback clair, déchiffrement KO),
   `isUserDnd` (fenêtre ponctuelle + plage quotidienne, passage de minuit).
-- `test/http/` — auth (register/login/me/dnd/dnd-schedule/push-token), channels
-  (create/list/public/join/dm/membres/leave + règles du salon par défaut),
+- `test/http/` — auth (register **sur invitation** + bootstrap 1er compte admin,
+  login/me/dnd/dnd-schedule/push-token), **invitations** (admin invite → e-mail capturé
+  dans Mailpit avec le code → register via token ; non-admin refusé ; mismatch/expiré/utilisé),
+  channels (create/list/public/join/dm/membres/leave + règles du salon par défaut),
   messages (edit/delete/thread), planifiés (list/patch/delete + dispatch),
   réactions (toggle/agrégation), non-lus.
 - `test/socket/` — `message:new`/`updated`/`deleted`, `thread:reply`,
