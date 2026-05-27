@@ -20,3 +20,11 @@ export const TEST_ENCRYPTION_KEY =
 
 // Writable dir for the uploads router's mkdirSync-at-import. Relative to server/.
 export const TEST_UPLOAD_DIR = process.env.UPLOAD_DIR || "./.test-uploads";
+
+// Mailpit (mail-catcher) for invitation-email tests. globalSetup spins a
+// disposable container: SMTP on host 1026, HTTP API on host 8026.
+export const TEST_SMTP_HOST = "localhost";
+export const TEST_SMTP_PORT = process.env.TEST_SMTP_PORT || "1026";
+export const TEST_MAILPIT_API = process.env.TEST_MAILPIT_API || "http://localhost:8026";
+// Used to build invite links in emails (so tests can assert the link/code).
+export const TEST_APP_URL = process.env.APP_URL || "http://localhost:5173";

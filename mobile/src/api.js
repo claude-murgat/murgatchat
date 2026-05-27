@@ -117,6 +117,11 @@ export const api = {
   register: (body) => request("/auth/register", { method: "POST", body, auth: false }),
   login: (body) => request("/auth/login", { method: "POST", body, auth: false }),
   me: () => request("/auth/me"),
+  createInvitation: (email) =>
+    request("/auth/invitations", { method: "POST", body: { email } }),
+  listInvitations: () => request("/auth/invitations"),
+  getInvitation: (token) =>
+    request(`/auth/invitations/${encodeURIComponent(token)}`, { auth: false }),
   setDnd: (minutes) => request("/auth/dnd", { method: "POST", body: { minutes } }),
   setDndSchedule: (enabled, start, end) =>
     request("/auth/dnd-schedule", { method: "POST", body: { enabled, start, end } }),

@@ -13,46 +13,88 @@ afterAll(() => {
   io.close();
 });
 
-describe("POST /auth/register", () => {
-  it("creates a user and returns a token + sanitized user", async () => {
+describe("POST /auth/register (invitation-based)", () => {
+  it("bootstraps the first user as admin without an invitation", async () => {
     const res = await request(app).post("/auth/register").send({
-      email: "newbie@test.local",
-      username: "newbie",
-      displayName: "Newbie",
+      email: "first@test.local",
+      username: "firstadmin",
+      displayName: "First",
       password: "test1234",
     });
     expect(res.status).toBe(200);
     expect(typeof res.body.token).toBe("string");
-    expect(res.body.user).toMatchObject({
-      email: "newbie@test.local",
-      username: "newbie",
-      displayName: "Newbie",
-    });
+    expect(res.body.user.isAdmin).toBe(true);
     expect(res.body.user.passwordHash).toBeUndefined();
     expect(res.body.user.avatarColor).toBeTruthy();
   });
 
-  it("rejects a duplicate email or username with 409", async () => {
-    await registerUser(app, { email: "dup@test.local", username: "dupuser" });
-    const sameEmail = await request(app).post("/auth/register").send({
-      email: "dup@test.local",
-      username: "other",
-      displayName: "Other",
+  it("requires an invitation once the first user exists", async () => {
+    await registerUser(app); // bootstrap admin
+    const res = await request(app).post("/auth/register").send({
+      email: "walkin@test.local",
+      username: "walkin",
+      displayName: "Walk In",
       password: "test1234",
     });
-    expect(sameEmail.status).toBe(409);
-    expect(sameEmail.body.error).toBe("email_or_username_taken");
-
-    const sameUser = await request(app).post("/auth/register").send({
-      email: "other@test.local",
-      username: "dupuser",
-      displayName: "Other",
-      password: "test1234",
-    });
-    expect(sameUser.status).toBe(409);
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe("invitation_required");
   });
 
-  it("validates payload (bad email, short password, bad username) with 400", async () => {
+  it("registers via a valid invitation (non-admin) and consumes the token", async () => {
+    const admin = await registerUser(app); // bootstrap admin
+    const inv = await authed(app, admin.token)
+      .post("/auth/invitations")
+      .send({ email: "invited@test.local" });
+    expect(inv.status).toBe(200);
+
+    const reg = await request(app).post("/auth/register").send({
+      token: inv.body.token,
+      email: "invited@test.local",
+      username: "invited",
+      displayName: "Invited",
+      password: "test1234",
+    });
+    expect(reg.status).toBe(200);
+    expect(reg.body.user.isAdmin).toBe(false);
+
+    // token consumed -> reuse rejected
+    const reuse = await request(app).post("/auth/register").send({
+      token: inv.body.token,
+      email: "invited@test.local",
+      username: "invited2",
+      displayName: "x",
+      password: "test1234",
+    });
+    expect(reuse.status).toBe(403);
+    expect(reuse.body.error).toBe("invalid_invitation");
+  });
+
+  it("rejects an email mismatch and an unknown token", async () => {
+    const admin = await registerUser(app);
+    const inv = await authed(app, admin.token)
+      .post("/auth/invitations")
+      .send({ email: "match@test.local" });
+    const mismatch = await request(app).post("/auth/register").send({
+      token: inv.body.token,
+      email: "nomatch@test.local",
+      username: "nm",
+      displayName: "x",
+      password: "test1234",
+    });
+    expect(mismatch.status).toBe(403);
+    expect(mismatch.body.error).toBe("invitation_email_mismatch");
+
+    const unknown = await request(app).post("/auth/register").send({
+      token: "deadbeef",
+      email: "x@test.local",
+      username: "xx",
+      displayName: "x",
+      password: "test1234",
+    });
+    expect(unknown.status).toBe(403);
+  });
+
+  it("validates the payload (400)", async () => {
     for (const bad of [
       { email: "nope", username: "ok", displayName: "X", password: "test1234" },
       { email: "a@b.co", username: "ok", displayName: "X", password: "123" },
@@ -62,6 +104,22 @@ describe("POST /auth/register", () => {
       const res = await request(app).post("/auth/register").send(bad);
       expect(res.status).toBe(400);
     }
+  });
+
+  it("rejects a duplicate username via an invitation (409)", async () => {
+    const admin = await registerUser(app, { username: "taken" });
+    const inv = await authed(app, admin.token)
+      .post("/auth/invitations")
+      .send({ email: "dupe@test.local" });
+    const res = await request(app).post("/auth/register").send({
+      token: inv.body.token,
+      email: "dupe@test.local",
+      username: "taken",
+      displayName: "x",
+      password: "test1234",
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("email_or_username_taken");
   });
 
   it("auto-joins the default channel 'Général'", async () => {

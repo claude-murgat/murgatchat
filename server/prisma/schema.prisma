@@ -15,6 +15,7 @@ model User {
   passwordHash String
   avatarColor  String    @default("#4A154B")
   status       String    @default("active")
+  isAdmin      Boolean   @default(false)
   dndUntil     DateTime?
   dndScheduleEnabled Boolean @default(false)
   dndStart     String?
@@ -26,6 +27,7 @@ model User {
   attachments Attachment[]
   reactions   Reaction[]
   pushTokens  PushToken[]
+  invitations Invitation[]
 }
 
 model Channel {
@@ -119,4 +121,18 @@ model PushToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+model Invitation {
+  id         String    @id @default(cuid())
+  email      String
+  token      String    @unique
+  invitedBy  String
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime
+  acceptedAt DateTime?
+
+  inviter User @relation(fields: [invitedBy], references: [id], onDelete: Cascade)
+
+  @@index([email])
 }

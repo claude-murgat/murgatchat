@@ -4,6 +4,9 @@ import {
   TEST_JWT_SECRET,
   TEST_ENCRYPTION_KEY,
   TEST_UPLOAD_DIR,
+  TEST_SMTP_HOST,
+  TEST_SMTP_PORT,
+  TEST_APP_URL,
 } from "./test/testEnv.js";
 
 export default defineConfig({
@@ -18,6 +21,9 @@ export default defineConfig({
       JWT_SECRET: TEST_JWT_SECRET,
       MESSAGE_ENCRYPTION_KEY: TEST_ENCRYPTION_KEY,
       UPLOAD_DIR: TEST_UPLOAD_DIR,
+      SMTP_HOST: TEST_SMTP_HOST,
+      SMTP_PORT: TEST_SMTP_PORT,
+      APP_URL: TEST_APP_URL,
       NODE_ENV: "test",
     },
     // One shared throwaway Postgres → run files sequentially so per-test

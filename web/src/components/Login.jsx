@@ -1,8 +1,17 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { api, setToken, getApiBaseUrl, setApiBaseUrl, pingServer } from "../api.js";
 
+function inviteFromUrl() {
+  try {
+    return new URLSearchParams(window.location.search).get("invite") || "";
+  } catch {
+    return "";
+  }
+}
+
 export default function Login({ onLoggedIn }) {
-  const [mode, setMode] = useState("login");
+  const urlInvite = inviteFromUrl();
+  const [mode, setMode] = useState(urlInvite ? "register" : "login");
   const [form, setForm] = useState({
     emailOrUsername: "",
     email: "",
@@ -15,6 +24,9 @@ export default function Login({ onLoggedIn }) {
   const [serverUrl, setServerUrl] = useState(() => getApiBaseUrl());
   const [serverStatus, setServerStatus] = useState(null);
   const [testing, setTesting] = useState(false);
+  const [inviteCode, setInviteCode] = useState(urlInvite);
+  const [invite, setInvite] = useState(null); // {email, valid, expired, accepted} | {error} | null
+  const [inviteChecking, setInviteChecking] = useState(false);
 
   function update(k, v) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -33,6 +45,43 @@ export default function Login({ onLoggedIn }) {
     }
   }
 
+  // Validate the invitation code (debounced) when registering, to prefill the email.
+  useEffect(() => {
+    if (mode !== "register") return;
+    const code = inviteCode.trim();
+    if (!code) {
+      setInvite(null);
+      return;
+    }
+    setInviteChecking(true);
+    const t = setTimeout(async () => {
+      try {
+        setApiBaseUrl(serverUrl);
+        setInvite(await api.getInvitation(code));
+      } catch {
+        setInvite({ error: true });
+      } finally {
+        setInviteChecking(false);
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [inviteCode, mode, serverUrl]);
+
+  const inviteOk = !!invite?.valid;
+  const inviteHint = !inviteCode.trim()
+    ? null
+    : inviteChecking
+    ? "Vérification…"
+    : invite?.error
+    ? "Impossible de vérifier — vérifiez l'adresse du serveur."
+    : invite?.valid
+    ? `Invitation valide pour ${invite.email}`
+    : invite?.accepted
+    ? "Invitation déjà utilisée."
+    : invite?.expired
+    ? "Invitation expirée."
+    : "Invitation introuvable.";
+
   async function submit(e) {
     e.preventDefault();
     const base = setApiBaseUrl(serverUrl);
@@ -44,18 +93,30 @@ export default function Login({ onLoggedIn }) {
     setBusy(true);
     setError(null);
     try {
-      const res =
-        mode === "login"
-          ? await api.login({
-              emailOrUsername: form.emailOrUsername,
-              password: form.password,
-            })
-          : await api.register({
-              email: form.email,
-              username: form.username,
-              displayName: form.displayName,
-              password: form.password,
-            });
+      let res;
+      if (mode === "login") {
+        res = await api.login({
+          emailOrUsername: form.emailOrUsername,
+          password: form.password,
+        });
+      } else {
+        const code = inviteCode.trim();
+        if (code && !inviteOk) {
+          setError("Invitation invalide ou expirée.");
+          setBusy(false);
+          return;
+        }
+        // With a valid code: email comes from the invitation. Without a code:
+        // bootstrap (first account) — the server allows it only if the DB is empty.
+        const body = {
+          email: inviteOk ? invite.email : form.email,
+          username: form.username,
+          displayName: form.displayName,
+          password: form.password,
+        };
+        if (inviteOk) body.token = code;
+        res = await api.register(body);
+      }
       setToken(res.token);
       onLoggedIn(res.user);
     } catch (err) {
@@ -74,14 +135,12 @@ export default function Login({ onLoggedIn }) {
             Chat
           </div>
           <p className="opacity-80 mt-1 text-sm">
-            {mode === "login" ? "Bon retour parmi nous." : "Créez votre compte."}
+            {mode === "login" ? "Bon retour parmi nous." : "Inscription sur invitation."}
           </p>
         </div>
         <form onSubmit={submit} className="p-6 space-y-3">
           <div className="space-y-1 pb-2 border-b border-slate-100">
-            <label className="text-xs font-medium text-slate-600">
-              Adresse du serveur
-            </label>
+            <label className="text-xs font-medium text-slate-600">Adresse du serveur</label>
             <div className="flex gap-2">
               <input
                 className="flex-1 border rounded-md px-3 py-2 text-sm"
@@ -102,15 +161,12 @@ export default function Login({ onLoggedIn }) {
               </button>
             </div>
             {serverStatus && (
-              <div
-                className={`text-xs ${
-                  serverStatus.ok ? "text-green-600" : "text-red-600"
-                }`}
-              >
+              <div className={`text-xs ${serverStatus.ok ? "text-green-600" : "text-red-600"}`}>
                 {serverStatus.msg}
               </div>
             )}
           </div>
+
           {mode === "login" ? (
             <input
               className="w-full border rounded-md px-3 py-2"
@@ -121,6 +177,30 @@ export default function Login({ onLoggedIn }) {
             />
           ) : (
             <>
+              <div className="space-y-1">
+                <input
+                  className="w-full border rounded-md px-3 py-2"
+                  placeholder="Code d'invitation"
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value)}
+                />
+                {inviteHint && (
+                  <div className={`text-xs ${inviteOk ? "text-green-600" : "text-slate-500"}`}>
+                    {inviteHint}
+                  </div>
+                )}
+              </div>
+              <input
+                className={`w-full border rounded-md px-3 py-2 ${
+                  inviteOk ? "bg-slate-50 text-slate-500" : ""
+                }`}
+                placeholder="Email"
+                type="email"
+                value={inviteOk ? invite.email : form.email}
+                onChange={(e) => update("email", e.target.value)}
+                readOnly={inviteOk}
+                required
+              />
               <input
                 className="w-full border rounded-md px-3 py-2"
                 placeholder="Nom affiché"
@@ -135,16 +215,9 @@ export default function Login({ onLoggedIn }) {
                 onChange={(e) => update("username", e.target.value)}
                 required
               />
-              <input
-                className="w-full border rounded-md px-3 py-2"
-                placeholder="Email"
-                type="email"
-                value={form.email}
-                onChange={(e) => update("email", e.target.value)}
-                required
-              />
             </>
           )}
+
           <input
             className="w-full border rounded-md px-3 py-2"
             placeholder="Mot de passe"
@@ -156,18 +229,21 @@ export default function Login({ onLoggedIn }) {
           {error && <div className="text-sm text-red-600">{error}</div>}
           <button
             type="submit"
-            disabled={busy}
+            disabled={busy || (mode === "register" && !!inviteCode.trim() && !inviteOk)}
             className="w-full bg-aubergine-700 hover:bg-aubergine-800 text-white font-medium rounded-md py-2 disabled:opacity-60"
           >
             {busy ? "..." : mode === "login" ? "Se connecter" : "S'inscrire"}
           </button>
           <button
             type="button"
-            onClick={() => setMode(mode === "login" ? "register" : "login")}
+            onClick={() => {
+              setMode(mode === "login" ? "register" : "login");
+              setError(null);
+            }}
             className="w-full text-aubergine-700 text-sm hover:underline"
           >
             {mode === "login"
-              ? "Pas encore de compte ? S'inscrire"
+              ? "J'ai une invitation — s'inscrire"
               : "Déjà un compte ? Se connecter"}
           </button>
         </form>

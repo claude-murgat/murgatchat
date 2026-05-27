@@ -8,6 +8,7 @@ const serverRoot = join(here, "..");
 const prismaCli = join(serverRoot, "node_modules", "prisma", "build", "index.js");
 
 const CONTAINER = "murgat-test-db";
+const MAIL_CONTAINER = "murgat-test-mail";
 // If a DB URL is provided (CI service container), don't manage Docker ourselves.
 const externalDb = !!process.env.TEST_DATABASE_URL;
 
@@ -19,6 +20,15 @@ function pgReady() {
   try {
     run("docker", ["exec", CONTAINER, "pg_isready", "-U", "murgattest", "-d", "murgattest"]);
     return true;
+  } catch {
+    return false;
+  }
+}
+
+async function mailReady() {
+  try {
+    const res = await fetch("http://localhost:8026/api/v1/messages");
+    return res.ok;
   } catch {
     return false;
   }
@@ -54,6 +64,28 @@ export async function setup() {
     if (!ready) throw new Error("test Postgres did not become ready within 60s");
   }
 
+  // Mail-catcher (Mailpit) for invitation-email tests: SMTP 1026, HTTP API 8026.
+  try {
+    run("docker", ["rm", "-f", MAIL_CONTAINER]);
+  } catch {
+    /* not running yet */
+  }
+  run("docker", [
+    "run", "-d", "--name", MAIL_CONTAINER,
+    "-p", "1026:1025",
+    "-p", "8026:8025",
+    "axllent/mailpit",
+  ]);
+  let mailUp = false;
+  for (let i = 0; i < 60; i++) {
+    if (await mailReady()) {
+      mailUp = true;
+      break;
+    }
+    await sleep(500);
+  }
+  if (!mailUp) throw new Error("Mailpit did not become ready within 30s");
+
   // Create the schema on the empty test DB (no migration history needed).
   run(process.execPath, [prismaCli, "db", "push", "--skip-generate", "--accept-data-loss"], {
     cwd: serverRoot,
@@ -68,5 +100,10 @@ export async function teardown() {
     } catch {
       /* already gone */
     }
+  }
+  try {
+    run("docker", ["rm", "-f", MAIL_CONTAINER]);
+  } catch {
+    /* already gone */
   }
 }

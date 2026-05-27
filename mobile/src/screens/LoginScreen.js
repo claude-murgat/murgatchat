@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -25,6 +25,47 @@ export default function LoginScreen() {
   const [serverUrl, setServerUrl] = useState(() => getApiBaseUrl());
   const [serverStatus, setServerStatus] = useState(null);
   const [testing, setTesting] = useState(false);
+  const [inviteCode, setInviteCode] = useState("");
+  const [invite, setInvite] = useState(null); // {email, valid, expired, accepted} | {error} | null
+  const [inviteChecking, setInviteChecking] = useState(false);
+
+  // Validate the invitation code (debounced) when registering, to prefill email.
+  useEffect(() => {
+    if (mode !== "register") return;
+    const code = inviteCode.trim();
+    if (!code) {
+      setInvite(null);
+      return;
+    }
+    setInviteChecking(true);
+    const t = setTimeout(async () => {
+      try {
+        await setApiBaseUrl(serverUrl);
+        setInvite(await api.getInvitation(code));
+      } catch {
+        setInvite({ error: true });
+      } finally {
+        setInviteChecking(false);
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [inviteCode, mode, serverUrl]);
+
+  const inviteOk = !!invite?.valid;
+  const inviteHint = !inviteCode.trim()
+    ? null
+    : inviteChecking
+    ? "Vérification…"
+    : invite?.error
+    ? "Impossible de vérifier — vérifiez l'adresse du serveur."
+    : invite?.valid
+    ? `Invitation valide pour ${invite.email}`
+    : invite?.accepted
+    ? "Invitation déjà utilisée."
+    : invite?.expired
+    ? "Invitation expirée."
+    : "Invitation introuvable.";
+  const registerBlocked = mode === "register" && !!inviteCode.trim() && !inviteOk;
 
   async function testServer() {
     setTesting(true);
@@ -51,10 +92,27 @@ export default function LoginScreen() {
     setServerUrl(base);
     setBusy(true);
     try {
-      const res =
-        mode === "login"
-          ? await api.login({ emailOrUsername, password })
-          : await api.register({ email, username, displayName, password });
+      let res;
+      if (mode === "login") {
+        res = await api.login({ emailOrUsername, password });
+      } else {
+        const code = inviteCode.trim();
+        if (code && !inviteOk) {
+          Alert.alert("Erreur", "Invitation invalide ou expirée.");
+          setBusy(false);
+          return;
+        }
+        // With a valid code: email comes from the invitation. Without a code:
+        // bootstrap (first account) — the server allows it only if the DB is empty.
+        const body = {
+          email: inviteOk ? invite.email : email,
+          username,
+          displayName,
+          password,
+        };
+        if (inviteOk) body.token = code;
+        res = await api.register(body);
+      }
       await setToken(res.token);
       login(res.user);
     } catch (err) {
@@ -72,7 +130,7 @@ export default function LoginScreen() {
       <View style={styles.card}>
         <Text style={styles.title}>Chat</Text>
         <Text style={styles.subtitle}>
-          {mode === "login" ? "Bon retour parmi nous." : "Créez votre compte."}
+          {mode === "login" ? "Bon retour parmi nous." : "Inscription sur invitation."}
         </Text>
 
         <Text style={styles.label}>Adresse du serveur</Text>
@@ -123,6 +181,33 @@ export default function LoginScreen() {
           <>
             <TextInput
               style={styles.input}
+              placeholder="Code d'invitation"
+              autoCapitalize="none"
+              autoCorrect={false}
+              value={inviteCode}
+              onChangeText={setInviteCode}
+            />
+            {inviteHint && (
+              <Text
+                style={[
+                  styles.serverStatus,
+                  { color: inviteOk ? "#16A34A" : colors.textMuted },
+                ]}
+              >
+                {inviteHint}
+              </Text>
+            )}
+            <TextInput
+              style={[styles.input, inviteOk && styles.inputReadOnly]}
+              placeholder="Email"
+              autoCapitalize="none"
+              keyboardType="email-address"
+              value={inviteOk ? invite.email : email}
+              onChangeText={setEmail}
+              editable={!inviteOk}
+            />
+            <TextInput
+              style={styles.input}
               placeholder="Nom affiché"
               value={displayName}
               onChangeText={setDisplayName}
@@ -134,14 +219,6 @@ export default function LoginScreen() {
               value={username}
               onChangeText={setUsername}
             />
-            <TextInput
-              style={styles.input}
-              placeholder="Email"
-              autoCapitalize="none"
-              keyboardType="email-address"
-              value={email}
-              onChangeText={setEmail}
-            />
           </>
         )}
         <TextInput
@@ -151,17 +228,24 @@ export default function LoginScreen() {
           value={password}
           onChangeText={setPassword}
         />
-        <TouchableOpacity style={styles.btn} disabled={busy} onPress={submit}>
+        <TouchableOpacity
+          style={[styles.btn, registerBlocked && styles.btnDisabled]}
+          disabled={busy || registerBlocked}
+          onPress={submit}
+        >
           <Text style={styles.btnText}>
             {busy ? "..." : mode === "login" ? "Se connecter" : "S'inscrire"}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
-          onPress={() => setMode(mode === "login" ? "register" : "login")}
+          onPress={() => {
+            setMode(mode === "login" ? "register" : "login");
+            setInvite(null);
+          }}
         >
           <Text style={styles.link}>
             {mode === "login"
-              ? "Pas encore de compte ? S'inscrire"
+              ? "J'ai une invitation — s'inscrire"
               : "Déjà un compte ? Se connecter"}
           </Text>
         </TouchableOpacity>
@@ -199,6 +283,10 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 10,
     color: colors.text,
+  },
+  inputReadOnly: {
+    backgroundColor: colors.bg,
+    color: colors.textMuted,
   },
   label: {
     fontSize: 12,
@@ -242,6 +330,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 4,
   },
+  btnDisabled: { opacity: 0.6 },
   btnText: { color: colors.white, fontWeight: "600" },
   link: {
     color: colors.aubergine,
