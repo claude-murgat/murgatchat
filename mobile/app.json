@@ -17,7 +17,12 @@
     },
     "ios": {
       "bundleIdentifier": "com.example.chat",
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      }
     },
     "extra": {
       "API_URL": ""

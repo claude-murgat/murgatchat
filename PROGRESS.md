@@ -212,7 +212,9 @@ Dernière mise à jour : **2026-05-26**.
 - Sécurité (mise de côté pour l'instant) : `JWT_SECRET` à 30j sans refresh, CORS `*`,
   pas de HTTPS, `prisma db push` au démarrage. **Inscription sur invitation** désormais en
   place (admin-only — voir itération 2026-05-26) ; reste : livraison e-mail réelle (SMTP prod),
-  HTTPS. Voir le README pour le détail.
+  HTTPS. **iOS** : `app.json` `ios.infoPlist.NSAppTransportSecurity.NSAllowsArbitraryLoads=true`
+  (autorise le HTTP en clair, nécessaire pour le serveur dev/LAN configurable) — à durcir
+  (HTTPS) avant une publication App Store. Voir le README pour le détail.
 - **Mobile** : envoi de **pièces jointes** non porté (l'affichage marche ; l'upload
   demande un picker natif). Build Android à faire hors d'un chemin avec espace ; l'APK
   release est signée avec la **clé debug** (à remplacer par une vraie clé pour distribuer).
