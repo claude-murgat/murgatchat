@@ -29,6 +29,24 @@ export function createServer() {
     next();
   });
 
+  // Opt-in access log (DEBUG_HTTP=1). Used during alpha-test to confirm or
+  // exclude the server when a request seems to die in transit (e.g. VPN issue
+  // GH#30). Logs method + url + request body size + status + duration. No PII
+  // is logged — bodies stay encrypted and out of stdout. See DEBUGGING.md.
+  if (process.env.DEBUG_HTTP === "1") {
+    app.use((req, res, next) => {
+      const start = Date.now();
+      const cl = req.headers["content-length"] || "-";
+      res.on("finish", () => {
+        const dur = Date.now() - start;
+        console.log(
+          `[http] ${req.method} ${req.url} body=${cl}o status=${res.statusCode} ${dur}ms ip=${req.ip}`
+        );
+      });
+      next();
+    });
+  }
+
   // Public probe used by the login screen's "Tester" button. Also exposes
   // `needsBootstrap` so a fresh deploy can hint "no admin yet — create one"
   // in the UI without anyone having to find the empty-invitation-code trick.
