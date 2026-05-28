@@ -79,17 +79,26 @@ router.post("/dm", requireAuth, async (req, res) => {
     : body.userId
     ? [body.userId]
     : [];
+  // We DO keep the caller's own id this time: a DM with just yourself is the
+  // "notes pour soi" scratchpad. So `userIds=[]` and `userIds=[self]` both
+  // resolve to the same single-member self-DM, and the others stay 2+ members.
+  const isSelfOnly = ids.length === 0 || ids.every((id) => id === req.userId);
   ids = [...new Set(ids.filter((id) => id && id !== req.userId))];
-  if (ids.length === 0) return res.status(400).json({ error: "invalid_target" });
-
-  const found = await prisma.user.findMany({
-    where: { id: { in: ids } },
-    select: { id: true },
-  });
-  if (found.length !== ids.length) {
+  if (ids.length === 0 && !isSelfOnly) {
     return res.status(400).json({ error: "invalid_target" });
   }
 
+  if (ids.length) {
+    const found = await prisma.user.findMany({
+      where: { id: { in: ids } },
+      select: { id: true },
+    });
+    if (found.length !== ids.length) {
+      return res.status(400).json({ error: "invalid_target" });
+    }
+  }
+
+  // Always include the caller. For a self-DM, that's the *only* member.
   const targetIds = [...new Set([req.userId, ...ids])];
   const include = {
     memberships: { include: { user: true } },
@@ -431,7 +440,15 @@ export function serializeChannel(channel, viewerId) {
   let displayName = channel.name;
   if (channel.isDirect) {
     const others = members.filter((u) => u.id !== viewerId);
-    displayName = others.map((u) => u.displayName).join(", ") || "Direct";
+    // Single-member DM where that member is the viewer = the "notes pour soi"
+    // scratchpad. Anything else without other members shouldn't happen in
+    // practice but we keep "Direct" as a safe fallback.
+    if (others.length === 0) {
+      const onlyMe = members.length === 1 && members[0].id === viewerId;
+      displayName = onlyMe ? "Mes notes" : "Direct";
+    } else {
+      displayName = others.map((u) => u.displayName).join(", ");
+    }
   }
   const last = channel.messages?.[0];
   const viewerMembership = (channel.memberships || []).find(

@@ -10,18 +10,41 @@ export default function NewDmModal({ onClose, onOpened, currentUserId }) {
 
   useEffect(() => {
     let cancelled = false;
+    // We DO keep the current user in the list now: ticking only yourself opens
+    // (or reopens) the "Mes notes" self-DM. The list reorders the caller on top.
     api.listUsers(q).then((res) => {
-      if (!cancelled) setUsers(res.users.filter((u) => u.id !== currentUserId));
+      if (cancelled) return;
+      const sorted = [...res.users].sort((a, b) => {
+        if (a.id === currentUserId) return -1;
+        if (b.id === currentUserId) return 1;
+        return 0;
+      });
+      setUsers(sorted);
     });
     return () => {
       cancelled = true;
     };
   }, [q, currentUserId]);
 
+  // A self-DM is a one-member channel — picking yourself is mutually exclusive
+  // with picking anyone else. The opposite checkboxes are *disabled* (instead
+  // of silently cleared) so the constraint is visible in the UI.
+  const selfPicked = selected.has(currentUserId);
+  const othersPicked = selected.size > 0 && !selfPicked;
+
   function toggle(id) {
-    const next = new Set(selected);
-    next.has(id) ? next.delete(id) : next.add(id);
-    setSelected(next);
+    const isSelf = id === currentUserId;
+    if (isSelf) {
+      // Ticking yourself empties the rest (single-member self-DM).
+      setSelected((prev) => (prev.has(id) ? new Set() : new Set([id])));
+    } else {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        next.delete(currentUserId); // defensive — disabled above prevents reaching this
+        next.has(id) ? next.delete(id) : next.add(id);
+        return next;
+      });
+    }
   }
 
   async function start() {
@@ -64,23 +87,46 @@ export default function NewDmModal({ onClose, onOpened, currentUserId }) {
           </p>
         </div>
         <div className="px-2 pb-2 overflow-y-auto flex-1">
-          {users.map((u) => (
-            <label
-              key={u.id}
-              className="flex items-center gap-3 px-3 py-2 hover:bg-slate-100 rounded-md cursor-pointer"
-            >
-              <input
-                type="checkbox"
-                checked={selected.has(u.id)}
-                onChange={() => toggle(u.id)}
-              />
-              <Avatar user={u} size={32} />
-              <div className="flex-1">
-                <div className="text-sm font-medium">{u.displayName}</div>
-                <div className="text-xs text-slate-500">@{u.username}</div>
-              </div>
-            </label>
-          ))}
+          {users.map((u) => {
+            const isMe = u.id === currentUserId;
+            const disabled = isMe ? othersPicked : selfPicked;
+            return (
+              <label
+                key={u.id}
+                title={
+                  disabled
+                    ? isMe
+                      ? "Décochez les autres pour ouvrir vos notes"
+                      : "Décochez « Mes notes » pour démarrer un DM"
+                    : undefined
+                }
+                className={`flex items-center gap-3 px-3 py-2 rounded-md ${
+                  disabled
+                    ? "opacity-50 cursor-not-allowed"
+                    : "hover:bg-slate-100 cursor-pointer"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.has(u.id)}
+                  disabled={disabled}
+                  onChange={() => toggle(u.id)}
+                />
+                <Avatar user={u} size={32} />
+                <div className="flex-1">
+                  <div className="text-sm font-medium">
+                    {isMe ? "📝 Mes notes" : u.displayName}
+                    {isMe && (
+                      <span className="ml-1 text-xs text-slate-500 font-normal">
+                        (notes pour vous-même)
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-slate-500">@{u.username}</div>
+                </div>
+              </label>
+            );
+          })}
           {users.length === 0 && (
             <div className="px-3 py-3 text-sm text-slate-500">Aucun utilisateur</div>
           )}
