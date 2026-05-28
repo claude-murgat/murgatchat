@@ -40,6 +40,10 @@ export default function Login({ onLoggedIn }) {
   const [serverUrl, setServerUrl] = useState(() => getApiBaseUrl());
   const [serverStatus, setServerStatus] = useState(null);
   const [testing, setTesting] = useState(false);
+  // `needsBootstrap` is read from /health and signals a fresh deploy with no
+  // accounts yet, so the UI surfaces "create the admin account" instead of
+  // hiding the option behind the misleading "I have an invitation" link.
+  const [needsBootstrap, setNeedsBootstrap] = useState(false);
 
   // Invite flow
   const [inviteCode, setInviteCode] = useState(urlInvite);
@@ -62,7 +66,8 @@ export default function Login({ onLoggedIn }) {
     setTesting(true);
     setServerStatus(null);
     try {
-      await pingServer(serverUrl);
+      const health = await pingServer(serverUrl);
+      setNeedsBootstrap(!!health?.needsBootstrap);
       setServerStatus({ ok: true, msg: "Serveur joignable ✓" });
     } catch (err) {
       setServerStatus({ ok: false, msg: `Injoignable : ${err.message || "erreur"}` });
@@ -71,9 +76,27 @@ export default function Login({ onLoggedIn }) {
     }
   }
 
-  // Validate the invitation code when registering, to prefill the email.
+  // Probe /health silently on mount and whenever the server URL changes (debounced),
+  // so the bootstrap banner appears without the user clicking "Tester" first.
   useEffect(() => {
-    if (mode !== "register") return;
+    const t = setTimeout(async () => {
+      try {
+        const health = await pingServer(serverUrl);
+        setNeedsBootstrap(!!health?.needsBootstrap);
+      } catch {
+        setNeedsBootstrap(false); // server unreachable: don't promise anything
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [serverUrl]);
+
+  // Validate the invitation code when registering, to prefill the email.
+  // Skipped in bootstrap (no accounts yet → no invitations exist either).
+  useEffect(() => {
+    if (mode !== "register" || needsBootstrap) {
+      setInvite(null);
+      return;
+    }
     const code = inviteCode.trim();
     if (!code) {
       setInvite(null);
@@ -91,7 +114,7 @@ export default function Login({ onLoggedIn }) {
       }
     }, 400);
     return () => clearTimeout(t);
-  }, [inviteCode, mode, serverUrl]);
+  }, [inviteCode, mode, serverUrl, needsBootstrap]);
 
   // Validate the reset code, to show the (masked) email.
   useEffect(() => {
@@ -215,9 +238,13 @@ export default function Login({ onLoggedIn }) {
 
   const subtitle =
     mode === "login"
-      ? "Bon retour parmi nous."
+      ? needsBootstrap
+        ? "Ce serveur n'a pas encore de compte."
+        : "Bon retour parmi nous."
       : mode === "register"
-      ? "Inscription sur invitation."
+      ? needsBootstrap
+        ? "Création du compte admin (premier compte du serveur)."
+        : "Inscription sur invitation."
       : mode === "forgot"
       ? "Réinitialiser votre mot de passe."
       : "Choisissez un nouveau mot de passe.";
@@ -261,6 +288,22 @@ export default function Login({ onLoggedIn }) {
             )}
           </div>
 
+          {mode === "login" && needsBootstrap && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+              <div className="font-semibold">Premier démarrage 🎉</div>
+              <div className="opacity-90 mt-0.5">
+                Ce serveur n'a pas encore de compte. Créez le compte administrateur ci-dessous.
+              </div>
+              <button
+                type="button"
+                onClick={() => switchMode("register")}
+                className="mt-2 text-amber-900 font-semibold underline"
+              >
+                Créer le compte admin
+              </button>
+            </div>
+          )}
+
           {mode === "login" && (
             <input
               className="w-full border rounded-md px-3 py-2"
@@ -273,19 +316,21 @@ export default function Login({ onLoggedIn }) {
 
           {mode === "register" && (
             <>
-              <div className="space-y-1">
-                <input
-                  className="w-full border rounded-md px-3 py-2"
-                  placeholder="Code d'invitation"
-                  value={inviteCode}
-                  onChange={(e) => setInviteCode(e.target.value)}
-                />
-                {inviteHint && (
-                  <div className={`text-xs ${inviteOk ? "text-green-600" : "text-slate-500"}`}>
-                    {inviteHint}
-                  </div>
-                )}
-              </div>
+              {!needsBootstrap && (
+                <div className="space-y-1">
+                  <input
+                    className="w-full border rounded-md px-3 py-2"
+                    placeholder="Code d'invitation"
+                    value={inviteCode}
+                    onChange={(e) => setInviteCode(e.target.value)}
+                  />
+                  {inviteHint && (
+                    <div className={`text-xs ${inviteOk ? "text-green-600" : "text-slate-500"}`}>
+                      {inviteHint}
+                    </div>
+                  )}
+                </div>
+              )}
               <input
                 className={`w-full border rounded-md px-3 py-2 ${
                   inviteOk ? "bg-slate-50 text-slate-500" : ""
@@ -359,7 +404,7 @@ export default function Login({ onLoggedIn }) {
             type="submit"
             disabled={
               busy ||
-              (mode === "register" && !!inviteCode.trim() && !inviteOk) ||
+              (mode === "register" && !needsBootstrap && !!inviteCode.trim() && !inviteOk) ||
               (mode === "reset" && !!resetCode.trim() && !resetOk)
             }
             className="w-full bg-aubergine-700 hover:bg-aubergine-800 text-white font-medium rounded-md py-2 disabled:opacity-60"
@@ -369,7 +414,9 @@ export default function Login({ onLoggedIn }) {
               : mode === "login"
               ? "Se connecter"
               : mode === "register"
-              ? "S'inscrire"
+              ? needsBootstrap
+                ? "Créer le compte admin"
+                : "S'inscrire"
               : mode === "forgot"
               ? "Envoyer le lien"
               : "Définir le mot de passe"}
@@ -378,13 +425,15 @@ export default function Login({ onLoggedIn }) {
           <div className="flex flex-col gap-1">
             {mode === "login" && (
               <>
-                <button
-                  type="button"
-                  onClick={() => switchMode("register")}
-                  className="w-full text-aubergine-700 text-sm hover:underline"
-                >
-                  J'ai une invitation — s'inscrire
-                </button>
+                {!needsBootstrap && (
+                  <button
+                    type="button"
+                    onClick={() => switchMode("register")}
+                    className="w-full text-aubergine-700 text-sm hover:underline"
+                  >
+                    J'ai une invitation — s'inscrire
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => switchMode("forgot")}

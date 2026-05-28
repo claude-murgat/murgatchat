@@ -26,6 +26,9 @@ export default function LoginScreen() {
   const [serverUrl, setServerUrl] = useState(() => getApiBaseUrl());
   const [serverStatus, setServerStatus] = useState(null);
   const [testing, setTesting] = useState(false);
+  // /health.needsBootstrap: surface "create the admin account" on a fresh deploy
+  // instead of hiding it behind the misleading "I have an invitation" link.
+  const [needsBootstrap, setNeedsBootstrap] = useState(false);
 
   // Invite flow
   const [inviteCode, setInviteCode] = useState("");
@@ -40,8 +43,12 @@ export default function LoginScreen() {
   const [info, setInfo] = useState(null);
 
   // Debounced invitation lookup.
+  // Skipped in bootstrap (no accounts → no invitations exist either).
   useEffect(() => {
-    if (mode !== "register") return;
+    if (mode !== "register" || needsBootstrap) {
+      setInvite(null);
+      return;
+    }
     const code = inviteCode.trim();
     if (!code) {
       setInvite(null);
@@ -59,7 +66,21 @@ export default function LoginScreen() {
       }
     }, 400);
     return () => clearTimeout(t);
-  }, [inviteCode, mode, serverUrl]);
+  }, [inviteCode, mode, serverUrl, needsBootstrap]);
+
+  // Debounced /health probe so the bootstrap banner appears as soon as the URL is typed.
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      try {
+        await setApiBaseUrl(serverUrl);
+        const health = await pingServer(serverUrl);
+        setNeedsBootstrap(!!health?.needsBootstrap);
+      } catch {
+        setNeedsBootstrap(false);
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [serverUrl]);
 
   // Debounced reset-code lookup.
   useEffect(() => {
@@ -114,14 +135,15 @@ export default function LoginScreen() {
     : "Code introuvable.";
 
   const registerBlocked =
-    mode === "register" && !!inviteCode.trim() && !inviteOk;
+    mode === "register" && !needsBootstrap && !!inviteCode.trim() && !inviteOk;
   const resetBlocked = mode === "reset" && !!resetCode.trim() && !resetOk;
 
   async function testServer() {
     setTesting(true);
     setServerStatus(null);
     try {
-      await pingServer(serverUrl);
+      const health = await pingServer(serverUrl);
+      setNeedsBootstrap(!!health?.needsBootstrap);
       setServerStatus({ ok: true, msg: "Serveur joignable ✓" });
     } catch (e) {
       setServerStatus({ ok: false, msg: `Injoignable : ${e.message || "erreur"}` });
@@ -192,9 +214,13 @@ export default function LoginScreen() {
 
   const subtitle =
     mode === "login"
-      ? "Bon retour parmi nous."
+      ? needsBootstrap
+        ? "Ce serveur n'a pas encore de compte."
+        : "Bon retour parmi nous."
       : mode === "register"
-      ? "Inscription sur invitation."
+      ? needsBootstrap
+        ? "Création du compte admin (premier compte du serveur)."
+        : "Inscription sur invitation."
       : mode === "forgot"
       ? "Réinitialiser votre mot de passe."
       : "Choisissez un nouveau mot de passe.";
@@ -203,7 +229,9 @@ export default function LoginScreen() {
     mode === "login"
       ? "Se connecter"
       : mode === "register"
-      ? "S'inscrire"
+      ? needsBootstrap
+        ? "Créer le compte admin"
+        : "S'inscrire"
       : mode === "forgot"
       ? "Envoyer le lien"
       : "Définir le mot de passe";
@@ -254,6 +282,18 @@ export default function LoginScreen() {
             </Text>
           )}
 
+          {mode === "login" && needsBootstrap && (
+            <View style={styles.bootstrapBox}>
+              <Text style={styles.bootstrapTitle}>Premier démarrage 🎉</Text>
+              <Text style={styles.bootstrapBody}>
+                Ce serveur n'a pas encore de compte. Créez le compte administrateur.
+              </Text>
+              <TouchableOpacity onPress={() => switchMode("register")}>
+                <Text style={styles.bootstrapLink}>Créer le compte admin</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           {mode === "login" && (
             <TextInput
               style={styles.input}
@@ -266,23 +306,27 @@ export default function LoginScreen() {
 
           {mode === "register" && (
             <>
-              <TextInput
-                style={styles.input}
-                placeholder="Code d'invitation"
-                autoCapitalize="none"
-                autoCorrect={false}
-                value={inviteCode}
-                onChangeText={setInviteCode}
-              />
-              {inviteHint && (
-                <Text
-                  style={[
-                    styles.serverStatus,
-                    { color: inviteOk ? "#16A34A" : colors.textMuted },
-                  ]}
-                >
-                  {inviteHint}
-                </Text>
+              {!needsBootstrap && (
+                <>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Code d'invitation"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    value={inviteCode}
+                    onChangeText={setInviteCode}
+                  />
+                  {inviteHint && (
+                    <Text
+                      style={[
+                        styles.serverStatus,
+                        { color: inviteOk ? "#16A34A" : colors.textMuted },
+                      ]}
+                    >
+                      {inviteHint}
+                    </Text>
+                  )}
+                </>
               )}
               <TextInput
                 style={[styles.input, inviteOk && styles.inputReadOnly]}
@@ -364,9 +408,11 @@ export default function LoginScreen() {
 
           {mode === "login" && (
             <>
-              <TouchableOpacity onPress={() => switchMode("register")}>
-                <Text style={styles.link}>J'ai une invitation — s'inscrire</Text>
-              </TouchableOpacity>
+              {!needsBootstrap && (
+                <TouchableOpacity onPress={() => switchMode("register")}>
+                  <Text style={styles.link}>J'ai une invitation — s'inscrire</Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity onPress={() => switchMode("forgot")}>
                 <Text style={styles.link}>Mot de passe oublié ?</Text>
               </TouchableOpacity>
@@ -464,6 +510,22 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   infoLine: { fontSize: 13, color: "#16A34A", marginBottom: 8 },
+  bootstrapBox: {
+    borderWidth: 1,
+    borderColor: "#FCD34D",
+    backgroundColor: "#FFFBEB",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 10,
+  },
+  bootstrapTitle: { color: "#92400E", fontWeight: "700", fontSize: 14 },
+  bootstrapBody: { color: "#78350F", fontSize: 13, marginTop: 2 },
+  bootstrapLink: {
+    color: "#92400E",
+    fontWeight: "700",
+    marginTop: 6,
+    textDecorationLine: "underline",
+  },
   btn: {
     backgroundColor: colors.aubergine,
     borderRadius: 8,
