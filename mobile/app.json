@@ -2,7 +2,7 @@
   "expo": {
     "name": "Chat",
     "slug": "chat",
-    "version": "0.3.1",
+    "version": "0.4.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "splash": {
@@ -10,7 +10,7 @@
     },
     "android": {
       "package": "com.example.chat",
-      "versionCode": 4,
+      "versionCode": 5,
       "adaptiveIcon": {
         "backgroundColor": "#3F0E40"
       }

@@ -14,8 +14,9 @@ model User {
   displayName  String
   passwordHash String
   avatarColor  String    @default("#4A154B")
-  status       String    @default("active")
+  status       String    @default("active") // "active" | "disabled" (soft delete)
   isAdmin      Boolean   @default(false)
+  isOwner      Boolean   @default(false) // exactly one User has true at any time
   dndUntil     DateTime?
   dndScheduleEnabled Boolean @default(false)
   dndStart     String?

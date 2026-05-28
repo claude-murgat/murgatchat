@@ -144,6 +144,17 @@ export default function ChannelListScreen({ navigation }) {
                 <Text style={styles.menuText}>Inviter un utilisateur</Text>
               </Pressable>
             )}
+            {user?.isAdmin && (
+              <Pressable
+                style={styles.menuItem}
+                onPress={() => {
+                  setMenu(false);
+                  navigation.navigate("AdminPanel");
+                }}
+              >
+                <Text style={styles.menuText}>Administration</Text>
+              </Pressable>
+            )}
             <Pressable
               style={styles.menuItem}
               onPress={() => {

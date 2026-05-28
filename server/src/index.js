@@ -2,7 +2,7 @@ import http from "node:http";
 import { pathToFileURL } from "node:url";
 import express from "express";
 import cors from "cors";
-import authRouter from "./routes/auth.js";
+import authRouter, { ensureOwner } from "./routes/auth.js";
 import usersRouter from "./routes/users.js";
 import channelsRouter, { ensureDefaultChannel } from "./routes/channels.js";
 import uploadsRouter from "./routes/uploads.js";
@@ -62,6 +62,11 @@ export function startServer() {
     ensureDefaultChannel()
       .then((c) => console.log(`Default channel ready: ${c.name} (${c.id})`))
       .catch((e) => console.error("ensureDefaultChannel error", e));
+    // Backfill `isOwner` for pre-existing deployments: if there's at least
+    // one admin but no owner, the oldest admin is promoted.
+    ensureOwner()
+      .then((o) => o && console.log(`Owner ready: ${o.username} (${o.id})`))
+      .catch((e) => console.error("ensureOwner error", e));
   });
 
   return { server, io };

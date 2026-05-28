@@ -60,7 +60,10 @@ router.post("/register", async (req, res) => {
       displayName,
       passwordHash,
       avatarColor: color,
+      // Bootstrap = first account on a fresh deploy = admin AND owner.
+      // Subsequent accounts (registered via invitation) are plain members.
       isAdmin: isBootstrap,
+      isOwner: isBootstrap,
     },
   });
 
@@ -100,6 +103,8 @@ router.post("/login", async (req, res) => {
 
   const ok = await bcrypt.compare(password, user.passwordHash);
   if (!ok) return res.status(401).json({ error: "invalid_credentials" });
+  // Soft-deleted account: same error as a wrong password (no enumeration).
+  if (user.status === "disabled") return res.status(401).json({ error: "invalid_credentials" });
 
   const token = signToken(user);
   res.json({ token, user: publicUser(user) });
@@ -290,10 +295,15 @@ router.delete("/push-token", requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-async function requireAdmin(req, res, next) {
-  const u = await prisma.user.findUnique({ where: { id: req.userId } });
-  if (!u?.isAdmin) return res.status(403).json({ error: "admin_required" });
-  req.adminUser = u;
+function requireAdmin(req, res, next) {
+  if (!req.user?.isAdmin) return res.status(403).json({ error: "admin_required" });
+  // Back-compat with older code that read req.adminUser.
+  req.adminUser = req.user;
+  next();
+}
+
+function requireOwner(req, res, next) {
+  if (!req.user?.isOwner) return res.status(403).json({ error: "owner_required" });
   next();
 }
 
@@ -353,6 +363,114 @@ router.get("/invitations/:token", async (req, res) => {
   res.json({ email: inv.email, valid: !expired && !accepted, expired, accepted });
 });
 
+// --- Admin panel: list users + manage roles + soft delete + transfer ownership
+
+// Admin-only: list all users (with role + status) for the admin panel.
+router.get("/users", requireAuth, requireAdmin, async (_req, res) => {
+  const users = await prisma.user.findMany({
+    orderBy: [{ isOwner: "desc" }, { isAdmin: "desc" }, { displayName: "asc" }],
+  });
+  res.json({ users: users.map(publicUser) });
+});
+
+const userPatchSchema = z
+  .object({
+    isAdmin: z.boolean().optional(),
+    status: z.enum(["active", "disabled"]).optional(),
+  })
+  .refine((d) => d.isAdmin !== undefined || d.status !== undefined, {
+    message: "no_changes",
+  });
+
+// Admin-only: change a user's role/status with field-level permission checks.
+//   - isAdmin: owner only (and never targets the owner herself; promote/revoke)
+//   - status:  admin can disable a plain member; owner is required to disable
+//              another admin; owner cannot be disabled or revoked at all
+//              (must transfer ownership first).
+router.patch("/users/:id", requireAuth, requireAdmin, async (req, res) => {
+  const parsed = userPatchSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const { isAdmin, status } = parsed.data;
+
+  const target = await prisma.user.findUnique({ where: { id: req.params.id } });
+  if (!target) return res.status(404).json({ error: "not_found" });
+
+  const me = req.user;
+  if (target.isOwner) {
+    return res.status(403).json({ error: "owner_protected" });
+  }
+
+  const data = {};
+
+  if (isAdmin !== undefined) {
+    if (!me.isOwner) return res.status(403).json({ error: "owner_required" });
+    if (target.id === me.id) return res.status(403).json({ error: "self_demote_forbidden" });
+    data.isAdmin = isAdmin;
+    // Demoting an admin to member: also clears their admin if they have it.
+  }
+
+  if (status !== undefined) {
+    if (status === "disabled") {
+      // Can't disable an admin unless you're the owner.
+      if (target.isAdmin && !me.isOwner) {
+        return res.status(403).json({ error: "owner_required_for_admin" });
+      }
+      if (target.id === me.id) return res.status(403).json({ error: "self_disable_forbidden" });
+    }
+    data.status = status;
+  }
+
+  const updated = await prisma.user.update({ where: { id: target.id }, data });
+  res.json({ user: publicUser(updated) });
+});
+
+const transferSchema = z.object({ targetUserId: z.string().min(1) });
+
+// Owner-only: hand ownership to another user. The previous owner stays admin
+// (per the product decision; never silently demoted to a plain member). The
+// new owner is also forced to admin so they can use admin tools immediately.
+router.post("/transfer-ownership", requireAuth, requireOwner, async (req, res) => {
+  const parsed = transferSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const { targetUserId } = parsed.data;
+  const me = req.user;
+
+  if (targetUserId === me.id) return res.status(400).json({ error: "already_owner" });
+  const target = await prisma.user.findUnique({ where: { id: targetUserId } });
+  if (!target) return res.status(404).json({ error: "not_found" });
+  if (target.status === "disabled") return res.status(400).json({ error: "target_disabled" });
+
+  // Atomic swap so the database is never momentarily without an owner.
+  const [, newOwner] = await prisma.$transaction([
+    prisma.user.update({
+      where: { id: me.id },
+      data: { isOwner: false, isAdmin: true },
+    }),
+    prisma.user.update({
+      where: { id: target.id },
+      data: { isOwner: true, isAdmin: true },
+    }),
+  ]);
+  res.json({ newOwner: publicUser(newOwner) });
+});
+
+// Self-heal an existing deployment where someone is admin but nobody is owner.
+// Promotes the oldest admin (createdAt asc) to owner. No-op on a healthy DB.
+// Called at startup so an alpha that pre-dates User.isOwner gets fixed silently.
+export async function ensureOwner() {
+  const owner = await prisma.user.findFirst({ where: { isOwner: true } });
+  if (owner) return owner;
+  const firstAdmin = await prisma.user.findFirst({
+    where: { isAdmin: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (!firstAdmin) return null;
+  return prisma.user.update({
+    where: { id: firstAdmin.id },
+    data: { isOwner: true },
+  });
+}
+
 function serializeInvitation(inv) {
   return {
     id: inv.id,
@@ -374,6 +492,7 @@ export function publicUser(u) {
     avatarColor: u.avatarColor,
     status: u.status,
     isAdmin: u.isAdmin,
+    isOwner: u.isOwner,
     dndUntil: u.dndUntil,
     dndScheduleEnabled: u.dndScheduleEnabled,
     dndStart: u.dndStart,
