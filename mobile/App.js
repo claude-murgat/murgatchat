@@ -7,7 +7,6 @@ import { ChatProvider, useChat } from "./src/ChatContext";
 import LoginScreen from "./src/screens/LoginScreen";
 import ChannelListScreen from "./src/screens/ChannelListScreen";
 import ChannelScreen from "./src/screens/ChannelScreen";
-import ThreadScreen from "./src/screens/ThreadScreen";
 import MembersScreen from "./src/screens/MembersScreen";
 import AddMembersScreen from "./src/screens/AddMembersScreen";
 import NewChannelScreen from "./src/screens/NewChannelScreen";
@@ -57,7 +56,6 @@ function Root() {
         >
           <Stack.Screen name="Channels" component={ChannelListScreen} options={{ title: "Conversations" }} />
           <Stack.Screen name="Channel" component={ChannelScreen} />
-          <Stack.Screen name="Thread" component={ThreadScreen} options={{ title: "Fil de discussion" }} />
           <Stack.Screen name="Members" component={MembersScreen} options={{ title: "Membres" }} />
           <Stack.Screen name="AddMembers" component={AddMembersScreen} options={{ title: "Ajouter des membres" }} />
           <Stack.Screen name="NewChannel" component={NewChannelScreen} options={{ title: "Créer une conversation" }} />

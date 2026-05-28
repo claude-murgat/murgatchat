@@ -157,7 +157,12 @@ export function setupSocket(httpServer, corsOrigin) {
             scheduledAt: isScheduled ? scheduledDate : null,
             delivered: !isScheduled,
           },
-          include: { author: true, attachments: true },
+          include: {
+            author: true,
+            attachments: true,
+            // Hydrate the parent for the inline quote in the recipient's UI.
+            parent: { include: { author: true } },
+          },
         });
 
         if (attachmentIds.length) {
@@ -175,11 +180,11 @@ export function setupSocket(httpServer, corsOrigin) {
           return;
         }
 
+        // Discord/Messenger model: replies share the timeline with root
+        // messages, so we always emit `message:new` and let the client
+        // render the inline quote bubble from `serialized.parent`.
         const serialized = serializeMessage(msg);
-        io.to(`channel:${channelId}`).emit(
-          msg.parentId ? "thread:reply" : "message:new",
-          serialized
-        );
+        io.to(`channel:${channelId}`).emit("message:new", serialized);
 
         await notifyMembers(io, channelId, userId, serialized);
         ack?.({ ok: true, message: serialized });

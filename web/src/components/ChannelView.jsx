@@ -20,13 +20,7 @@ function Attachments({ attachments }) {
         const url = attachmentUrl(a.id);
         if (isImg) {
           return (
-            <a
-              key={a.id}
-              href={url}
-              target="_blank"
-              rel="noreferrer"
-              className="block"
-            >
+            <a key={a.id} href={url} target="_blank" rel="noreferrer" className="block">
               <img
                 src={url}
                 alt={a.filename}
@@ -56,10 +50,7 @@ function Attachments({ attachments }) {
 
 function formatDate(d) {
   const date = new Date(d);
-  return date.toLocaleString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return date.toLocaleString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function dayLabel(d) {
@@ -98,20 +89,45 @@ function reactionLabel(users) {
   return `${names[0]}, ${names[1]} et ${others} autre${others > 1 ? "s" : ""} ont réagi`;
 }
 
-export default function ChannelView({ channel, currentUser, socket, onlineUserIds, onAddMembers, onShowMembers }) {
+function previewSnippet(body, max = 60) {
+  const flat = (body || "").replace(/\s+/g, " ").trim();
+  return flat.length > max ? flat.slice(0, max - 1) + "…" : flat;
+}
+
+export default function ChannelView({
+  channel,
+  currentUser,
+  socket,
+  onlineUserIds,
+  onAddMembers,
+  onShowMembers,
+}) {
   const [messages, setMessages] = useState([]);
   const [scheduled, setScheduled] = useState([]);
   const [showScheduled, setShowScheduled] = useState(false);
-  const [threadParentId, setThreadParentId] = useState(null);
+  // Discord-style: tapping "Répondre" sets the target here; the next outgoing
+  // message gets `parentId` and clears it. No more side panel.
+  const [replyingTo, setReplyingTo] = useState(null);
   const [typingUserIds, setTypingUserIds] = useState([]);
   const scrollRef = useRef(null);
+  const messageRefs = useRef({});
   const typingTimers = useRef({});
   const lastTypingSent = useRef(0);
+
+  // Scroll to a message (clicked from a quote bubble) and flash it for 1.5 s.
+  function jumpToMessage(id) {
+    const el = messageRefs.current[id];
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("ring-2", "ring-amber-400");
+    setTimeout(() => el.classList.remove("ring-2", "ring-amber-400"), 1500);
+  }
 
   useEffect(() => {
     if (!channel) return;
     let cancelled = false;
     setTypingUserIds([]);
+    setReplyingTo(null);
     api.messages(channel.id).then((res) => {
       if (!cancelled) setMessages(res.messages);
     });
@@ -119,16 +135,12 @@ export default function ChannelView({ channel, currentUser, socket, onlineUserId
       if (!cancelled) setScheduled(res.scheduled);
     });
     socket?.emit("channel:join", channel.id);
-    // Only mark read when actually viewing (window focused + visible), not just
-    // because the channel is selected — a hidden window must not clear unread.
     if (isWindowFocused()) socket?.emit("channel:read", { channelId: channel.id });
     return () => {
       cancelled = true;
     };
   }, [channel?.id, socket]);
 
-  // Returning to a backgrounded window/tab that has a channel open marks it read
-  // (covers messages received while it was hidden).
   useEffect(() => {
     if (!channel || !socket) return;
     const markRead = () => {
@@ -146,38 +158,20 @@ export default function ChannelView({ channel, currentUser, socket, onlineUserId
     if (!socket) return;
     function onNew(msg) {
       if (!channel || msg.channelId !== channel.id) return;
-      setMessages((prev) => [...prev, msg]);
-      // Don't auto-mark read when the window/tab is in the background, otherwise a
-      // hidden instance with this channel selected clears unread on every device.
+      // Replies arrive on `message:new` too in the new model (parent quote is
+      // carried inline in `msg.parent`), so a single handler covers both.
+      setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
       if (isWindowFocused()) socket.emit("channel:read", { channelId: channel.id });
     }
     function onUpdated(msg) {
       if (!channel || msg.channelId !== channel.id) return;
       setMessages((prev) => prev.map((m) => (m.id === msg.id ? msg : m)));
     }
-    function onDeleted({ id, channelId, parentId }) {
+    function onDeleted({ id, channelId }) {
       if (!channel || channelId !== channel.id) return;
-      if (parentId) {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === parentId
-              ? { ...m, replyCount: Math.max(0, (m.replyCount || 0) - 1) }
-              : m
-          )
-        );
-      } else {
-        setMessages((prev) => prev.filter((m) => m.id !== id));
-      }
-    }
-    function onReply(msg) {
-      if (!channel || msg.channelId !== channel.id) return;
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === msg.parentId
-            ? { ...m, replyCount: (m.replyCount || 0) + 1 }
-            : m
-        )
-      );
+      setMessages((prev) => prev.filter((m) => m.id !== id));
+      // Don't keep an orphaned reply-target if it just vanished.
+      setReplyingTo((curr) => (curr?.id === id ? null : curr));
     }
     function onReaction({ messageId, reactions }) {
       setMessages((prev) =>
@@ -196,18 +190,16 @@ export default function ChannelView({ channel, currentUser, socket, onlineUserId
     socket.on("message:new", onNew);
     socket.on("message:updated", onUpdated);
     socket.on("message:deleted", onDeleted);
-    socket.on("thread:reply", onReply);
     socket.on("reaction:update", onReaction);
     socket.on("typing:update", onTyping);
     return () => {
       socket.off("message:new", onNew);
       socket.off("message:updated", onUpdated);
       socket.off("message:deleted", onDeleted);
-      socket.off("thread:reply", onReply);
       socket.off("reaction:update", onReaction);
       socket.off("typing:update", onTyping);
     };
-  }, [socket, channel?.id]);
+  }, [socket, channel?.id, currentUser?.id]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -216,9 +208,10 @@ export default function ChannelView({ channel, currentUser, socket, onlineUserId
 
   function send(payload) {
     if (!channel || !socket) return;
+    const parentId = replyingTo?.id || null;
     socket.emit(
       "message:send",
-      { channelId: channel.id, ...payload },
+      { channelId: channel.id, parentId, ...payload },
       (resp) => {
         if (resp?.error) return alert(resp.error);
         if (resp?.scheduled) {
@@ -226,17 +219,8 @@ export default function ChannelView({ channel, currentUser, socket, onlineUserId
         }
       }
     );
-  }
-
-  function sendReply(payload) {
-    if (!channel || !socket || !threadParentId) return;
-    socket.emit(
-      "message:send",
-      { channelId: channel.id, parentId: threadParentId, ...payload },
-      (resp) => {
-        if (resp?.error) alert(resp.error);
-      }
-    );
+    // Always release the reply target on send — Discord-style: one reply, one quote.
+    setReplyingTo(null);
   }
 
   function notifyTyping() {
@@ -246,9 +230,6 @@ export default function ChannelView({ channel, currentUser, socket, onlineUserId
     lastTypingSent.current = now;
     socket.emit("typing", { channelId: channel.id });
   }
-
-  const openThread = (message) => setThreadParentId(message.id);
-  const closeThread = () => setThreadParentId(null);
 
   async function cancelScheduled(id) {
     await api.deleteScheduled(id);
@@ -303,9 +284,7 @@ export default function ChannelView({ channel, currentUser, socket, onlineUserId
     );
   }
 
-  const headerTitle = channel.isDirect
-    ? channel.displayName
-    : `# ${channel.name}`;
+  const headerTitle = channel.isDirect ? channel.displayName : `# ${channel.name}`;
   const dmOther = channel.isDirect
     ? channel.members.find((m) => m.id !== currentUser?.id) || channel.members[0]
     : null;
@@ -314,8 +293,7 @@ export default function ChannelView({ channel, currentUser, socket, onlineUserId
   let lastDay = null;
 
   return (
-    <div className="flex-1 flex min-w-0">
-      <section className="flex-1 flex flex-col bg-white text-slate-900 min-w-0">
+    <section className="flex-1 flex flex-col bg-white text-slate-900 min-w-0">
       <header className="border-b border-slate-200 px-4 py-2.5 flex items-center justify-between">
         <div>
           <div className="font-bold">{headerTitle}</div>
@@ -387,8 +365,12 @@ export default function ChannelView({ channel, currentUser, socket, onlineUserId
           const showDay = day !== lastDay;
           lastDay = day;
           const prev = messages[idx - 1];
+          // Replies break the grouping (visual separator on top of the quote
+          // bubble), even if the same author posted just before.
           const groupWithPrev =
+            !m.parent &&
             prev &&
+            !prev.parent &&
             prev.author?.id === m.author?.id &&
             new Date(m.createdAt) - new Date(prev.createdAt) < 5 * 60_000 &&
             !showDay;
@@ -402,13 +384,18 @@ export default function ChannelView({ channel, currentUser, socket, onlineUserId
                 </div>
               )}
               <MessageRow
+                rowRef={(el) => {
+                  if (el) messageRefs.current[m.id] = el;
+                  else delete messageRefs.current[m.id];
+                }}
                 message={m}
                 grouped={groupWithPrev}
                 currentUser={currentUser}
                 onEdit={editMessage}
                 onDelete={deleteMessage}
-                onReply={openThread}
+                onReply={() => setReplyingTo(m)}
                 onReact={reactToMessage}
+                onJumpToParent={jumpToMessage}
               />
             </div>
           );
@@ -425,6 +412,25 @@ export default function ChannelView({ channel, currentUser, socket, onlineUserId
           {typingUserIds.length > 0 &&
             `${typingLabel(typingUserIds, channel, currentUser)}…`}
         </div>
+        {replyingTo && (
+          <div className="mb-1 flex items-center gap-2 px-2 py-1.5 rounded bg-aubergine-700/10 border border-aubergine-700/30 text-xs">
+            <span className="text-aubergine-700 font-semibold">↩ Réponse à</span>
+            <span className="font-medium text-slate-900">
+              {replyingTo.author?.displayName || "?"}
+            </span>
+            <span className="flex-1 truncate text-slate-600">
+              {previewSnippet(replyingTo.body, 90)}
+            </span>
+            <button
+              type="button"
+              onClick={() => setReplyingTo(null)}
+              className="text-slate-500 hover:text-slate-900 px-1"
+              title="Annuler la réponse"
+            >
+              ✕
+            </button>
+          </div>
+        )}
         <Composer
           onSend={send}
           onTyping={notifyTyping}
@@ -435,20 +441,7 @@ export default function ChannelView({ channel, currentUser, socket, onlineUserId
           }
         />
       </div>
-      </section>
-      {threadParentId && (
-        <ThreadPanel
-          parentId={threadParentId}
-          currentUser={currentUser}
-          socket={socket}
-          onClose={closeThread}
-          onSend={sendReply}
-          onEdit={editMessage}
-          onDelete={deleteMessage}
-          onReact={reactToMessage}
-        />
-      )}
-    </div>
+    </section>
   );
 }
 
@@ -543,112 +536,39 @@ function ScheduledRow({ message, onCancel, onSave }) {
   );
 }
 
-function ThreadPanel({ parentId, currentUser, socket, onClose, onSend, onEdit, onDelete, onReact }) {
-  const [parent, setParent] = useState(null);
-  const [replies, setReplies] = useState([]);
-  const scrollRef = useRef(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    api.thread(parentId).then((res) => {
-      if (cancelled) return;
-      setParent(res.parent);
-      setReplies(res.replies);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [parentId]);
-
-  useEffect(() => {
-    if (!socket) return;
-    function onReply(msg) {
-      if (msg.parentId !== parentId) return;
-      setReplies((prev) => (prev.some((r) => r.id === msg.id) ? prev : [...prev, msg]));
-    }
-    function onUpdated(msg) {
-      if (msg.id === parentId) return setParent(msg);
-      if (msg.parentId !== parentId) return;
-      setReplies((prev) => prev.map((r) => (r.id === msg.id ? msg : r)));
-    }
-    function onDeleted({ id, parentId: pid }) {
-      if (id === parentId) return onClose();
-      if (pid !== parentId) return;
-      setReplies((prev) => prev.filter((r) => r.id !== id));
-    }
-    function onReaction({ messageId, reactions }) {
-      setParent((p) => (p && p.id === messageId ? { ...p, reactions } : p));
-      setReplies((prev) =>
-        prev.map((r) => (r.id === messageId ? { ...r, reactions } : r))
-      );
-    }
-    socket.on("thread:reply", onReply);
-    socket.on("message:updated", onUpdated);
-    socket.on("message:deleted", onDeleted);
-    socket.on("reaction:update", onReaction);
-    return () => {
-      socket.off("thread:reply", onReply);
-      socket.off("message:updated", onUpdated);
-      socket.off("message:deleted", onDeleted);
-      socket.off("reaction:update", onReaction);
-    };
-  }, [socket, parentId]);
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [replies.length]);
-
+// Inline quote bubble for replies. Clicking it jumps to the original message.
+// Native `title` provides the full-body tooltip on hover (the user asked for
+// "infobulle + lien vers le message").
+function QuoteBubble({ parent, onJump }) {
+  if (!parent) return null;
+  const label = parent.author?.displayName || "?";
+  const snippet = previewSnippet(parent.body, 100);
   return (
-    <aside className="w-96 border-l border-slate-200 flex flex-col bg-white">
-      <header className="border-b border-slate-200 px-4 py-2.5 flex items-center justify-between">
-        <div className="font-bold">Fil de discussion</div>
-        <button
-          onClick={onClose}
-          className="text-slate-500 hover:text-slate-800 text-lg leading-none"
-          title="Fermer"
-        >
-          ✕
-        </button>
-      </header>
-      <div ref={scrollRef} className="flex-1 overflow-y-auto scroll-thin px-3 py-3">
-        {parent && (
-          <div className="border-b border-slate-200 pb-2 mb-2">
-            <MessageRow
-              message={parent}
-              grouped={false}
-              currentUser={currentUser}
-              onEdit={onEdit}
-              onDelete={onDelete}
-              onReact={onReact}
-            />
-          </div>
-        )}
-        {replies.map((r) => (
-          <MessageRow
-            key={r.id}
-            message={r}
-            grouped={false}
-            currentUser={currentUser}
-            onEdit={onEdit}
-            onDelete={onDelete}
-            onReact={onReact}
-          />
-        ))}
-        {replies.length === 0 && (
-          <div className="text-center text-slate-400 text-sm mt-6">
-            Aucune réponse pour l'instant.
-          </div>
-        )}
+    <button
+      type="button"
+      onClick={() => onJump?.(parent.id)}
+      title={parent.body || ""}
+      className="block w-full text-left mb-1 pl-2 border-l-2 border-aubergine-700/60 hover:border-aubergine-700 group/quote"
+    >
+      <div className="text-xs text-aubergine-700 font-semibold">↩ {label}</div>
+      <div className="text-xs text-slate-600 truncate group-hover/quote:text-slate-900">
+        {snippet || <em>(pièce jointe)</em>}
       </div>
-      <div className="p-3 border-t border-slate-200">
-        <Composer onSend={onSend} placeholder="Répondre…" allowSchedule={false} />
-      </div>
-    </aside>
+    </button>
   );
 }
 
-function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply, onReact }) {
+function MessageRow({
+  rowRef,
+  message,
+  grouped,
+  currentUser,
+  onEdit,
+  onDelete,
+  onReply,
+  onReact,
+  onJumpToParent,
+}) {
   const isOwn = message.author?.id === currentUser?.id;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.body || "");
@@ -747,7 +667,7 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply, 
         <button
           onClick={() => onReply(message)}
           className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
-          title="Répondre dans un fil"
+          title="Répondre"
         >
           Répondre
         </button>
@@ -788,15 +708,6 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply, 
     </div>
   );
 
-  const footer = onReply && message.replyCount > 0 && (
-    <button
-      onClick={() => onReply(message)}
-      className="mt-1 text-xs font-medium text-aubergine-700 hover:underline"
-    >
-      💬 {message.replyCount} réponse{message.replyCount > 1 ? "s" : ""}
-    </button>
-  );
-
   const reactionChips = message.reactions?.length > 0 && (
     <div className="mt-1 flex flex-wrap gap-1">
       {message.reactions.map((r) => {
@@ -825,7 +736,7 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply, 
 
   if (grouped) {
     return (
-      <div className="relative pl-12 pr-4 py-0.5 hover:bg-slate-50 group">
+      <div ref={rowRef} className="relative pl-12 pr-4 py-0.5 hover:bg-slate-50 group rounded">
         {actions}
         {picker}
         <div className="flex items-start gap-2">
@@ -835,7 +746,6 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply, 
           <div className="flex-1 min-w-0">
             {body}
             <Attachments attachments={message.attachments} />
-            {footer}
             {reactionChips}
           </div>
         </div>
@@ -843,19 +753,19 @@ function MessageRow({ message, grouped, currentUser, onEdit, onDelete, onReply, 
     );
   }
   return (
-    <div className="relative px-2 py-1.5 hover:bg-slate-50 rounded group">
+    <div ref={rowRef} className="relative px-2 py-1.5 hover:bg-slate-50 rounded group">
       {actions}
       {picker}
       <div className="flex items-start gap-2">
         <Avatar user={message.author} size={36} />
         <div className="flex-1 min-w-0">
+          <QuoteBubble parent={message.parent} onJump={onJumpToParent} />
           <div className="flex items-baseline gap-2">
             <span className="font-bold">{message.author?.displayName}</span>
             <span className="text-xs text-slate-500">{formatDate(message.createdAt)}</span>
           </div>
           {body}
           <Attachments attachments={message.attachments} />
-          {footer}
           {reactionChips}
         </div>
       </div>

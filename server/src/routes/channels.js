@@ -134,47 +134,24 @@ router.get("/:id/messages", requireAuth, async (req, res) => {
   });
   if (!member) return res.status(403).json({ error: "not_a_member" });
 
+  // Discord/Messenger model: replies live inline in the timeline alongside
+  // root messages, with a quote of the parent rendered above each reply.
+  // (Old Slack-thread model filtered out anything with parentId.)
   const messages = await prisma.message.findMany({
-    where: { channelId: id, delivered: true, parentId: null },
+    where: { channelId: id, delivered: true },
     include: {
       author: true,
       attachments: true,
       reactions: { include: { user: true } },
-      _count: { select: { replies: true } },
+      // Hydrate the parent (author + body for the quote bubble). Cheap because
+      // we only ever go one level deep — replies-to-replies are rejected at
+      // send time.
+      parent: { include: { author: true } },
     },
     orderBy: { createdAt: "asc" },
     take: 200,
   });
   res.json({ messages: messages.map(serializeMessage) });
-});
-
-router.get("/messages/:messageId/thread", requireAuth, async (req, res) => {
-  const { messageId } = req.params;
-  const parent = await prisma.message.findUnique({
-    where: { id: messageId },
-    include: {
-      author: true,
-      attachments: true,
-      reactions: { include: { user: true } },
-      _count: { select: { replies: true } },
-    },
-  });
-  if (!parent) return res.status(404).json({ error: "not_found" });
-  const member = await prisma.membership.findUnique({
-    where: { userId_channelId: { userId: req.userId, channelId: parent.channelId } },
-  });
-  if (!member) return res.status(403).json({ error: "not_a_member" });
-
-  const replies = await prisma.message.findMany({
-    where: { parentId: messageId, delivered: true },
-    include: {
-      author: true,
-      attachments: true,
-      reactions: { include: { user: true } },
-    },
-    orderBy: { createdAt: "asc" },
-  });
-  res.json({ parent: serializeMessage(parent), replies: replies.map(serializeMessage) });
 });
 
 router.get("/:id/scheduled", requireAuth, async (req, res) => {
@@ -514,11 +491,19 @@ export function serializeMessage(m) {
     id: m.id,
     channelId: m.channelId,
     parentId: m.parentId ?? null,
+    // Preview of the quoted message, when this is a reply. The client uses
+    // it to render the inline quote without fetching the parent separately.
+    parent: m.parent
+      ? {
+          id: m.parent.id,
+          body: decryptBody(m.parent.body),
+          author: m.parent.author ? publicUser(m.parent.author) : { id: m.parent.authorId },
+        }
+      : null,
     body: decryptBody(m.body),
     createdAt: m.createdAt,
     editedAt: m.editedAt ?? null,
     scheduledAt: m.scheduledAt,
-    replyCount: m._count?.replies ?? 0,
     reactions: groupReactions(m.reactions),
     author: m.author ? publicUser(m.author) : { id: m.authorId },
     attachments: (m.attachments || []).map(serializeAttachment),
