@@ -38,9 +38,58 @@ describe("GET /auth/users", () => {
     const res = await authed(app, owner.token).get("/auth/users");
     expect(res.status).toBe(200);
     expect(res.body.users).toHaveLength(2);
+    expect(res.body.total).toBe(2);
+    expect(res.body.page).toBe(1);
+    expect(res.body.hasMore).toBe(false);
     const owned = res.body.users.find((u) => u.id === owner.user.id);
     expect(owned.isOwner).toBe(true);
     expect(owned.isAdmin).toBe(true);
+  });
+
+  it("paginates with ?page & ?pageSize (clamped to ≤ 100)", async () => {
+    const owner = await registerUser(app);
+    // 4 extra members = 5 total (with the owner)
+    for (let i = 0; i < 4; i++) await registerUser(app);
+
+    const page1 = await authed(app, owner.token).get("/auth/users?page=1&pageSize=2");
+    expect(page1.body.users).toHaveLength(2);
+    expect(page1.body.total).toBe(5);
+    expect(page1.body.hasMore).toBe(true);
+
+    const page3 = await authed(app, owner.token).get("/auth/users?page=3&pageSize=2");
+    expect(page3.body.users).toHaveLength(1);
+    expect(page3.body.hasMore).toBe(false);
+
+    // pageSize > 100 is clamped to 100
+    const big = await authed(app, owner.token).get("/auth/users?pageSize=500");
+    expect(big.body.pageSize).toBe(100);
+  });
+
+  it("filters by ?q on displayName / username / email (case insensitive)", async () => {
+    const owner = await registerUser(app);
+    const alice = await registerUser(app, {
+      email: "alice.smith@e2e.local",
+      username: "alice_s",
+      displayName: "Alice Smith",
+    });
+    await registerUser(app, {
+      email: "bob.jones@e2e.local",
+      username: "bobby",
+      displayName: "Bob Jones",
+    });
+
+    const byName = await authed(app, owner.token).get("/auth/users?q=ALICE");
+    expect(byName.body.users.map((u) => u.id)).toEqual([alice.user.id]);
+
+    const byUsername = await authed(app, owner.token).get("/auth/users?q=alice_s");
+    expect(byUsername.body.users.map((u) => u.id)).toEqual([alice.user.id]);
+
+    const byEmail = await authed(app, owner.token).get("/auth/users?q=jones");
+    expect(byEmail.body.users.map((u) => u.username)).toEqual(["bobby"]);
+
+    const nope = await authed(app, owner.token).get("/auth/users?q=nobody");
+    expect(nope.body.users).toEqual([]);
+    expect(nope.body.total).toBe(0);
   });
 });
 

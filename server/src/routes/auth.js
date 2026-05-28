@@ -366,11 +366,41 @@ router.get("/invitations/:token", async (req, res) => {
 // --- Admin panel: list users + manage roles + soft delete + transfer ownership
 
 // Admin-only: list all users (with role + status) for the admin panel.
-router.get("/users", requireAuth, requireAdmin, async (_req, res) => {
-  const users = await prisma.user.findMany({
-    orderBy: [{ isOwner: "desc" }, { isAdmin: "desc" }, { displayName: "asc" }],
+// Admin-only: paginated user list with optional case-insensitive search
+// (matches displayName / username / email; OR-combined). `pageSize` is
+// clamped to [1, 100] so a misbehaving client can't ask for everything.
+router.get("/users", requireAuth, requireAdmin, async (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || 50));
+  const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+
+  const where = q
+    ? {
+        OR: [
+          { displayName: { contains: q, mode: "insensitive" } },
+          { username: { contains: q, mode: "insensitive" } },
+          { email: { contains: q, mode: "insensitive" } },
+        ],
+      }
+    : {};
+
+  const [total, users] = await Promise.all([
+    prisma.user.count({ where }),
+    prisma.user.findMany({
+      where,
+      orderBy: [{ isOwner: "desc" }, { isAdmin: "desc" }, { displayName: "asc" }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ]);
+
+  res.json({
+    users: users.map(publicUser),
+    total,
+    page,
+    pageSize,
+    hasMore: page * pageSize < total,
   });
-  res.json({ users: users.map(publicUser) });
 });
 
 const userPatchSchema = z
