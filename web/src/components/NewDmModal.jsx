@@ -26,10 +26,25 @@ export default function NewDmModal({ onClose, onOpened, currentUserId }) {
     };
   }, [q, currentUserId]);
 
+  // A self-DM is a one-member channel — picking yourself is mutually exclusive
+  // with picking anyone else. The opposite checkboxes are *disabled* (instead
+  // of silently cleared) so the constraint is visible in the UI.
+  const selfPicked = selected.has(currentUserId);
+  const othersPicked = selected.size > 0 && !selfPicked;
+
   function toggle(id) {
-    const next = new Set(selected);
-    next.has(id) ? next.delete(id) : next.add(id);
-    setSelected(next);
+    const isSelf = id === currentUserId;
+    if (isSelf) {
+      // Ticking yourself empties the rest (single-member self-DM).
+      setSelected((prev) => (prev.has(id) ? new Set() : new Set([id])));
+    } else {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        next.delete(currentUserId); // defensive — disabled above prevents reaching this
+        next.has(id) ? next.delete(id) : next.add(id);
+        return next;
+      });
+    }
   }
 
   async function start() {
@@ -74,14 +89,27 @@ export default function NewDmModal({ onClose, onOpened, currentUserId }) {
         <div className="px-2 pb-2 overflow-y-auto flex-1">
           {users.map((u) => {
             const isMe = u.id === currentUserId;
+            const disabled = isMe ? othersPicked : selfPicked;
             return (
               <label
                 key={u.id}
-                className="flex items-center gap-3 px-3 py-2 hover:bg-slate-100 rounded-md cursor-pointer"
+                title={
+                  disabled
+                    ? isMe
+                      ? "Décochez les autres pour ouvrir vos notes"
+                      : "Décochez « Mes notes » pour démarrer un DM"
+                    : undefined
+                }
+                className={`flex items-center gap-3 px-3 py-2 rounded-md ${
+                  disabled
+                    ? "opacity-50 cursor-not-allowed"
+                    : "hover:bg-slate-100 cursor-pointer"
+                }`}
               >
                 <input
                   type="checkbox"
                   checked={selected.has(u.id)}
+                  disabled={disabled}
                   onChange={() => toggle(u.id)}
                 />
                 <Avatar user={u} size={32} />

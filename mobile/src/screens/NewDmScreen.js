@@ -35,12 +35,24 @@ export default function NewDmScreen({ navigation }) {
     };
   }, [q, user?.id]);
 
+  // A self-DM is a one-member channel — picking yourself is mutually exclusive
+  // with picking anyone else. The opposite rows are visually disabled so the
+  // constraint is obvious (and a tap on them is a no-op).
+  const selfPicked = selected.has(user?.id);
+  const othersPicked = selected.size > 0 && !selfPicked;
+
   function toggle(id) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
+    const isSelf = id === user?.id;
+    if (isSelf) {
+      setSelected((prev) => (prev.has(id) ? new Set() : new Set([id])));
+    } else {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        next.delete(user?.id); // defensive — disabled state above prevents reaching this
+        next.has(id) ? next.delete(id) : next.add(id);
+        return next;
+      });
+    }
   }
 
   async function start() {
@@ -62,8 +74,14 @@ export default function NewDmScreen({ navigation }) {
       <ScrollView style={{ flex: 1 }}>
         {users.map((u) => {
           const isMe = u.id === user?.id;
+          const disabled = isMe ? othersPicked : selfPicked;
           return (
-            <Pressable key={u.id} style={styles.row} onPress={() => toggle(u.id)}>
+            <Pressable
+              key={u.id}
+              style={[styles.row, disabled && styles.rowDisabled]}
+              disabled={disabled}
+              onPress={() => toggle(u.id)}
+            >
               <Check on={selected.has(u.id)} />
               <Avatar user={u} size={32} />
               <View style={{ marginLeft: 10 }}>
@@ -99,6 +117,7 @@ const styles = StyleSheet.create({
   search: { marginHorizontal: 12, marginTop: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 9, color: colors.text },
   hint: { color: colors.textMuted, fontSize: 12, paddingHorizontal: 14, paddingTop: 4, paddingBottom: 6 },
   row: { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 9 },
+  rowDisabled: { opacity: 0.4 },
   name: { fontWeight: "600", color: colors.text },
   username: { color: colors.textMuted, fontSize: 12 },
   empty: { textAlign: "center", color: colors.textMuted, padding: 24 },
