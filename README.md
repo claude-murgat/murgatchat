@@ -322,12 +322,46 @@ Récap des choix faits pendant le build (et pourquoi), pour qu'on puisse les rem
 
 ## Pistes pour la suite
 
-- chiffrement at-rest des **fichiers** (stream-encrypt en plus du body)
-- E2E pour les DM (avec planification désactivée pour ces canaux)
-- édition des messages déjà envoyés, suppression, threads, réactions
-- présence en ligne, typing indicators
-- recherche full-text Postgres (incompatible si on passe en E2E)
-- push notifications natives Expo
-- iOS : `eas build --platform ios`
-- vraies migrations versionnées Prisma pour la prod
-- desktop : auto-start au boot via `tauri-plugin-autostart`, badges sur l'icône tray, signature de code Windows pour éviter SmartScreen
+État d'avancement détaillé dans [PROGRESS.md](PROGRESS.md). Ce qui reste, classé
+par thème :
+
+### Sécurité & production
+- **HTTPS** (reverse proxy Caddy/Traefik) — bloquant pour la publication iOS
+  App Store (`NSAllowsArbitraryLoads` est toléré en dev, refusé en review).
+- **Refresh tokens** côté serveur, à la place du JWT 30j non révoquable.
+- **2FA / MFA** pour les comptes admin/owner.
+- **CORS strict** (`*` aujourd'hui).
+- **Vraies migrations versionnées Prisma** (`prisma migrate` plutôt que
+  `db push` au démarrage) — indispensable dès qu'on a de la vraie donnée.
+- **Audit log** des actions admin (qui a désactivé qui, transferts de
+  propriété, promotions / révocations).
+
+### Mobile
+- **Build iOS standalone** (`eas build --platform ios` ou local Xcode) et
+  publication App Store. Le code est prêt (`app.json` ATS + `ios.deploymentTarget`).
+- **Envoi de pièces jointes** depuis mobile (l'affichage marche déjà, il
+  manque le picker natif).
+- **Vraie clé de signature Android** (à la place de la clé debug actuelle)
+  pour distribuer sur Play Store.
+- **Push réelles** : projectId Expo + FCM (`google-services.json` + APNs côté
+  iOS). Le gating serveur est déjà en place.
+
+### Desktop
+- **Auto-start au boot** Windows via [`tauri-plugin-autostart`](https://v2.tauri.app/plugin/autostart/).
+- **Badges non-lus** sur l'icône tray.
+- **Signature de code** Windows (Authenticode) pour éviter le warning SmartScreen
+  à la première installation.
+- **Builds macOS / Linux** (le code Tauri est cross-platform, juste à câbler
+  les bundles).
+
+### Fonctionnalités
+- **Chiffrement at-rest des fichiers** (stream-encrypt à l'upload, stream-decrypt
+  au download). Pour l'instant seuls les bodies texte sont chiffrés.
+- **E2E (chiffrement bout-en-bout) pour les DM** — empêcherait la recherche
+  full-text et la planification de messages, donc à exclure sur ces canaux.
+- **Recherche full-text Postgres** (incompatible avec l'E2E ci-dessus, à
+  arbitrer).
+- **Nettoyage des fichiers orphelins** sur disque (la suppression d'un message
+  avec PJ supprime la ligne `Attachment` mais laisse le blob).
+- **Pagination du panel d'administration** au-delà de quelques centaines de
+  comptes (le `GET /auth/users` ramène tout pour l'instant).
