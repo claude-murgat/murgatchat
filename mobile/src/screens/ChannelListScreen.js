@@ -30,9 +30,17 @@ export default function ChannelListScreen({ navigation }) {
   useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () => (
-        <Pressable onPress={() => setMenu(true)} style={{ paddingHorizontal: 12 }}>
-          <Text style={{ color: colors.white, fontSize: 22 }}>⋯</Text>
-        </Pressable>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <Pressable
+            onPress={() => navigation.navigate("Search")}
+            style={{ paddingHorizontal: 10 }}
+          >
+            <Text style={{ color: colors.white, fontSize: 18 }}>🔍</Text>
+          </Pressable>
+          <Pressable onPress={() => setMenu(true)} style={{ paddingHorizontal: 12 }}>
+            <Text style={{ color: colors.white, fontSize: 22 }}>⋯</Text>
+          </Pressable>
+        </View>
       ),
     });
   }, [navigation]);

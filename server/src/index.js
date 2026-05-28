@@ -6,6 +6,7 @@ import authRouter, { ensureOwner } from "./routes/auth.js";
 import usersRouter from "./routes/users.js";
 import channelsRouter, { ensureDefaultChannel } from "./routes/channels.js";
 import uploadsRouter from "./routes/uploads.js";
+import searchRouter, { ensureSearchIndex } from "./routes/search.js";
 import { setupSocket, dispatchScheduledMessages } from "./socket.js";
 import { prisma } from "./db.js";
 import { sweepOrphanAttachments } from "./sweep.js";
@@ -45,6 +46,7 @@ export function createServer() {
   app.use("/users", usersRouter);
   app.use("/channels", channelsRouter);
   app.use("/uploads", uploadsRouter);
+  app.use("/search", searchRouter);
 
   return { app, server, io };
 }
@@ -81,6 +83,11 @@ export function startServer() {
     ensureOwner()
       .then((o) => o && console.log(`Owner ready: ${o.username} (${o.id})`))
       .catch((e) => console.error("ensureOwner error", e));
+    // Idempotent: creates the GIN expression index on Message.searchableBody
+    // if it doesn't already exist. No-op after the first boot post-rollout.
+    ensureSearchIndex()
+      .then(() => console.log("Search index ready"))
+      .catch((e) => console.error("ensureSearchIndex error", e));
   });
 
   return { server, io };

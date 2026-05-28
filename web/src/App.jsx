@@ -13,6 +13,7 @@ import MembersModal from "./components/MembersModal.jsx";
 import DndModal from "./components/DndModal.jsx";
 import InviteModal from "./components/InviteModal.jsx";
 import ProfileModal from "./components/ProfileModal.jsx";
+import SearchModal from "./components/SearchModal.jsx";
 import AdminPanelModal from "./components/AdminPanelModal.jsx";
 
 export default function App() {
@@ -29,6 +30,7 @@ export default function App() {
   const [showMembers, setShowMembers] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [toast, setToast] = useState(null);
   const [onlineUserIds, setOnlineUserIds] = useState(() => new Set());
@@ -180,6 +182,20 @@ export default function App() {
     ensureReady();
   }, [user]);
 
+  // Cmd/Ctrl+K opens the search modal — global, only when logged in.
+  useEffect(() => {
+    if (!user) return;
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setShowSearch(true);
+      }
+      if (e.key === "Escape") setShowSearch(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [user]);
+
   // Signal web/desktop activity so the server pushes to mobile only when the
   // user is away from their computer (no activity for 10 min).
   useEffect(() => {
@@ -326,6 +342,7 @@ export default function App() {
         onLogout={onLogout}
         onInvite={() => setShowInvite(true)}
         onProfile={() => setShowProfile(true)}
+        onSearch={() => setShowSearch(true)}
         onAdminPanel={() => setShowAdmin(true)}
         onlineUserIds={onlineUserIds}
         typingByChannel={typingByChannel}
@@ -392,6 +409,19 @@ export default function App() {
           user={user}
           onClose={() => setShowProfile(false)}
           onUpdated={(u) => setUser(u)}
+        />
+      )}
+      {showSearch && (
+        <SearchModal
+          onClose={() => setShowSearch(false)}
+          onJump={(r) => {
+            setActiveChannelId(r.channelId);
+            setShowSearch(false);
+            // Clear the unread badge — picking a result acts like selecting the channel.
+            setChannels((prev) =>
+              prev.map((c) => (c.id === r.channelId ? { ...c, unread: false } : c))
+            );
+          }}
         />
       )}
       {showAdmin && (

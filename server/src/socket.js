@@ -151,6 +151,8 @@ export function setupSocket(httpServer, corsOrigin) {
             channelId,
             authorId: userId,
             body: encryptBody(trimmed),
+            // Plaintext copy for the Postgres full-text index (see schema note).
+            searchableBody: trimmed,
             parentId: parentId || null,
             scheduledAt: isScheduled ? scheduledDate : null,
             delivered: !isScheduled,

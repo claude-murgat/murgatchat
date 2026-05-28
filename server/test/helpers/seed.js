@@ -6,7 +6,9 @@ import { encryptBody } from "../../src/crypto.js";
 // Body is encrypted exactly as the app stores it.
 export function seedMessage({ body = "message", delivered = true, ...rest }) {
   return prisma.message.create({
-    data: { body: encryptBody(body), delivered, ...rest },
+    // Mirror the live write path: encrypt the body AND populate searchableBody
+    // so HTTP tests can hit the FTS endpoint without extra plumbing.
+    data: { body: encryptBody(body), searchableBody: body, delivered, ...rest },
   });
 }
 

@@ -23,6 +23,7 @@ export default function Sidebar({
   onInvite,
   onProfile,
   onAdminPanel,
+  onSearch,
   onBrowseChannels,
   onlineUserIds,
   typingByChannel,
@@ -47,6 +48,14 @@ export default function Sidebar({
           </button>
           {dnd && <div className="text-[11px] text-yellow-300 mt-0.5">{dnd}</div>}
         </div>
+        <button
+          type="button"
+          onClick={onSearch}
+          title="Rechercher (Ctrl+K)"
+          className="text-aubergine-400 hover:text-white text-lg px-2 py-1"
+        >
+          🔍
+        </button>
         {showMenu && (
           <div className="absolute right-3 top-14 bg-white text-slate-800 rounded-md shadow-lg overflow-hidden z-30 w-56">
             <button

@@ -223,6 +223,7 @@ router.patch("/scheduled/:messageId", requireAuth, async (req, res) => {
     const trimmed = body.trim();
     if (!trimmed) return res.status(400).json({ error: "empty_body" });
     data.body = encryptBody(trimmed);
+    data.searchableBody = trimmed; // keep the FTS index in sync
   }
   if (scheduledAt !== undefined) {
     const date = new Date(scheduledAt);
@@ -258,7 +259,12 @@ router.patch("/messages/:messageId", requireAuth, async (req, res) => {
 
   const updated = await prisma.message.update({
     where: { id: messageId },
-    data: { body: encryptBody(trimmed), editedAt: new Date() },
+    data: {
+      body: encryptBody(trimmed),
+      // Plaintext FTS mirror; see schema note on the privacy trade-off.
+      searchableBody: trimmed,
+      editedAt: new Date(),
+    },
     include: {
       author: true,
       attachments: true,
