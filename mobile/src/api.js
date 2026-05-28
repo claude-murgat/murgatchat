@@ -141,6 +141,13 @@ export const api = {
     const qs = params.toString();
     return request(`/auth/users${qs ? `?${qs}` : ""}`);
   },
+  search: ({ q, channelId, limit } = {}) => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (channelId) params.set("channelId", channelId);
+    if (limit) params.set("limit", String(limit));
+    return request(`/search?${params.toString()}`);
+  },
   patchUser: (id, patch) =>
     request(`/auth/users/${encodeURIComponent(id)}`, { method: "PATCH", body: patch }),
   transferOwnership: (targetUserId) =>

@@ -63,6 +63,10 @@ model Message {
   channelId   String
   authorId    String
   body        String
+  // Plaintext copy used by the Postgres full-text search index. Stored in the
+  // clear so `to_tsvector('french', searchableBody)` can be indexed; accepting
+  // this trade-off rules out a later E2E rollout on the same channels.
+  searchableBody String?
   createdAt   DateTime  @default(now())
   scheduledAt DateTime?
   delivered   Boolean   @default(true)
