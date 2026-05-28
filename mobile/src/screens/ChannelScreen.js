@@ -28,9 +28,33 @@ export default function ChannelScreen({ route, navigation }) {
   const [typingUserIds, setTypingUserIds] = useState([]);
   const [scheduled, setScheduled] = useState([]);
   const [showScheduled, setShowScheduled] = useState(false);
+  // Discord-style: tap "Répondre" sets the quoted target; the next send carries
+  // `parentId` and clears it. No more push to a Thread screen.
+  const [replyingTo, setReplyingTo] = useState(null);
   const listRef = useRef(null);
+  const messageIndexRef = useRef({}); // id → index, for FlatList.scrollToIndex
   const typingTimers = useRef({});
   const lastTypingSent = useRef(0);
+
+  // Tap a quote bubble → scroll to the original message in the timeline.
+  // FlatList needs a numeric index, so we keep a fresh map alongside `messages`.
+  useEffect(() => {
+    const next = {};
+    messages.forEach((m, i) => {
+      next[m.id] = i;
+    });
+    messageIndexRef.current = next;
+  }, [messages]);
+
+  function jumpToMessage(id) {
+    const idx = messageIndexRef.current[id];
+    if (idx == null) return;
+    try {
+      listRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.5 });
+    } catch {
+      /* index briefly stale during a re-render — ignore */
+    }
+  }
 
   // Mark active + read while focused.
   useFocusEffect(
@@ -124,36 +148,20 @@ export default function ChannelScreen({ route, navigation }) {
   useEffect(() => {
     if (!socket) return;
     function onNew(msg) {
-      if (msg.channelId !== channelId || msg.parentId) return;
+      // Discord-style: replies arrive on `message:new` too (parent quote
+      // carried inline in `msg.parent`), so a single handler covers both.
+      if (msg.channelId !== channelId) return;
       setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
-      // Don't auto-mark read while the app is backgrounded (mirrors the web focus guard).
       if (AppState.currentState === "active") socket.emit("channel:read", { channelId });
     }
     function onUpdated(msg) {
       if (msg.channelId !== channelId) return;
       setMessages((prev) => prev.map((m) => (m.id === msg.id ? msg : m)));
     }
-    function onDeleted({ id, channelId: cid, parentId }) {
+    function onDeleted({ id, channelId: cid }) {
       if (cid !== channelId) return;
-      if (parentId) {
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === parentId
-              ? { ...m, replyCount: Math.max(0, (m.replyCount || 0) - 1) }
-              : m
-          )
-        );
-      } else {
-        setMessages((prev) => prev.filter((m) => m.id !== id));
-      }
-    }
-    function onReply(msg) {
-      if (msg.channelId !== channelId) return;
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === msg.parentId ? { ...m, replyCount: (m.replyCount || 0) + 1 } : m
-        )
-      );
+      setMessages((prev) => prev.filter((m) => m.id !== id));
+      setReplyingTo((curr) => (curr?.id === id ? null : curr));
     }
     function onReaction({ messageId, reactions }) {
       setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, reactions } : m)));
@@ -170,14 +178,12 @@ export default function ChannelScreen({ route, navigation }) {
     socket.on("message:new", onNew);
     socket.on("message:updated", onUpdated);
     socket.on("message:deleted", onDeleted);
-    socket.on("thread:reply", onReply);
     socket.on("reaction:update", onReaction);
     socket.on("typing:update", onTyping);
     return () => {
       socket.off("message:new", onNew);
       socket.off("message:updated", onUpdated);
       socket.off("message:deleted", onDeleted);
-      socket.off("thread:reply", onReply);
       socket.off("reaction:update", onReaction);
       socket.off("typing:update", onTyping);
       Object.values(typingTimers.current).forEach(clearTimeout);
@@ -192,9 +198,11 @@ export default function ChannelScreen({ route, navigation }) {
 
   function send(payload) {
     if (!socket) return;
-    socket.emit("message:send", { channelId, ...payload }, (resp) => {
+    const parentId = replyingTo?.id || null;
+    socket.emit("message:send", { channelId, parentId, ...payload }, (resp) => {
       if (resp?.scheduled) setScheduled((prev) => [...prev, resp.scheduled]);
     });
+    setReplyingTo(null);
   }
 
   function notifyTyping() {
@@ -266,9 +274,10 @@ export default function ChannelScreen({ route, navigation }) {
                 grouped={grouped}
                 currentUser={user}
                 onReact={react}
-                onReply={(m) => navigation.navigate("Thread", { channelId, parentId: m.id })}
+                onReply={(m) => setReplyingTo(m)}
                 onEdit={editMessage}
                 onDelete={deleteMessage}
+                onJumpToParent={jumpToMessage}
               />
             </View>
           );
@@ -280,6 +289,20 @@ export default function ChannelScreen({ route, navigation }) {
 
       {typingUserIds.length > 0 && (
         <Text style={styles.typing}>{typingLabel(typingUserIds, channel, user)}</Text>
+      )}
+
+      {replyingTo && (
+        <View style={styles.replyBanner}>
+          <Text style={styles.replyBannerLabel}>
+            ↩ Réponse à {replyingTo.author?.displayName || "?"}
+          </Text>
+          <Text style={styles.replyBannerSnippet} numberOfLines={1}>
+            {(replyingTo.body || "").trim() || "(pièce jointe)"}
+          </Text>
+          <Pressable onPress={() => setReplyingTo(null)} hitSlop={8}>
+            <Text style={styles.replyBannerClose}>✕</Text>
+          </Pressable>
+        </View>
       )}
 
       <Composer
@@ -331,6 +354,19 @@ const styles = StyleSheet.create({
   dayText: { paddingHorizontal: 10, color: colors.textMuted, fontSize: 12 },
   empty: { textAlign: "center", color: colors.textMuted, padding: 24 },
   typing: { paddingHorizontal: 14, paddingVertical: 2, fontStyle: "italic", color: colors.textMuted, fontSize: 12 },
+  replyBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: colors.aubergineLight + "20",
+    borderTopWidth: 1,
+    borderTopColor: colors.aubergineLight + "60",
+  },
+  replyBannerLabel: { color: colors.aubergine, fontWeight: "700", fontSize: 12 },
+  replyBannerSnippet: { flex: 1, color: colors.textMuted, fontSize: 12 },
+  replyBannerClose: { color: colors.textMuted, fontSize: 16, paddingHorizontal: 4 },
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)", justifyContent: "flex-end" },
   schedSheet: { backgroundColor: colors.white, borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 16, paddingBottom: 28 },
   schedTitle: { fontSize: 17, fontWeight: "700", color: colors.text, marginBottom: 10 },

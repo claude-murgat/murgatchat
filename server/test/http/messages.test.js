@@ -25,21 +25,31 @@ async function setup() {
 }
 
 describe("GET /channels/:id/messages", () => {
-  it("returns only delivered roots (decrypted, ordered), with replyCount", async () => {
+  it("returns all delivered messages inline (roots + replies), each reply carrying its parent quote", async () => {
     const { owner, channelId } = await setup();
     const t0 = new Date(Date.now() - 3000);
     const t1 = new Date(Date.now() - 2000);
+    const t2 = new Date(Date.now() - 1000);
     const first = await seedMessage({ channelId, authorId: owner.user.id, body: "premier", createdAt: t0 });
     await seedMessage({ channelId, authorId: owner.user.id, body: "second", createdAt: t1 });
-    await seedMessage({ channelId, authorId: owner.user.id, body: "une réponse", parentId: first.id });
+    await seedMessage({ channelId, authorId: owner.user.id, body: "une réponse", parentId: first.id, createdAt: t2 });
     await seedMessage({ channelId, authorId: owner.user.id, body: "planifié", delivered: false, scheduledAt: new Date(Date.now() + 60000) });
 
     const res = await authed(app, owner.token).get(`/channels/${channelId}/messages`);
     expect(res.status).toBe(200);
     const bodies = res.body.messages.map((m) => m.body);
-    expect(bodies).toEqual(["premier", "second"]); // roots only, ordered, no reply/scheduled
+    // Inline timeline now includes replies; scheduled (not delivered) excluded.
+    expect(bodies).toEqual(["premier", "second", "une réponse"]);
+
+    // Reply carries a parent quote with author + decrypted body.
+    const reply = res.body.messages.find((m) => m.body === "une réponse");
+    expect(reply.parentId).toBe(first.id);
+    expect(reply.parent).toMatchObject({ id: first.id, body: "premier" });
+    expect(reply.parent.author.id).toBe(owner.user.id);
+
+    // Root messages have no parent.
     const root = res.body.messages.find((m) => m.id === first.id);
-    expect(root.replyCount).toBe(1);
+    expect(root.parent).toBeNull();
   });
 
   it("rejects a non-member with 403", async () => {
@@ -131,26 +141,6 @@ describe("DELETE /channels/messages/:id", () => {
   });
 });
 
-describe("GET /channels/messages/:id/thread", () => {
-  it("returns the parent and its delivered replies in order", async () => {
-    const { owner, channelId } = await setup();
-    const parent = await seedMessage({ channelId, authorId: owner.user.id, body: "racine" });
-    await seedMessage({ channelId, authorId: owner.user.id, body: "r1", parentId: parent.id, createdAt: new Date(Date.now() - 2000) });
-    await seedMessage({ channelId, authorId: owner.user.id, body: "r2", parentId: parent.id, createdAt: new Date(Date.now() - 1000) });
-
-    const res = await authed(app, owner.token).get(`/channels/messages/${parent.id}/thread`);
-    expect(res.status).toBe(200);
-    expect(res.body.parent.id).toBe(parent.id);
-    expect(res.body.replies.map((r) => r.body)).toEqual(["r1", "r2"]);
-  });
-
-  it("404 for unknown parent, 403 for non-member", async () => {
-    const { owner, channelId } = await setup();
-    const parent = await seedMessage({ channelId, authorId: owner.user.id, body: "racine" });
-    expect((await authed(app, owner.token).get(`/channels/messages/missing/thread`)).status).toBe(404);
-    const stranger = await registerUser(app);
-    expect(
-      (await authed(app, stranger.token).get(`/channels/messages/${parent.id}/thread`)).status
-    ).toBe(403);
-  });
-});
+// The dedicated /thread endpoint was removed when we moved to Discord-style
+// inline replies (PR-threads). Replies now arrive in the timeline alongside
+// roots, each carrying their `parent` quote — see the GET /messages test above.

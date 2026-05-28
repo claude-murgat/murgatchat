@@ -73,17 +73,21 @@ describe("message:send", () => {
     expect(msg.author.id).toBe(alice.user.id);
   });
 
-  it("emits thread:reply (not message:new) for a reply", async () => {
+  it("emits message:new for a reply too, carrying the parent quote inline", async () => {
     const { alice, bob, channelId } = await pairInChannel();
     const aSock = await ready(alice.token, channelId);
     const bSock = await ready(bob.token, channelId);
 
     const root = await send(aSock, { channelId, body: "racine" });
-    const replyEvent = waitForEvent(bSock, "thread:reply", (m) => m.parentId === root.message.id);
+    // Discord/Messenger model: replies share the timeline with root messages,
+    // so they go out as `message:new` (not the old `thread:reply` channel).
+    const replyEvent = waitForEvent(bSock, "message:new", (m) => m.parentId === root.message.id);
     const ack = await send(aSock, { channelId, body: "réponse", parentId: root.message.id });
     expect(ack.ok).toBe(true);
     const reply = await replyEvent;
     expect(reply.parentId).toBe(root.message.id);
+    expect(reply.parent).toMatchObject({ id: root.message.id, body: "racine" });
+    expect(reply.parent.author.id).toBe(alice.user.id);
   });
 
   it("acks a scheduled message without broadcasting message:new", async () => {

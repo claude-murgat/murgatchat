@@ -173,7 +173,6 @@ export const api = {
     request(`/channels/${id}/members/${userId}`, { method: "DELETE" }),
   openDm: (userIds) => request("/channels/dm", { method: "POST", body: { userIds } }),
   messages: (channelId) => request(`/channels/${channelId}/messages`),
-  thread: (id) => request(`/channels/messages/${id}/thread`),
   react: (id, emoji) =>
     request(`/channels/messages/${id}/reactions`, { method: "POST", body: { emoji } }),
   editMessage: (id, body) =>

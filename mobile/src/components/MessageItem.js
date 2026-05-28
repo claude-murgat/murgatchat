@@ -43,6 +43,22 @@ function Attachments({ attachments }) {
   );
 }
 
+// Inline quote bubble for replies. Tapping it scrolls the timeline to the
+// original message.
+function QuoteBubble({ parent, onJump }) {
+  if (!parent) return null;
+  const label = parent.author?.displayName || "?";
+  const snippet = (parent.body || "").trim();
+  return (
+    <Pressable onPress={() => onJump?.(parent.id)} style={styles.quote}>
+      <Text style={styles.quoteLabel}>↩ {label}</Text>
+      <Text style={styles.quoteSnippet} numberOfLines={1}>
+        {snippet || "(pièce jointe)"}
+      </Text>
+    </Pressable>
+  );
+}
+
 export default function MessageItem({
   message,
   grouped,
@@ -51,6 +67,7 @@ export default function MessageItem({
   onReply,
   onEdit,
   onDelete,
+  onJumpToParent,
 }) {
   const isOwn = message.author?.id === currentUser?.id;
   const [menu, setMenu] = useState(false);
@@ -77,6 +94,7 @@ export default function MessageItem({
 
   const Body = (
     <View style={{ flex: 1, minWidth: 0 }}>
+      <QuoteBubble parent={message.parent} onJump={onJumpToParent} />
       {!grouped && (
         <View style={styles.headerRow}>
           <Text style={styles.author}>{message.author?.displayName}</Text>
@@ -110,14 +128,6 @@ export default function MessageItem({
         )
       )}
       <Attachments attachments={message.attachments} />
-
-      {onReply && message.replyCount > 0 && (
-        <Pressable onPress={() => onReply(message)}>
-          <Text style={styles.replyLink}>
-            💬 {message.replyCount} réponse{message.replyCount > 1 ? "s" : ""}
-          </Text>
-        </Pressable>
-      )}
 
       {message.reactions?.length > 0 && (
         <View style={styles.chips}>
@@ -181,7 +191,7 @@ export default function MessageItem({
                 />
                 {onReply && (
                   <MenuItem
-                    label="💬  Répondre dans un fil"
+                    label="↩  Répondre"
                     onPress={() => {
                       setMenu(false);
                       onReply(message);
@@ -268,7 +278,14 @@ const styles = StyleSheet.create({
   fileIcon: { fontSize: 16 },
   fileName: { flex: 1, color: colors.text, fontSize: 13 },
   fileSize: { color: colors.textMuted, fontSize: 11 },
-  replyLink: { color: colors.aubergine, fontWeight: "600", fontSize: 13, marginTop: 4 },
+  quote: {
+    borderLeftWidth: 2,
+    borderLeftColor: colors.aubergine,
+    paddingLeft: 8,
+    marginBottom: 4,
+  },
+  quoteLabel: { color: colors.aubergine, fontWeight: "700", fontSize: 11 },
+  quoteSnippet: { color: colors.textMuted, fontSize: 12 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 4 },
   chip: {
     flexDirection: "row",
