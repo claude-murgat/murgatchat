@@ -134,6 +134,8 @@ export default function Sidebar({
           {dms.map((c) => {
             const other = c.members.find((m) => m.id !== user.id) || c.members[0];
             const isGroup = c.members.length > 2;
+            // Self-DM (notes pour soi): a single membership, that's the viewer.
+            const isSelf = c.members.length === 1 && c.members[0]?.id === user.id;
             const isTyping = (typingByChannel?.[c.id]?.length || 0) > 0;
             return (
               <button
@@ -154,6 +156,13 @@ export default function Sidebar({
                   >
                     …
                   </span>
+                ) : isSelf ? (
+                  <span
+                    className="w-5 h-5 shrink-0 rounded grid place-items-center bg-aubergine-500 text-white text-[12px]"
+                    title="Notes pour vous-même"
+                  >
+                    📝
+                  </span>
                 ) : isGroup ? (
                   <span
                     className="w-5 h-5 shrink-0 rounded grid place-items-center bg-aubergine-500 text-white text-[11px] font-semibold"
@@ -164,7 +173,7 @@ export default function Sidebar({
                 ) : (
                   <Avatar user={other} size={20} />
                 )}
-                {!isGroup && (
+                {!isGroup && !isSelf && (
                   <span
                     className={`w-2 h-2 rounded-full shrink-0 ${
                       onlineUserIds?.has(other?.id) ? "bg-green-400" : "bg-slate-500"

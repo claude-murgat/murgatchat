@@ -90,12 +90,18 @@ export default function ChannelListScreen({ navigation }) {
         {dms.map((c) => {
           const other = c.members.find((m) => m.id !== user?.id) || c.members[0];
           const isGroup = c.members.length > 2;
+          // Self-DM (notes pour soi): a single membership, that's the viewer.
+          const isSelf = c.members.length === 1 && c.members[0]?.id === user?.id;
           const isTyping = (typingByChannel?.[c.id]?.length || 0) > 0;
           return (
             <Pressable key={c.id} style={styles.row} onPress={() => open(c)}>
               {isTyping ? (
                 <View style={styles.typingBadge}>
                   <Text style={styles.typingDots}>…</Text>
+                </View>
+              ) : isSelf ? (
+                <View style={styles.groupBadge}>
+                  <Text style={styles.groupCount}>📝</Text>
                 </View>
               ) : isGroup ? (
                 <View style={styles.groupBadge}>
@@ -104,7 +110,7 @@ export default function ChannelListScreen({ navigation }) {
               ) : (
                 <Avatar user={other} size={32} />
               )}
-              {!isGroup && (
+              {!isGroup && !isSelf && (
                 <View style={{ position: "absolute", left: 34, top: 30 }}>
                   <PresenceDot online={onlineUserIds?.has(other?.id)} size={10} />
                 </View>

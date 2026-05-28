@@ -102,13 +102,45 @@ describe("POST /channels/dm", () => {
     expect(res.body.channel.members).toHaveLength(3);
   });
 
-  it("rejects empty / self-only / unknown targets with 400", async () => {
-    const { token: a, user: au } = await registerUser(app);
-    expect((await authed(app, a).post("/channels/dm").send({})).status).toBe(400);
-    expect((await authed(app, a).post("/channels/dm").send({ userId: au.id })).status).toBe(400);
+  it("rejects an unknown target with 400", async () => {
+    const { token: a } = await registerUser(app);
     expect(
       (await authed(app, a).post("/channels/dm").send({ userId: "does-not-exist" })).status
     ).toBe(400);
+  });
+
+  it("opens a self-DM (notes pour soi) and reuses it on subsequent calls", async () => {
+    const { token, user } = await registerUser(app);
+
+    // Three equivalent payloads all map to the same self-DM:
+    //   {}              → ids empty
+    //   {userId: self}  → filtered down to []
+    //   {userIds:[self]} → same
+    const empty = await authed(app, token).post("/channels/dm").send({});
+    expect(empty.status).toBe(200);
+    expect(empty.body.channel.isDirect).toBe(true);
+    expect(empty.body.channel.members).toHaveLength(1);
+    expect(empty.body.channel.members[0].id).toBe(user.id);
+
+    const viaSelfUserId = await authed(app, token)
+      .post("/channels/dm")
+      .send({ userId: user.id });
+    expect(viaSelfUserId.body.channel.id).toBe(empty.body.channel.id);
+
+    const viaSelfArray = await authed(app, token)
+      .post("/channels/dm")
+      .send({ userIds: [user.id] });
+    expect(viaSelfArray.body.channel.id).toBe(empty.body.channel.id);
+  });
+
+  it("keeps the self-DM distinct from a 1:1 DM with another user", async () => {
+    const { token, user: self } = await registerUser(app);
+    const { user: other } = await registerUser(app);
+    const selfDm = await authed(app, token).post("/channels/dm").send({});
+    const otherDm = await authed(app, token).post("/channels/dm").send({ userId: other.id });
+    expect(selfDm.body.channel.id).not.toBe(otherDm.body.channel.id);
+    expect(selfDm.body.channel.members.map((m) => m.id)).toEqual([self.id]);
+    expect(otherDm.body.channel.members).toHaveLength(2);
   });
 });
 
