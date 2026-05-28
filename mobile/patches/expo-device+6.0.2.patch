@@ -1,0 +1,10 @@
+diff --git a/node_modules/expo-device/ios/UIDevice.swift b/node_modules/expo-device/ios/UIDevice.swift
+index 7d58ee8..9c03fb8 100644
+--- a/node_modules/expo-device/ios/UIDevice.swift
++++ b/node_modules/expo-device/ios/UIDevice.swift
+@@ -1,4 +1,5 @@
+ import UIKit
++import Darwin
+ 
+ struct ExpoDeviceType {
+   let modelName: String
