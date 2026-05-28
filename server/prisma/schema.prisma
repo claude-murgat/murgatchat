@@ -87,8 +87,9 @@ model Attachment {
   uploadedBy  String
   filename    String
   mimeType    String
-  size        Int
+  size        Int      // plaintext size; the on-disk blob is larger when encrypted
   storagePath String   @unique
+  encrypted   Boolean  @default(false) // pre-encryption rows stay false; new uploads are true
   createdAt   DateTime @default(now())
 
   message Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
