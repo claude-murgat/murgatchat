@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+const PAGE_SIZE = 50;
 import {
   View,
   Text,
@@ -43,34 +45,66 @@ export default function AdminPanelScreen({ navigation }) {
   const { user, setUser } = useChat();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
   const [busyId, setBusyId] = useState(null);
+  // Same anti-stale-response guard as web: discard a fetch if a newer one has
+  // since been issued (rapid typing or fast scroll).
+  const fetchSeq = useRef(0);
 
-  async function refresh() {
-    setLoading(true);
+  async function fetchPage({ p, q, append }) {
+    const seq = ++fetchSeq.current;
+    if (append) setLoadingMore(true);
+    else setLoading(true);
     try {
-      const res = await api.listAdminUsers();
-      setUsers(res.users);
+      const res = await api.listAdminUsers({ page: p, pageSize: PAGE_SIZE, q });
+      if (seq !== fetchSeq.current) return;
+      setUsers((prev) => (append ? [...prev, ...res.users] : res.users));
+      setHasMore(res.hasMore);
+      setTotal(res.total);
+      setPage(p);
     } catch (e) {
-      Alert.alert("Erreur", e.message || "Chargement impossible");
+      if (seq === fetchSeq.current) Alert.alert("Erreur", e.message || "Chargement impossible");
     } finally {
-      setLoading(false);
+      if (seq === fetchSeq.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   }
-  useEffect(() => {
-    refresh();
-  }, []);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter(
-      (u) =>
-        u.displayName.toLowerCase().includes(q) ||
-        u.username.toLowerCase().includes(q) ||
-        u.email.toLowerCase().includes(q)
-    );
-  }, [users, query]);
+  // Debounced server-side search.
+  useEffect(() => {
+    const t = setTimeout(() => fetchPage({ p: 1, q: query.trim(), append: false }), 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  function loadMore() {
+    if (!hasMore || loadingMore) return;
+    fetchPage({ p: page + 1, q: query.trim(), append: true });
+  }
+
+  async function refreshCurrentView() {
+    // Re-fetch the rows currently visible so a transfer / role change is
+    // reflected without sending the user back to the top of the list.
+    const seq = ++fetchSeq.current;
+    try {
+      const res = await api.listAdminUsers({
+        page: 1,
+        pageSize: page * PAGE_SIZE,
+        q: query.trim(),
+      });
+      if (seq !== fetchSeq.current) return;
+      setUsers(res.users);
+      setHasMore(res.hasMore);
+      setTotal(res.total);
+    } catch {
+      /* ignore */
+    }
+  }
 
   async function runAction(target, action) {
     setBusyId(target.id);
@@ -84,7 +118,7 @@ export default function AdminPanelScreen({ navigation }) {
         res = await api.patchUser(target.id, { status: "active" });
       else if (action === "transfer") {
         await api.transferOwnership(target.id);
-        await refresh();
+        await refreshCurrentView();
         // Current user lost ownership: refresh /auth/me so the UI updates.
         const me = (await api.me()).user;
         setUser(me);
@@ -183,12 +217,26 @@ export default function AdminPanelScreen({ navigation }) {
         </View>
       ) : (
         <FlatList
-          data={filtered}
+          data={users}
           keyExtractor={(u) => u.id}
           renderItem={renderItem}
           ItemSeparatorComponent={() => <View style={styles.sep} />}
-          contentContainerStyle={filtered.length === 0 && styles.empty}
+          contentContainerStyle={users.length === 0 && styles.empty}
           ListEmptyComponent={<Text style={styles.subtle}>Aucun résultat.</Text>}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={styles.footerLoad}>
+                <ActivityIndicator color={colors.aubergine} />
+              </View>
+            ) : users.length > 0 ? (
+              <Text style={styles.footerText}>
+                {users.length} / {total} affiché{total > 1 ? "s" : ""}
+                {hasMore ? " — défilez pour charger plus" : ""}
+              </Text>
+            ) : null
+          }
         />
       )}
     </View>
@@ -242,4 +290,6 @@ const styles = StyleSheet.create({
   actionTextDanger: { color: "#B91C1C" },
   sep: { height: 1, backgroundColor: colors.border },
   empty: { padding: 20, alignItems: "center" },
+  footerLoad: { padding: 12, alignItems: "center" },
+  footerText: { color: colors.textMuted, fontSize: 12, padding: 12, textAlign: "center" },
 });

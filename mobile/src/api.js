@@ -133,7 +133,14 @@ export const api = {
       body: { token, password },
       auth: false,
     }),
-  listAdminUsers: () => request("/auth/users"),
+  listAdminUsers: ({ page = 1, pageSize = 50, q = "" } = {}) => {
+    const params = new URLSearchParams();
+    if (page > 1) params.set("page", String(page));
+    if (pageSize !== 50) params.set("pageSize", String(pageSize));
+    if (q) params.set("q", q);
+    const qs = params.toString();
+    return request(`/auth/users${qs ? `?${qs}` : ""}`);
+  },
   patchUser: (id, patch) =>
     request(`/auth/users/${encodeURIComponent(id)}`, { method: "PATCH", body: patch }),
   transferOwnership: (targetUserId) =>

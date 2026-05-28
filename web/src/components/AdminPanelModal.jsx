@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import Avatar from "./Avatar.jsx";
+
+const PAGE_SIZE = 50;
 
 // Hierarchy: owner > admin > member. The current user is `me`.
 // What the UI offers per target is decided here; the server enforces it again.
@@ -44,36 +46,68 @@ function roleBadge(u) {
 export default function AdminPanelModal({ currentUser, onClose, onUserUpdated }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [total, setTotal] = useState(0);
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState(null);
   const [confirmAction, setConfirmAction] = useState(null); // {target, action}
+  // Track the latest fetch so a stale debounced response can't overwrite the
+  // current view (typing fast triggers many in-flight requests).
+  const fetchSeq = useRef(0);
 
-  async function refresh() {
-    setLoading(true);
+  async function fetchPage({ p, q, append }) {
+    const seq = ++fetchSeq.current;
+    if (append) setLoadingMore(true);
+    else setLoading(true);
     try {
-      const res = await api.listAdminUsers();
-      setUsers(res.users);
+      const res = await api.listAdminUsers({ page: p, pageSize: PAGE_SIZE, q });
+      if (seq !== fetchSeq.current) return; // a newer fetch superseded us
+      setUsers((prev) => (append ? [...prev, ...res.users] : res.users));
+      setHasMore(res.hasMore);
+      setTotal(res.total);
+      setPage(p);
     } catch (e) {
-      setError(e.message || "Erreur de chargement");
+      if (seq === fetchSeq.current) setError(e.message || "Erreur de chargement");
     } finally {
-      setLoading(false);
+      if (seq === fetchSeq.current) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   }
-  useEffect(() => {
-    refresh();
-  }, []);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter(
-      (u) =>
-        u.displayName.toLowerCase().includes(q) ||
-        u.username.toLowerCase().includes(q) ||
-        u.email.toLowerCase().includes(q)
-    );
-  }, [users, query]);
+  // Debounced search: every query change resets to page 1 after 300 ms idle.
+  useEffect(() => {
+    const t = setTimeout(() => fetchPage({ p: 1, q: query.trim(), append: false }), 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  function loadMore() {
+    if (!hasMore || loadingMore) return;
+    fetchPage({ p: page + 1, q: query.trim(), append: true });
+  }
+
+  async function refreshCurrentView() {
+    // Re-fetch the first `page * PAGE_SIZE` rows so a role/status mutation is
+    // reflected without scrolling the user back to the top.
+    const seq = ++fetchSeq.current;
+    try {
+      const res = await api.listAdminUsers({
+        page: 1,
+        pageSize: page * PAGE_SIZE,
+        q: query.trim(),
+      });
+      if (seq !== fetchSeq.current) return;
+      setUsers(res.users);
+      setHasMore(res.hasMore);
+      setTotal(res.total);
+    } catch {
+      /* ignore — the immediate update below still patches in-place */
+    }
+  }
 
   async function runAction(target, action) {
     setBusyId(target.id);
@@ -88,7 +122,7 @@ export default function AdminPanelModal({ currentUser, onClose, onUserUpdated })
         res = await api.patchUser(target.id, { status: "active" });
       else if (action === "transfer") {
         await api.transferOwnership(target.id);
-        await refresh();
+        await refreshCurrentView();
         // After transfer the *current* user is no longer owner — bubble it up.
         const me = (await api.me()).user;
         onUserUpdated?.(me);
@@ -144,11 +178,11 @@ export default function AdminPanelModal({ currentUser, onClose, onUserUpdated })
         <div className="flex-1 overflow-y-auto">
           {loading && <div className="p-5 text-sm text-slate-500">Chargement…</div>}
           {error && <div className="p-3 text-sm text-red-600">{error}</div>}
-          {!loading && filtered.length === 0 && (
+          {!loading && users.length === 0 && (
             <div className="p-5 text-sm text-slate-500">Aucun résultat.</div>
           )}
           <ul className="divide-y divide-slate-100">
-            {filtered.map((u) => {
+            {users.map((u) => {
               const actions = actionsFor(currentUser, u);
               const disabled = u.status === "disabled";
               return (
@@ -196,8 +230,22 @@ export default function AdminPanelModal({ currentUser, onClose, onUserUpdated })
               );
             })}
           </ul>
+          {!loading && hasMore && (
+            <div className="p-3 text-center border-t border-slate-100">
+              <button
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="px-3 py-1.5 text-sm rounded-md border border-slate-300 hover:bg-slate-50 disabled:opacity-50"
+              >
+                {loadingMore ? "Chargement…" : "Voir plus"}
+              </button>
+            </div>
+          )}
         </div>
-        <div className="p-4 border-t border-slate-200 flex justify-end">
+        <div className="p-3 border-t border-slate-200 flex items-center justify-between">
+          <span className="text-xs text-slate-500">
+            {users.length} / {total} affiché{total > 1 ? "s" : ""}
+          </span>
           <button onClick={onClose} className="px-3 py-1.5 rounded-md border border-slate-300">
             Fermer
           </button>
