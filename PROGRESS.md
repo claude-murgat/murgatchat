@@ -205,11 +205,15 @@ Dernière mise à jour : **2026-05-28**.
     une session volée). UI : nouvelle entrée « Mon profil » dans le menu de la sidebar (web/desktop)
     et du menu trois points (mobile) → modale avec deux blocs (nom affiché / mot de passe). Mises
     à jour reflétées dans tout l'UI via `setUser`.
-27. **Desktop 0.3.0 (alpha-testing)** — `dist/Chat_0.3.0_x64-setup.exe` (NSIS) + `dist/Chat-portable.zip`
-    (exe + WebView2Loader.dll) rebuildés avec toutes les features ci-dessus. Versions harmonisées dans
-    `tauri.conf.json`, `web/src-tauri/Cargo.toml` et `web/package.json`. Smoke-test lancement OK
-    (window handle non-zero, 12 procs msedgewebview2 spawned). Mobile reste en 0.2.1 (à rebuilder
-    séparément si besoin pour ces nouvelles features).
+27. **Desktop + APK 0.3.0 (alpha-testing)** — `dist/Chat_0.3.0_x64-setup.exe` (NSIS) +
+    `dist/Chat-portable.zip` (exe + WebView2Loader.dll) **et** `dist/Chat_0.3.0.apk` (~65 Mo)
+    rebuildés avec toutes les features ci-dessus. Versions harmonisées partout
+    (`tauri.conf.json`, `web/src-tauri/Cargo.toml`, `web/package.json`, `mobile/app.json`
+    versionCode 3, `mobile/package.json`). Smoke-tests OK : desktop window handle non-zero +
+    12 procs msedgewebview2 ; APK installé sur émulateur `alarm_dev` Android 11, lancement
+    + PID vivant, `dumpsys` confirme versionName=0.3.0 / versionCode=3. **Règle persistée
+    en mémoire** : un rebuild APK ou desktop ⇒ on rebuild **les deux** pour garder l'alpha
+    aligné, sauf demande explicite "uniquement ...".
 
 ## Événements Socket.IO (catalogue)
 
