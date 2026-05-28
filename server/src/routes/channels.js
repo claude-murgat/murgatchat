@@ -4,6 +4,7 @@ import { prisma } from "../db.js";
 import { requireAuth } from "../auth.js";
 import { publicUser } from "./auth.js";
 import { encryptBody, decryptBody } from "../crypto.js";
+import { safeUnlink } from "../storage.js";
 
 const router = Router();
 
@@ -191,13 +192,20 @@ router.get("/:id/scheduled", requireAuth, async (req, res) => {
   res.json({ scheduled: scheduled.map(serializeScheduled) });
 });
 
+// Same blob-cleanup logic as the regular delete: scheduled messages also carry
+// attachments we want to remove from disk immediately on cancel.
 router.delete("/scheduled/:messageId", requireAuth, async (req, res) => {
   const { messageId } = req.params;
-  const msg = await prisma.message.findUnique({ where: { id: messageId } });
+  const msg = await prisma.message.findUnique({
+    where: { id: messageId },
+    include: { attachments: true },
+  });
   if (!msg || msg.authorId !== req.userId || msg.delivered) {
     return res.status(404).json({ error: "not_found" });
   }
+  const blobs = (msg.attachments || []).map((a) => a.storagePath);
   await prisma.message.delete({ where: { id: messageId } });
+  await Promise.all(blobs.map((p) => safeUnlink(p)));
   res.json({ ok: true });
 });
 
@@ -266,12 +274,26 @@ router.patch("/messages/:messageId", requireAuth, async (req, res) => {
 
 router.delete("/messages/:messageId", requireAuth, async (req, res) => {
   const { messageId } = req.params;
-  const msg = await prisma.message.findUnique({ where: { id: messageId } });
+  // Pre-fetch attachments (own + via cascaded replies) so we can unlink the
+  // blobs on disk after the DB cascade removes their rows. The sweep worker
+  // is the safety net; this is the happy path.
+  const msg = await prisma.message.findUnique({
+    where: { id: messageId },
+    include: {
+      attachments: true,
+      replies: { include: { attachments: true } },
+    },
+  });
   if (!msg || msg.authorId !== req.userId || !msg.delivered) {
     return res.status(404).json({ error: "not_found" });
   }
+  const blobs = [
+    ...msg.attachments,
+    ...(msg.replies || []).flatMap((r) => r.attachments || []),
+  ].map((a) => a.storagePath);
   const { channelId, parentId } = msg;
   await prisma.message.delete({ where: { id: messageId } });
+  await Promise.all(blobs.map((p) => safeUnlink(p)));
   req.io
     ?.to(`channel:${channelId}`)
     .emit("message:deleted", { id: messageId, channelId, parentId });

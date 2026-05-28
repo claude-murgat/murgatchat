@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import { createServer } from "../../src/index.js";
 import { registerUser, authed } from "../helpers/api.js";
 import { prisma } from "../helpers/db.js";
 import { seedMessage } from "../helpers/seed.js";
+import { UPLOAD_DIR } from "../../src/storage.js";
 
 let app, io;
 beforeAll(() => {
@@ -100,6 +103,31 @@ describe("DELETE /channels/messages/:id", () => {
     const res = await authed(app, member.token).delete(`/channels/messages/${msg.id}`);
     expect(res.status).toBe(404);
     expect(await prisma.message.findUnique({ where: { id: msg.id } })).not.toBeNull();
+  });
+
+  it("unlinks the on-disk blobs when the author deletes a message with attachments", async () => {
+    const { owner, channelId } = await setup();
+    const msg = await seedMessage({ channelId, authorId: owner.user.id, body: "with-pj" });
+
+    // Stand-in for an upload: row + a real file in UPLOAD_DIR.
+    const storagePath = "msg-delete-test.bin";
+    const filePath = path.join(UPLOAD_DIR, storagePath);
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+    fs.writeFileSync(filePath, "data");
+    await prisma.attachment.create({
+      data: {
+        uploadedBy: owner.user.id,
+        messageId: msg.id,
+        filename: "file.txt",
+        mimeType: "text/plain",
+        size: 4,
+        storagePath,
+      },
+    });
+
+    const res = await authed(app, owner.token).delete(`/channels/messages/${msg.id}`);
+    expect(res.status).toBe(200);
+    expect(fs.existsSync(filePath)).toBe(false);
   });
 });
 

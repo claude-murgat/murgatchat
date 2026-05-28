@@ -8,6 +8,7 @@ import channelsRouter, { ensureDefaultChannel } from "./routes/channels.js";
 import uploadsRouter from "./routes/uploads.js";
 import { setupSocket, dispatchScheduledMessages } from "./socket.js";
 import { prisma } from "./db.js";
+import { sweepOrphanAttachments } from "./sweep.js";
 
 const PORT = parseInt(process.env.PORT || "4000", 10);
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
@@ -56,6 +57,19 @@ export function startServer() {
       console.error("dispatchScheduledMessages error", e)
     );
   }, 10_000);
+
+  // Hourly sweep of orphan blobs + abandoned uploads. First pass is delayed
+  // 5 min so we don't wipe in-flight files right after a restart.
+  const runSweep = () =>
+    sweepOrphanAttachments()
+      .then(({ filesDeleted, rowsDeleted }) => {
+        if (filesDeleted + rowsDeleted > 0) {
+          console.log(`[sweep] cleaned ${filesDeleted} blob(s) + ${rowsDeleted} row(s)`);
+        }
+      })
+      .catch((e) => console.error("[sweep] error:", e.message));
+  setTimeout(runSweep, 5 * 60_000);
+  setInterval(runSweep, 60 * 60_000);
 
   server.listen(PORT, () => {
     console.log(`Chat server listening on :${PORT}`);
