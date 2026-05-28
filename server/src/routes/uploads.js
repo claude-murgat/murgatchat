@@ -5,20 +5,15 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { prisma } from "../db.js";
 import { requireAuth, verifyToken } from "../auth.js";
+import { encryptBufferToFile, decryptFile } from "../cryptoFile.js";
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || "/data/uploads";
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
-  filename: (_req, file, cb) => {
-    const ext = path.extname(file.originalname).slice(0, 20);
-    cb(null, crypto.randomBytes(16).toString("hex") + ext);
-  },
-});
-
+// Memory storage so the upload never touches disk until it's been encrypted.
+// 25 MiB cap stays in line with the previous behavior.
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 },
 });
 
@@ -27,13 +22,27 @@ const router = Router();
 router.post("/", requireAuth, upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "no_file" });
   const filename = Buffer.from(req.file.originalname, "latin1").toString("utf8");
+  const ext = path.extname(req.file.originalname).slice(0, 20);
+  const storageName = crypto.randomBytes(16).toString("hex") + ext;
+  const finalPath = path.join(UPLOAD_DIR, storageName);
+
+  try {
+    await encryptBufferToFile(req.file.buffer, finalPath);
+  } catch (e) {
+    console.error("[uploads] encrypt failed:", e.message);
+    // Best-effort cleanup: a partial blob would otherwise hang around until the sweep.
+    try { await fs.promises.unlink(finalPath); } catch { /* nothing to clean */ }
+    return res.status(500).json({ error: "encrypt_failed" });
+  }
+
   const att = await prisma.attachment.create({
     data: {
       uploadedBy: req.userId,
       filename,
       mimeType: req.file.mimetype || "application/octet-stream",
-      size: req.file.size,
-      storagePath: req.file.filename,
+      size: req.file.size, // plaintext size; the blob on disk is larger
+      storagePath: storageName,
+      encrypted: true,
     },
   });
   res.json({
@@ -77,11 +86,26 @@ router.get("/:id", async (req, res) => {
   }
 
   res.setHeader("Content-Type", att.mimeType);
+  res.setHeader("Content-Length", String(att.size));
   res.setHeader(
     "Content-Disposition",
     `inline; filename*=UTF-8''${encodeURIComponent(att.filename)}`
   );
-  fs.createReadStream(filePath).pipe(res);
+
+  if (att.encrypted) {
+    // Buffered decrypt: cap is 25 MiB, so RAM cost is bounded; in exchange we
+    // can fail cleanly (and skip writing partial bytes) if the GCM tag is bad.
+    try {
+      const plaintext = await decryptFile(filePath);
+      res.end(plaintext);
+    } catch (e) {
+      console.error("[uploads] decrypt failed:", e.message);
+      res.status(500).json({ error: "decrypt_failed" });
+    }
+  } else {
+    // Legacy blob (pre-encryption rollout): serve raw.
+    fs.createReadStream(filePath).pipe(res);
+  }
 });
 
 export default router;
