@@ -7,6 +7,7 @@ import usersRouter from "./routes/users.js";
 import channelsRouter, { ensureDefaultChannel } from "./routes/channels.js";
 import uploadsRouter from "./routes/uploads.js";
 import { setupSocket, dispatchScheduledMessages } from "./socket.js";
+import { prisma } from "./db.js";
 
 const PORT = parseInt(process.env.PORT || "4000", 10);
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
@@ -26,7 +27,19 @@ export function createServer() {
     next();
   });
 
-  app.get("/health", (_req, res) => res.json({ ok: true }));
+  // Public probe used by the login screen's "Tester" button. Also exposes
+  // `needsBootstrap` so a fresh deploy can hint "no admin yet — create one"
+  // in the UI without anyone having to find the empty-invitation-code trick.
+  app.get("/health", async (_req, res) => {
+    let needsBootstrap = false;
+    try {
+      needsBootstrap = (await prisma.user.count()) === 0;
+    } catch {
+      // DB unreachable: keep ok:true so the user still sees the server is up
+      // (the misleading flag won't be needed if /health itself is failing).
+    }
+    res.json({ ok: true, needsBootstrap });
+  });
   app.use("/auth", authRouter);
   app.use("/users", usersRouter);
   app.use("/channels", channelsRouter);

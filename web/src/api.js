@@ -32,13 +32,14 @@ export function setApiBaseUrl(url) {
 }
 
 // Quick reachability probe for the "Tester" button on the login screen.
+// Returns the full /health payload so the caller can also inspect needsBootstrap.
 export async function pingServer(url) {
   const base = normalizeBaseUrl(url) || DEFAULT_API_URL;
   const res = await fetch(`${base}/health`, { method: "GET" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json().catch(() => ({}));
   if (!data || data.ok !== true) throw new Error("réponse inattendue");
-  return true;
+  return data;
 }
 
 export function getToken() {

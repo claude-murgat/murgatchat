@@ -50,6 +50,7 @@ export async function setApiBaseUrl(url) {
 }
 
 // Reachability probe for the "Tester" button on the login screen.
+// Returns the full /health payload so the caller can also inspect needsBootstrap.
 export async function pingServer(url) {
   const base = normalizeBaseUrl(url) || currentBaseUrl;
   if (!base) throw new Error("adresse vide");
@@ -57,7 +58,7 @@ export async function pingServer(url) {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json().catch(() => ({}));
   if (!data || data.ok !== true) throw new Error("réponse inattendue");
-  return true;
+  return data;
 }
 
 const TOKEN_KEY = "chat_token";

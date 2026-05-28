@@ -205,15 +205,23 @@ Dernière mise à jour : **2026-05-28**.
     une session volée). UI : nouvelle entrée « Mon profil » dans le menu de la sidebar (web/desktop)
     et du menu trois points (mobile) → modale avec deux blocs (nom affiché / mot de passe). Mises
     à jour reflétées dans tout l'UI via `setUser`.
-27. **Desktop + APK 0.3.0 (alpha-testing)** — `dist/Chat_0.3.0_x64-setup.exe` (NSIS) +
-    `dist/Chat-portable.zip` (exe + WebView2Loader.dll) **et** `dist/Chat_0.3.0.apk` (~65 Mo)
+27. **Desktop + APK 0.3.0 (alpha-testing)** — `dist/Chat_0.3.x_x64-setup.exe` (NSIS) +
+    `dist/Chat-portable.zip` (exe + WebView2Loader.dll) **et** `dist/Chat_0.3.x.apk` (~65 Mo)
     rebuildés avec toutes les features ci-dessus. Versions harmonisées partout
     (`tauri.conf.json`, `web/src-tauri/Cargo.toml`, `web/package.json`, `mobile/app.json`
-    versionCode 3, `mobile/package.json`). Smoke-tests OK : desktop window handle non-zero +
+    versionCode, `mobile/package.json`). Smoke-tests OK : desktop window handle non-zero +
     12 procs msedgewebview2 ; APK installé sur émulateur `alarm_dev` Android 11, lancement
-    + PID vivant, `dumpsys` confirme versionName=0.3.0 / versionCode=3. **Règle persistée
+    + PID vivant, `dumpsys` confirme versionName/versionCode. **Règle persistée
     en mémoire** : un rebuild APK ou desktop ⇒ on rebuild **les deux** pour garder l'alpha
     aligné, sauf demande explicite "uniquement ...".
+28. **UX bootstrap premier compte (0.3.1)** — `GET /health` expose `needsBootstrap`
+    (`User.count() === 0`). L'écran de login (web + mobile) **probe `/health` dès qu'une
+    adresse de serveur est saisie** (debounced) et, si la base est vide, affiche un encart
+    « Premier démarrage 🎉 — créez le compte admin » à la place du lien trompeur « J'ai une
+    invitation ». Dans le mode register, le champ « Code d'invitation » est masqué et le
+    bouton devient « Créer le compte admin ». Plus besoin de connaître l'astuce du code
+    d'invitation vide pour installer un nouveau serveur. Tests : 3 nouveaux tests
+    `test/http/health.test.js` (suite à 94/94). APK et desktop rebuildés en 0.3.1.
 
 ## Événements Socket.IO (catalogue)
 
