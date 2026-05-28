@@ -15,16 +15,23 @@ async function configureServer(page) {
 }
 
 // First account: no invitation code -> server bootstraps it as admin.
+// With needsBootstrap UX, the login page shows a "Premier démarrage" banner
+// with a "Créer le compte admin" CTA; clicking it switches to register mode
+// (invitation-code field hidden, submit also labeled "Créer le compte admin").
 async function bootstrapAdmin(page) {
   const t = tag();
   await page.goto("/");
   await configureServer(page);
-  await page.getByRole("button", { name: /s'inscrire/i }).click();
+  // CTA in the bootstrap banner. `.first()` because the submit button will
+  // share the same name after the mode switch; here we want the banner one.
+  await page.getByRole("button", { name: "Créer le compte admin" }).first().click();
+  await expect(page.getByPlaceholder("Nom affiché")).toBeVisible();
   await page.getByPlaceholder("Nom affiché").fill(`Admin ${t}`);
   await page.getByPlaceholder("Nom d'utilisateur").fill(t);
   await page.getByPlaceholder("Email").fill(`${t}@e2e.local`);
   await page.getByPlaceholder("Mot de passe").fill("test1234");
-  await page.getByRole("button", { name: "S'inscrire", exact: true }).click();
+  // Banner is hidden now (mode === register), so this resolves to the submit.
+  await page.getByRole("button", { name: "Créer le compte admin", exact: true }).click();
   await expect(page.getByRole("button", { name: /Général/ })).toBeVisible();
   return t;
 }
