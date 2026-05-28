@@ -78,13 +78,16 @@ export default function Login({ onLoggedIn }) {
 
   // Probe /health silently on mount and whenever the server URL changes (debounced),
   // so the bootstrap banner appears without the user clicking "Tester" first.
+  // Don't reset to `false` on failure: a slow/failing background probe must not
+  // overwrite a confirmed-true value coming from the explicit "Tester" handler
+  // (the two run concurrently — settle order isn't guaranteed).
   useEffect(() => {
     const t = setTimeout(async () => {
       try {
         const health = await pingServer(serverUrl);
         setNeedsBootstrap(!!health?.needsBootstrap);
       } catch {
-        setNeedsBootstrap(false); // server unreachable: don't promise anything
+        /* unreachable — keep the last known value */
       }
     }, 300);
     return () => clearTimeout(t);

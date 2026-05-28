@@ -15,23 +15,31 @@ async function configureServer(page) {
 }
 
 // First account: no invitation code -> server bootstraps it as admin.
-// With needsBootstrap UX, the login page shows a "Premier démarrage" banner
-// with a "Créer le compte admin" CTA; clicking it switches to register mode
-// (invitation-code field hidden, submit also labeled "Créer le compte admin").
+// We use the always-present "J'ai une invitation" switcher to reach the
+// register form, then submit with an empty code field — the server treats
+// that as the bootstrap path when the DB is empty. This avoids racing the
+// async /health probe that toggles the needsBootstrap banner.
 async function bootstrapAdmin(page) {
   const t = tag();
   await page.goto("/");
   await configureServer(page);
-  // CTA in the bootstrap banner. `.first()` because the submit button will
-  // share the same name after the mode switch; here we want the banner one.
-  await page.getByRole("button", { name: "Créer le compte admin" }).first().click();
+  // Two routes to the register form depending on whether the (async) /health
+  // probe has flipped `needsBootstrap` yet — the bootstrap banner CTA or the
+  // always-present "J'ai une invitation" switcher. Try both.
+  const banner = page.getByRole("button", { name: "Créer le compte admin" });
+  const inviteLink = page.getByRole("button", { name: /j'ai une invitation/i });
+  if (await banner.count()) await banner.first().click();
+  else await inviteLink.click();
   await expect(page.getByPlaceholder("Nom affiché")).toBeVisible();
   await page.getByPlaceholder("Nom affiché").fill(`Admin ${t}`);
   await page.getByPlaceholder("Nom d'utilisateur").fill(t);
   await page.getByPlaceholder("Email").fill(`${t}@e2e.local`);
   await page.getByPlaceholder("Mot de passe").fill("test1234");
-  // Banner is hidden now (mode === register), so this resolves to the submit.
-  await page.getByRole("button", { name: "Créer le compte admin", exact: true }).click();
+  // Submit label depends on needsBootstrap: "Créer le compte admin" when set,
+  // "S'inscrire" otherwise. The two are mutually exclusive in render.
+  const submit = page.getByRole("button", { name: "Créer le compte admin", exact: true });
+  if (await submit.count()) await submit.click();
+  else await page.getByRole("button", { name: "S'inscrire", exact: true }).click();
   await expect(page.getByRole("button", { name: /Général/ })).toBeVisible();
   return t;
 }
@@ -111,17 +119,23 @@ test("invitation registration + full web journey", async ({ page }) => {
   await expect(page.getByText("hello edited")).toBeVisible();
   await expect(page.getByText("(modifié)")).toBeVisible();
 
+  // Inline reply (Discord-style): clicking "Répondre" shows a quote banner
+  // above the main composer, then the reply lands in the same timeline with
+  // a clickable quote bubble of the parent.
   const editedRow = messageRow(page, "hello edited");
   await editedRow.hover();
   await editedRow.getByRole("button", { name: "Répondre" }).click();
-  await expect(page.getByText("Fil de discussion")).toBeVisible();
-  const reply = page.getByPlaceholder("Répondre…");
-  await reply.fill("ma réponse");
-  await reply.press("Enter");
+  await expect(page.getByText("↩ Réponse à")).toBeVisible();
+  await composer.fill("ma réponse");
+  await composer.press("Enter");
   await expect(page.getByText("ma réponse")).toBeVisible();
-  await expect(page.getByText(/1 réponse/)).toBeVisible();
+  // The quote banner above the composer goes away once the reply is sent.
+  await expect(page.getByText("↩ Réponse à")).toBeHidden();
 
   await page.reload();
   await page.getByRole("button", { name: new RegExp(channel) }).click();
-  await expect(page.getByText("hello edited")).toBeVisible();
+  // After the reload there are 2 "hello edited" on screen: the original
+  // message and the quote bubble inside our reply. .first() targets the
+  // original (the topmost in the timeline).
+  await expect(page.getByText("hello edited").first()).toBeVisible();
 });
