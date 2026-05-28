@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-05-26**.
+Dernière mise à jour : **2026-05-28**.
 
 ---
 
@@ -184,6 +184,37 @@ Dernière mise à jour : **2026-05-26**.
     lancé en test (globalSetup) ; les tests vérifient que l'e-mail d'invitation est capturé avec le code.
     `Invitation` model (`email`, `token` unique, `invitedBy`, `expiresAt`, `acceptedAt`).
 
+## Itération 2026-05-28 — SMTP configurable, mot de passe oublié, page profil
+
+24. **SMTP entièrement configurable via `.env` (Brevo-ready)** — `server/src/mail.js`
+    accepte désormais `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_SECURE`
+    (SSL direct, p. ex. 465) et `SMTP_REQUIRE_TLS` (impose STARTTLS, p. ex. 587 pour Brevo).
+    `docker-compose.yml` propage ces variables avec défauts vers Mailpit pour le dev — on bascule
+    sur **Brevo** (ou n'importe quel SMTP) simplement en renseignant le `.env`. Doc complète
+    dans [.env.example](.env.example) (bloc Brevo prêt à décommenter + exemples SendGrid / OVH / Gmail).
+25. **Mot de passe oublié (réinit par e-mail)** — nouveau modèle `PasswordReset` (token unique,
+    TTL 1 h, `usedAt` pour empêcher la réutilisation). `POST /auth/forgot-password` répond toujours
+    **200** (pas d'énumération de comptes) ; si le compte existe, l'ancien jeton en attente est
+    invalidé et un nouveau est envoyé par e-mail (`sendPasswordResetEmail`). `GET /auth/password-reset/:token`
+    valide publiquement le code et renvoie l'e-mail **masqué** (`al***@…`) à afficher. `POST /auth/reset-password`
+    consomme le code, change le mot de passe et **auto-login** (renvoie un JWT). UI web + mobile : nouveau
+    mode « Mot de passe oublié ? » → demande, puis écran « Définir le mot de passe » (rempli depuis
+    `?reset=<code>` sur le web pour cliquer sur le lien de l'e-mail).
+26. **Page « Mon profil »** — `PATCH /auth/me` permet de changer le nom affiché et/ou le mot de
+    passe ; tout changement de mot de passe **exige le mot de passe actuel** (defense-in-depth contre
+    une session volée). UI : nouvelle entrée « Mon profil » dans le menu de la sidebar (web/desktop)
+    et du menu trois points (mobile) → modale avec deux blocs (nom affiché / mot de passe). Mises
+    à jour reflétées dans tout l'UI via `setUser`.
+27. **Desktop + APK 0.3.0 (alpha-testing)** — `dist/Chat_0.3.0_x64-setup.exe` (NSIS) +
+    `dist/Chat-portable.zip` (exe + WebView2Loader.dll) **et** `dist/Chat_0.3.0.apk` (~65 Mo)
+    rebuildés avec toutes les features ci-dessus. Versions harmonisées partout
+    (`tauri.conf.json`, `web/src-tauri/Cargo.toml`, `web/package.json`, `mobile/app.json`
+    versionCode 3, `mobile/package.json`). Smoke-tests OK : desktop window handle non-zero +
+    12 procs msedgewebview2 ; APK installé sur émulateur `alarm_dev` Android 11, lancement
+    + PID vivant, `dumpsys` confirme versionName=0.3.0 / versionCode=3. **Règle persistée
+    en mémoire** : un rebuild APK ou desktop ⇒ on rebuild **les deux** pour garder l'alpha
+    aligné, sauf demande explicite "uniquement ...".
+
 ## Événements Socket.IO (catalogue)
 
 - Client → serveur : `channel:join`, `channel:read`, `message:send`
@@ -210,9 +241,9 @@ Dernière mise à jour : **2026-05-26**.
 - Suppression d'un message avec PJ : lignes `Attachment` supprimées en cascade,
   mais **fichiers orphelins** sur disque.
 - Sécurité (mise de côté pour l'instant) : `JWT_SECRET` à 30j sans refresh, CORS `*`,
-  pas de HTTPS, `prisma db push` au démarrage. **Inscription sur invitation** désormais en
-  place (admin-only — voir itération 2026-05-26) ; reste : livraison e-mail réelle (SMTP prod),
-  HTTPS. **iOS** : `app.json` `ios.infoPlist.NSAppTransportSecurity.NSAllowsArbitraryLoads=true`
+  pas de HTTPS, `prisma db push` au démarrage. **Inscription sur invitation** + **mot de passe
+  oublié** + **profil** désormais en place ; **SMTP entièrement configurable** (Brevo, etc.).
+  Reste : HTTPS. **iOS** : `app.json` `ios.infoPlist.NSAppTransportSecurity.NSAllowsArbitraryLoads=true`
   (autorise le HTTP en clair, nécessaire pour le serveur dev/LAN configurable) — à durcir
   (HTTPS) avant une publication App Store. Voir le README pour le détail.
 - **Mobile** : envoi de **pièces jointes** non porté (l'affichage marche ; l'upload

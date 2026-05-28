@@ -12,6 +12,7 @@ import AddMembersModal from "./components/AddMembersModal.jsx";
 import MembersModal from "./components/MembersModal.jsx";
 import DndModal from "./components/DndModal.jsx";
 import InviteModal from "./components/InviteModal.jsx";
+import ProfileModal from "./components/ProfileModal.jsx";
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -26,6 +27,7 @@ export default function App() {
   const [showAddMembers, setShowAddMembers] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [toast, setToast] = useState(null);
   const [onlineUserIds, setOnlineUserIds] = useState(() => new Set());
   const [typingByChannel, setTypingByChannel] = useState({});
@@ -321,6 +323,7 @@ export default function App() {
         onToggleDnd={toggleDnd}
         onLogout={onLogout}
         onInvite={() => setShowInvite(true)}
+        onProfile={() => setShowProfile(true)}
         onlineUserIds={onlineUserIds}
         typingByChannel={typingByChannel}
       />
@@ -381,6 +384,13 @@ export default function App() {
       )}
 
       {showInvite && <InviteModal onClose={() => setShowInvite(false)} />}
+      {showProfile && (
+        <ProfileModal
+          user={user}
+          onClose={() => setShowProfile(false)}
+          onUpdated={(u) => setUser(u)}
+        />
+      )}
 
       {toast && (
         <div className="fixed bottom-4 right-4 bg-aubergine-800 text-white rounded-lg shadow-xl p-3 w-72 z-40">

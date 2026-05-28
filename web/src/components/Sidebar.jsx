@@ -21,6 +21,7 @@ export default function Sidebar({
   onToggleDnd,
   onLogout,
   onInvite,
+  onProfile,
   onBrowseChannels,
   onlineUserIds,
   typingByChannel,
@@ -47,6 +48,15 @@ export default function Sidebar({
         </div>
         {showMenu && (
           <div className="absolute right-3 top-14 bg-white text-slate-800 rounded-md shadow-lg overflow-hidden z-30 w-56">
+            <button
+              onClick={() => {
+                setShowMenu(false);
+                onProfile();
+              }}
+              className="block w-full text-left px-3 py-2 text-sm hover:bg-slate-100"
+            >
+              Mon profil
+            </button>
             {user.isAdmin && (
               <button
                 onClick={() => {
