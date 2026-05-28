@@ -28,6 +28,7 @@ model User {
   reactions   Reaction[]
   pushTokens  PushToken[]
   invitations Invitation[]
+  passwordResets PasswordReset[]
 }
 
 model Channel {
@@ -135,4 +136,17 @@ model Invitation {
   inviter User @relation(fields: [invitedBy], references: [id], onDelete: Cascade)
 
   @@index([email])
+}
+
+model PasswordReset {
+  id        String    @id @default(cuid())
+  userId    String
+  token     String    @unique
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

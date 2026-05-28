@@ -11,6 +11,7 @@ import { useChat } from "../ChatContext";
 import Avatar from "../components/Avatar";
 import PresenceDot from "../components/PresenceDot";
 import InviteModal from "../components/InviteModal";
+import ProfileModal from "../components/ProfileModal";
 import { colors } from "../theme";
 
 function dndActive(user) {
@@ -18,9 +19,10 @@ function dndActive(user) {
 }
 
 export default function ChannelListScreen({ navigation }) {
-  const { user, channels, onlineUserIds, typingByChannel, markRead, logout } = useChat();
+  const { user, setUser, channels, onlineUserIds, typingByChannel, markRead, logout } = useChat();
   const [menu, setMenu] = useState(false);
   const [invite, setInvite] = useState(false);
+  const [profile, setProfile] = useState(false);
 
   const groups = channels.filter((c) => !c.isDirect);
   const dms = channels.filter((c) => c.isDirect);
@@ -115,6 +117,15 @@ export default function ChannelListScreen({ navigation }) {
               style={styles.menuItem}
               onPress={() => {
                 setMenu(false);
+                setProfile(true);
+              }}
+            >
+              <Text style={styles.menuText}>Mon profil</Text>
+            </Pressable>
+            <Pressable
+              style={styles.menuItem}
+              onPress={() => {
+                setMenu(false);
                 navigation.navigate("Dnd");
               }}
             >
@@ -147,6 +158,12 @@ export default function ChannelListScreen({ navigation }) {
       </Modal>
 
       <InviteModal visible={invite} onClose={() => setInvite(false)} />
+      <ProfileModal
+        visible={profile}
+        user={user}
+        onClose={() => setProfile(false)}
+        onUpdated={(u) => setUser(u)}
+      />
     </View>
   );
 }

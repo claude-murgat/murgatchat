@@ -6,7 +6,7 @@ organisée en trois couches, par ordre de valeur :
 
 | Couche | Outil | Ce qu'elle protège | Vérifiée |
 | --- | --- | --- | --- |
-| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push — **la source de vérité** pour web/desktop/mobile | ✅ 70 tests |
+| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil — **la source de vérité** pour web/desktop/mobile | ✅ 91 tests |
 | **E2E Web** (priorité 2) | Playwright | Câblage de l'UI web (auth, envoi, édition, suppression, threads, persistance) | ✅ parcours vert |
 | **Mobile** (priorité 3) | `expo export` + smoke APK | Le bundle RN se compile ; l'app se lance | Documentée |
 | **Charge** (k6) | k6 (HTTP + Socket.IO) | Tenue à 150 utilisateurs simultanés (REST + temps réel) | ✅ script validé (smoke) |
@@ -59,9 +59,12 @@ npm test -- test/http/auth.test.js   # un fichier
 - `test/http/` — auth (register **sur invitation** + bootstrap 1er compte admin,
   login/me/dnd/dnd-schedule/push-token), **invitations** (admin invite → e-mail capturé
   dans Mailpit avec le code → register via token ; non-admin refusé ; mismatch/expiré/utilisé),
-  channels (create/list/public/join/dm/membres/leave + règles du salon par défaut),
-  messages (edit/delete/thread), planifiés (list/patch/delete + dispatch),
-  réactions (toggle/agrégation), non-lus.
+  **password-reset** (forgot → mail capturé → validation token → reset → auto-login ; pas
+  d'énumération de comptes ; expiré / déjà utilisé ; nouvelle demande invalide les
+  précédentes), **profile** (`PATCH /auth/me` : displayName + changement mdp avec ou sans
+  mot de passe actuel, rejet 401/403/400), channels (create/list/public/join/dm/membres/leave +
+  règles du salon par défaut), messages (edit/delete/thread), planifiés (list/patch/delete +
+  dispatch), réactions (toggle/agrégation), non-lus.
 - `test/socket/` — `message:new`/`updated`/`deleted`, `thread:reply`,
   `reaction:update`, `presence`, `typing`, `channel:read`, événements de membres,
   handshake `auth.platform`, et le **gating push** (`notifyMembers` : actif → pas

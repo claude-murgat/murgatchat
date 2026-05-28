@@ -5,7 +5,7 @@ import { z } from "zod";
 import { prisma } from "../db.js";
 import { signToken, requireAuth } from "../auth.js";
 import { broadcastMembers } from "./channels.js";
-import { sendInvitationEmail, inviteLink } from "../mail.js";
+import { sendInvitationEmail, sendPasswordResetEmail, inviteLink } from "../mail.js";
 
 const router = Router();
 
@@ -110,6 +110,134 @@ router.get("/me", requireAuth, async (req, res) => {
   if (!user) return res.status(404).json({ error: "not_found" });
   res.json({ user: publicUser(user) });
 });
+
+// Profile update: change displayName and/or password. Password change requires
+// the current password (defence-in-depth against a stolen session/token).
+const profileSchema = z
+  .object({
+    displayName: z.string().min(1).max(60).optional(),
+    currentPassword: z.string().min(1).optional(),
+    newPassword: z.string().min(6).max(200).optional(),
+  })
+  .refine((d) => d.displayName !== undefined || d.newPassword !== undefined, {
+    message: "no_changes",
+  })
+  .refine((d) => !d.newPassword || !!d.currentPassword, {
+    path: ["currentPassword"],
+    message: "current_password_required",
+  });
+
+router.patch("/me", requireAuth, async (req, res) => {
+  const parsed = profileSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const { displayName, currentPassword, newPassword } = parsed.data;
+
+  const user = await prisma.user.findUnique({ where: { id: req.userId } });
+  if (!user) return res.status(404).json({ error: "not_found" });
+
+  const data = {};
+  if (displayName !== undefined) data.displayName = displayName;
+  if (newPassword) {
+    const ok = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!ok) return res.status(403).json({ error: "invalid_current_password" });
+    data.passwordHash = await bcrypt.hash(newPassword, 10);
+  }
+  const updated = await prisma.user.update({ where: { id: user.id }, data });
+  res.json({ user: publicUser(updated) });
+});
+
+// --- Password reset ---------------------------------------------------------
+// Anti-enumeration: forgot-password ALWAYS returns 200 regardless of whether
+// the account exists. The reset row + email are only created/sent if it does.
+const RESET_TTL_MS = 60 * 60 * 1000;
+const forgotSchema = z.object({ emailOrUsername: z.string().min(1) });
+
+router.post("/forgot-password", async (req, res) => {
+  const parsed = forgotSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const id = parsed.data.emailOrUsername.trim();
+
+  const user = await prisma.user.findFirst({
+    where: { OR: [{ email: id.toLowerCase() }, { email: id }, { username: id }] },
+  });
+  if (user) {
+    // Invalidate any pending reset for this user, then mint a new one.
+    await prisma.passwordReset.deleteMany({
+      where: { userId: user.id, usedAt: null },
+    });
+    const token = crypto.randomBytes(24).toString("hex");
+    await prisma.passwordReset.create({
+      data: {
+        userId: user.id,
+        token,
+        expiresAt: new Date(Date.now() + RESET_TTL_MS),
+      },
+    });
+    try {
+      await sendPasswordResetEmail({
+        to: user.email,
+        token,
+        displayName: user.displayName,
+      });
+    } catch (e) {
+      console.error("[reset] email send failed:", e.message);
+    }
+  }
+  res.json({ ok: true });
+});
+
+// Validate a reset token (public) — reveals only the masked email so the UI
+// can confirm to the user "you're resetting alice@…" without leaking accounts.
+router.get("/password-reset/:token", async (req, res) => {
+  const row = await prisma.passwordReset.findUnique({
+    where: { token: req.params.token },
+    include: { user: true },
+  });
+  if (!row) return res.status(404).json({ valid: false, error: "not_found" });
+  const expired = row.expiresAt < new Date();
+  const used = !!row.usedAt;
+  res.json({
+    valid: !expired && !used,
+    expired,
+    used,
+    email: row.user ? maskEmail(row.user.email) : null,
+  });
+});
+
+const resetSchema = z.object({
+  token: z.string().min(8),
+  password: z.string().min(6).max(200),
+});
+
+router.post("/reset-password", async (req, res) => {
+  const parsed = resetSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const { token, password } = parsed.data;
+
+  const row = await prisma.passwordReset.findUnique({ where: { token } });
+  if (!row || row.usedAt) return res.status(403).json({ error: "invalid_token" });
+  if (row.expiresAt < new Date()) return res.status(403).json({ error: "expired_token" });
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const [, , user] = await prisma.$transaction([
+    prisma.passwordReset.update({ where: { id: row.id }, data: { usedAt: new Date() } }),
+    // Defence in depth: invalidate any OTHER pending reset for this user.
+    prisma.passwordReset.deleteMany({
+      where: { userId: row.userId, usedAt: null, NOT: { id: row.id } },
+    }),
+    prisma.user.update({ where: { id: row.userId }, data: { passwordHash } }),
+  ]);
+  // Auto-login after a successful reset so the user lands in the app.
+  const authToken = signToken(user);
+  res.json({ token: authToken, user: publicUser(user) });
+});
+
+function maskEmail(email) {
+  const [local, domain] = String(email).split("@");
+  if (!domain) return email;
+  const head = local.slice(0, Math.min(2, local.length));
+  return `${head}${local.length > 2 ? "***" : ""}@${domain}`;
+}
 
 router.post("/dnd", requireAuth, async (req, res) => {
   const { minutes } = req.body || {};

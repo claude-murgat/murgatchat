@@ -31,8 +31,14 @@ services:
       UPLOAD_DIR: /data/uploads
       PORT: "4000"
       CORS_ORIGIN: "*"
-      SMTP_HOST: mail
-      SMTP_PORT: "1025"
+      # Par défaut on cible le Mailpit du compose (dev). Pour basculer sur Brevo
+      # (ou tout autre SMTP), surchargez ces variables dans .env — voir .env.example.
+      SMTP_HOST: ${SMTP_HOST:-mail}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_REQUIRE_TLS: ${SMTP_REQUIRE_TLS:-false}
       MAIL_FROM: ${MAIL_FROM:-Chat <no-reply@murgat-chat.local>}
       APP_URL: ${APP_URL:-http://localhost:5173}
     ports:

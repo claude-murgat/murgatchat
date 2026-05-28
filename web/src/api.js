@@ -92,6 +92,21 @@ export const api = {
   register: (body) => request("/auth/register", { method: "POST", body, auth: false }),
   login: (body) => request("/auth/login", { method: "POST", body, auth: false }),
   me: () => request("/auth/me"),
+  updateProfile: (body) => request("/auth/me", { method: "PATCH", body }),
+  forgotPassword: (emailOrUsername) =>
+    request("/auth/forgot-password", {
+      method: "POST",
+      body: { emailOrUsername },
+      auth: false,
+    }),
+  getPasswordReset: (token) =>
+    request(`/auth/password-reset/${encodeURIComponent(token)}`, { auth: false }),
+  resetPassword: (token, password) =>
+    request("/auth/reset-password", {
+      method: "POST",
+      body: { token, password },
+      auth: false,
+    }),
   createInvitation: (email) =>
     request("/auth/invitations", { method: "POST", body: { email } }),
   listInvitations: () => request("/auth/invitations"),
