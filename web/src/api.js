@@ -108,6 +108,11 @@ export const api = {
       body: { token, password },
       auth: false,
     }),
+  listAdminUsers: () => request("/auth/users"),
+  patchUser: (id, patch) =>
+    request(`/auth/users/${encodeURIComponent(id)}`, { method: "PATCH", body: patch }),
+  transferOwnership: (targetUserId) =>
+    request("/auth/transfer-ownership", { method: "POST", body: { targetUserId } }),
   createInvitation: (email) =>
     request("/auth/invitations", { method: "POST", body: { email } }),
   listInvitations: () => request("/auth/invitations"),

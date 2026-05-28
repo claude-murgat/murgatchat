@@ -6,7 +6,7 @@ organisée en trois couches, par ordre de valeur :
 
 | Couche | Outil | Ce qu'elle protège | Vérifiée |
 | --- | --- | --- | --- |
-| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil — **la source de vérité** pour web/desktop/mobile | ✅ 91 tests |
+| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 106 tests |
 | **E2E Web** (priorité 2) | Playwright | Câblage de l'UI web (auth, envoi, édition, suppression, threads, persistance) | ✅ parcours vert |
 | **Mobile** (priorité 3) | `expo export` + smoke APK | Le bundle RN se compile ; l'app se lance | Documentée |
 | **Charge** (k6) | k6 (HTTP + Socket.IO) | Tenue à 150 utilisateurs simultanés (REST + temps réel) | ✅ script validé (smoke) |
@@ -62,7 +62,11 @@ npm test -- test/http/auth.test.js   # un fichier
   **password-reset** (forgot → mail capturé → validation token → reset → auto-login ; pas
   d'énumération de comptes ; expiré / déjà utilisé ; nouvelle demande invalide les
   précédentes), **profile** (`PATCH /auth/me` : displayName + changement mdp avec ou sans
-  mot de passe actuel, rejet 401/403/400), channels (create/list/public/join/dm/membres/leave +
+  mot de passe actuel, rejet 401/403/400), **admin-panel** (rôles bootstrap = owner+admin ;
+  `GET /auth/users` admin-only ; `PATCH /auth/users/:id` avec permissions par champ : owner
+  seul pour `isAdmin`, owner-pour-admin pour `status=disabled` ; auto-disable/transfer interdits ;
+  `POST /auth/transfer-ownership` ; soft delete : login refusé + JWT invalidé via re-check
+  du status dans `requireAuth` ; `ensureOwner()` self-heal des bases pré-0.4.0), channels (create/list/public/join/dm/membres/leave +
   règles du salon par défaut), messages (edit/delete/thread), planifiés (list/patch/delete +
   dispatch), réactions (toggle/agrégation), non-lus.
 - `test/socket/` — `message:new`/`updated`/`deleted`, `thread:reply`,

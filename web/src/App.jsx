@@ -13,6 +13,7 @@ import MembersModal from "./components/MembersModal.jsx";
 import DndModal from "./components/DndModal.jsx";
 import InviteModal from "./components/InviteModal.jsx";
 import ProfileModal from "./components/ProfileModal.jsx";
+import AdminPanelModal from "./components/AdminPanelModal.jsx";
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -28,6 +29,7 @@ export default function App() {
   const [showMembers, setShowMembers] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
   const [toast, setToast] = useState(null);
   const [onlineUserIds, setOnlineUserIds] = useState(() => new Set());
   const [typingByChannel, setTypingByChannel] = useState({});
@@ -324,6 +326,7 @@ export default function App() {
         onLogout={onLogout}
         onInvite={() => setShowInvite(true)}
         onProfile={() => setShowProfile(true)}
+        onAdminPanel={() => setShowAdmin(true)}
         onlineUserIds={onlineUserIds}
         typingByChannel={typingByChannel}
       />
@@ -389,6 +392,13 @@ export default function App() {
           user={user}
           onClose={() => setShowProfile(false)}
           onUpdated={(u) => setUser(u)}
+        />
+      )}
+      {showAdmin && (
+        <AdminPanelModal
+          currentUser={user}
+          onClose={() => setShowAdmin(false)}
+          onUserUpdated={(u) => setUser(u)}
         />
       )}
 

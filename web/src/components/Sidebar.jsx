@@ -22,6 +22,7 @@ export default function Sidebar({
   onLogout,
   onInvite,
   onProfile,
+  onAdminPanel,
   onBrowseChannels,
   onlineUserIds,
   typingByChannel,
@@ -66,6 +67,17 @@ export default function Sidebar({
                 className="block w-full text-left px-3 py-2 text-sm hover:bg-slate-100"
               >
                 Inviter un utilisateur
+              </button>
+            )}
+            {user.isAdmin && (
+              <button
+                onClick={() => {
+                  setShowMenu(false);
+                  onAdminPanel();
+                }}
+                className="block w-full text-left px-3 py-2 text-sm hover:bg-slate-100"
+              >
+                Administration
               </button>
             )}
             <button

@@ -14,6 +14,7 @@ import NewChannelScreen from "./src/screens/NewChannelScreen";
 import NewDmScreen from "./src/screens/NewDmScreen";
 import BrowseChannelsScreen from "./src/screens/BrowseChannelsScreen";
 import DndScreen from "./src/screens/DndScreen";
+import AdminPanelScreen from "./src/screens/AdminPanelScreen";
 import { colors } from "./src/theme";
 
 const Stack = createNativeStackNavigator();
@@ -62,6 +63,7 @@ function Root() {
           <Stack.Screen name="NewDm" component={NewDmScreen} options={{ title: "Nouveau message" }} />
           <Stack.Screen name="Browse" component={BrowseChannelsScreen} options={{ title: "Parcourir les salons" }} />
           <Stack.Screen name="Dnd" component={DndScreen} options={{ title: "Ne pas déranger" }} />
+          <Stack.Screen name="AdminPanel" component={AdminPanelScreen} options={{ title: "Administration" }} />
         </Stack.Navigator>
       ) : (
         <LoginScreen />

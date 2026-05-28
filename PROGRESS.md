@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-05-28**.
+Dernière mise à jour : **2026-05-28** (v0.4.0).
 
 ---
 
@@ -214,6 +214,28 @@ Dernière mise à jour : **2026-05-28**.
     + PID vivant, `dumpsys` confirme versionName/versionCode. **Règle persistée
     en mémoire** : un rebuild APK ou desktop ⇒ on rebuild **les deux** pour garder l'alpha
     aligné, sauf demande explicite "uniquement ...".
+29. **Propriétaire + panel d'administration (0.4.0)** — Nouveau rôle `User.isOwner`
+    (un seul à la fois). Hiérarchie **owner > admin > membre** :
+    - Owner : peut promouvoir/révoquer les admins, désactiver les admins, transférer la
+      propriété (l'ancien owner reste admin). N'est jamais désactivable/révocable
+      (`owner_protected`).
+    - Admin : peut inviter, désactiver les membres simples (pas les autres admins).
+    - Suppression d'utilisateur = **soft delete** (`User.status='disabled'`). Login refusé
+      avec le même `invalid_credentials` (anti-énum) et `requireAuth` re-vérifie le status
+      à chaque requête, donc les JWT actifs sont invalidés instantanément.
+
+    Endpoints : `GET /auth/users` (admin), `PATCH /auth/users/:id` (`{isAdmin?, status?}`,
+    permissions au niveau du champ), `POST /auth/transfer-ownership`. **`ensureOwner()`
+    au démarrage** auto-promeut le plus ancien admin si la base n'a pas d'owner (migration
+    silencieuse pour les déploiements pré-0.4.0).
+
+    UI : modale **AdminPanelModal** (web/desktop) + **AdminPanelScreen** (mobile, stack
+    navigation) — recherche par nom/username/email, badges rôle (Propriétaire/Admin/Membre)
+    et status, actions contextuelles, confirmation modale pour désactivation et transfert.
+    Entrée « Administration » dans le menu utilisateur, gated `isAdmin`.
+
+    Tests : 12 nouveaux dans `test/http/admin-panel.test.js`. Suite à **106/106 verts**.
+
 28. **UX bootstrap premier compte (0.3.1)** — `GET /health` expose `needsBootstrap`
     (`User.count() === 0`). L'écran de login (web + mobile) **probe `/health` dès qu'une
     adresse de serveur est saisie** (debounced) et, si la base est vide, affiche un encart
