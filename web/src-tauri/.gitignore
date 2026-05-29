@@ -1,4 +1,4 @@
 target/
 gen/
 .cargo/
-Cargo.lock
+# Cargo.lock IS committed for reproducible CI builds.

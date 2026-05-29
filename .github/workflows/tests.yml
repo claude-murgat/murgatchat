@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Allow other workflows (release.yml) to run the full suite as a gate.
+  workflow_call:
 
 jobs:
   backend:

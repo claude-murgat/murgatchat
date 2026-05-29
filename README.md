@@ -12,12 +12,13 @@ Copie graphiquement inspirée de Slack avec :
 ```
 .
 ├── docker-compose.yml
-├── dist/           # binaires prêts à distribuer (installeur Windows .exe)
 ├── server/         # API + WebSocket + Prisma
 ├── web/            # client React (Slack look)
 │   └── src-tauri/  # wrapper desktop (Rust + Tauri 2)
 └── mobile/         # app Expo (Android, iOS prêt)
 ```
+
+> Les installeurs (Windows `.exe`, Android `.apk`) ne sont **pas** versionnés dans le dépôt : ils sont buildés par CI et publiés dans les [GitHub Releases](../../releases) au push d'un tag `v*`.
 
 ## Démarrage avec Docker
 
@@ -90,11 +91,11 @@ npm install
 npx expo start
 ```
 
-Sur l'émulateur Android, `http://10.0.2.2:4000` est le hôte (déjà configuré dans `app.json`). Sur un device physique, modifie `extra.API_URL` pour pointer l'IP de ta machine sur le LAN. iOS s'active dès `expo run:ios` sur macOS.
+L'adresse du serveur se saisit **dans l'app** (écran de connexion) ; aucun serveur n'est baké (`extra.API_URL=""`). Pour l'émulateur Android, l'hôte est `http://10.0.2.2:4000` (alias émulateur → machine) ; pour un device physique, l'IP LAN de ta machine. iOS s'active dès `expo run:ios` sur macOS.
 
 ### Desktop (Tauri — Windows / macOS / Linux)
 
-**Installeur Windows pré-buildé** : [dist/Chat_0.5.2_x64-setup.exe](dist/Chat_0.5.2_x64-setup.exe) (NSIS, non signé — SmartScreen va râler une fois). Embarque `WebView2Loader.dll` (requise par le build GNU, sinon « WebView2Loader.dll introuvable » au lancement). L'adresse du serveur se configure **dans l'app** (écran de connexion) ; depuis la 0.5.1 l'installeur ne bake **aucun serveur par défaut** (le champ est vide au premier lancement, comme l'APK). Version portable : [dist/Chat-portable.zip](dist/Chat-portable.zip) (contient `chat-desktop.exe` + `WebView2Loader.dll` — garder les deux fichiers ensemble).
+**Installeur Windows + APK** : téléchargez-les depuis la section **[Releases](../../releases)** du dépôt. Chaque release est buildée automatiquement par CI au push d'un tag `v*` (voir [Releases automatisées](#releases-automatisées-ci)). L'installeur NSIS est non signé (SmartScreen avertit une fois). L'adresse du serveur se configure **dans l'app** (écran de connexion) ; les builds ne bakent **aucun serveur par défaut** (champ vide au premier lancement).
 
 Le scaffold complet est dans [web/src-tauri/](web/src-tauri/). Tauri lance Vite en dev et embarque le `dist/` en release.
 
@@ -116,35 +117,48 @@ npm run tauri:dev          # ouvre la fenêtre native, hot-reload via Vite
 
 L'app pointe par défaut vers `http://localhost:4000` pour l'API. Lance la stack backend en parallèle (`docker compose up db server`).
 
-**Builder le bundle Windows :**
+**Builder le bundle Windows (local, optionnel) :**
 
 ```bash
-npm run tauri:build        # produit src-tauri/target/release/bundle/{msi,nsis}/Chat_*.msi|.exe
-```
-
-> **Build natif avec la toolchain GNU (sans MSVC).** L'installeur `0.5.2` de [dist/](dist/) a été produit ainsi, sans les *MS C++ Build Tools* : `rustup default stable-x86_64-pc-windows-gnu` + **mingw-w64 sur le `PATH`** (fournit `dlltool` et `windres`, que la toolchain Rust GNU n'embarque pas). Deux pièges rencontrés :
-> - `dlltool` échoue si le chemin de build contient une **espace** (ex. « Projets Claude ») : `as exited with status 1`. Builder depuis un chemin sans espace **ou** rediriger la sortie : `set CARGO_TARGET_DIR=C:\murgat-build`.
-> - Limiter au bundle NSIS : `npm run tauri:build -- --bundles nsis` (le `.msi`/WiX n'existe pas pour la cible GNU). Tauri télécharge NSIS tout seul au premier build.
-
-**Cross-compile depuis Linux** (utilisé pour produire l'installeur dans [dist/](dist/)) :
-
-```bash
-sudo apt install -y mingw-w64 nsis libayatana-appindicator3-dev
-rustup target add x86_64-pc-windows-gnu
-
 cd web
-VITE_API_URL=http://<ton-ip-lan>:4000 \
-  npx tauri build --target x86_64-pc-windows-gnu
-# → web/src-tauri/target/x86_64-pc-windows-gnu/release/bundle/nsis/Chat_<v>_x64-setup.exe
+npm run tauri:build -- --bundles nsis   # → web/src-tauri/target/release/bundle/nsis/Chat_*.exe
 ```
 
-Le `.msi` n'est pas produit depuis Linux (WiX = Windows only). Pour avoir le MSI, build sur Windows ou via un runner CI `windows-latest`.
+En MSVC (toolchain standard, ce que fait la CI), `WebView2Loader.dll` est liée statiquement — rien à embarquer. Les releases officielles sont produites par CI (`windows-latest`, MSVC) ; un build local n'est utile que pour déboguer.
 
-**Récupérer l'installeur depuis Windows** (si le repo tourne sur une autre machine du LAN) :
+### Releases automatisées (CI)
 
-```powershell
-scp murgat@<ip-machine-build>:/path/to/Chat/dist/Chat_0.1.0_x64-setup.exe .
+Le workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) se déclenche au **push d'un tag `v*`** et publie une GitHub Release avec l'installeur Windows et l'APK signée.
+
+Pipeline : `test` (réutilise [`tests.yml`](.github/workflows/tests.yml)) → `release` (crée une release *draft* + valide que les 5 fichiers de version == tag) → `desktop` (`windows-latest`, MSVC, `tauri-action`) **et** `android` (`ubuntu-latest`, `expo prebuild` + APK signée) en parallèle → `publish` (passe la release en *live*).
+
+**Couper une release :**
+```bash
+# 1. bumper la version dans les 5 fichiers : web/package.json, mobile/package.json,
+#    mobile/app.json (expo.version), web/src-tauri/tauri.conf.json, web/src-tauri/Cargo.toml
+# 2. merger sur main, puis :
+git tag v0.5.3 && git push origin v0.5.3
 ```
+Le `versionName` vient du tag ; le `versionCode` Android est dérivé du semver (`MAJ*10000+MIN*100+PAT`, monotone). Le build desktop/APK ne bake **aucun serveur** (pas de `VITE_API_URL`, `extra.API_URL=""`).
+
+**Secrets requis** (Settings → Secrets and variables → Actions) pour signer l'APK avec une **keystore d'upload stable** (sinon les MAJ ne s'installent pas par-dessus) :
+
+| Secret | Contenu |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | la keystore encodée base64 |
+| `ANDROID_KEYSTORE_PASSWORD` | mot de passe du store |
+| `ANDROID_KEY_PASSWORD` | mot de passe de la clé |
+| `ANDROID_KEY_ALIAS` | alias (`murgat-upload`) |
+
+Générer la keystore (**une seule fois, à sauvegarder hors-ligne à vie**) :
+```bash
+keytool -genkeypair -v -keystore upload.keystore -alias murgat-upload \
+  -keyalg RSA -keysize 2048 -validity 10000 \
+  -storepass '<store-pass>' -keypass '<key-pass>' \
+  -dname "CN=Murgat Chat, O=Murgat, C=FR"
+# PowerShell : [Convert]::ToBase64String([IO.File]::ReadAllBytes("upload.keystore")) | Set-Content upload.keystore.b64 -NoNewline
+```
+La signature release est câblée par le config-plugin [`mobile/plugins/withReleaseSigning.js`](mobile/plugins/withReleaseSigning.js) (fallback debug en local si les secrets sont absents, donc un build local reste possible).
 
 **Comportements desktop :**
 

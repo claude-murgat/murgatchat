@@ -1,0 +1,156 @@
+name: release
+
+# Push a tag like v0.5.3 → run the full test suite, then build the Windows
+# desktop installer (Tauri/MSVC) and the signed Android APK, and publish both
+# to a single GitHub Release. Version comes from the tag.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # create the Release and upload assets
+
+jobs:
+  # Reuse the existing suite (backend Vitest + e2e Playwright) as a gate.
+  test:
+    uses: ./.github/workflows/tests.yml
+
+  # Create ONE draft Release for the tag; the build jobs attach their assets.
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      id: ${{ steps.create.outputs.id }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: ver
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      # Fail fast if the committed version files disagree with the tag. The
+      # 5 files are the source of truth (bumped before tagging); only the
+      # Android versionCode is pipeline-derived (see the android job).
+      - name: Validate versions match the tag
+        shell: bash
+        run: |
+          V="${{ steps.ver.outputs.version }}"
+          fail=0
+          chk() { [ "$2" = "$V" ] || { echo "::error::$1 = '$2', expected '$V'"; fail=1; }; }
+          chk "web/package.json"             "$(jq -r .version web/package.json)"
+          chk "mobile/package.json"          "$(jq -r .version mobile/package.json)"
+          chk "mobile/app.json expo.version" "$(jq -r .expo.version mobile/app.json)"
+          chk "tauri.conf.json"              "$(jq -r .version web/src-tauri/tauri.conf.json)"
+          chk "Cargo.toml" "$(grep -m1 '^version *= *"' web/src-tauri/Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
+          [ "$fail" = 0 ] || { echo "Bump the 5 version files to $V before tagging."; exit 1; }
+      - id: create
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          draft: true
+          generate_release_notes: true
+
+  # Windows installer via the official Tauri action (MSVC toolchain).
+  desktop:
+    needs: [test, release]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: web/src-tauri
+      - run: npm ci
+        working-directory: web
+      # NOTE: VITE_API_URL is deliberately NOT set → the desktop build ships
+      # with NO baked server (web/src/api.js prod default is ""). tauri-action
+      # runs beforeBuildCommand (npm run build), bundles the NSIS installer, and
+      # uploads Chat_<version>_x64-setup.exe to the draft release.
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: web
+          args: --bundles nsis
+          tagName: ${{ github.ref_name }}
+          releaseId: ${{ needs.release.outputs.id }}
+
+  # Signed Android APK from a clean Expo prebuild.
+  android:
+    needs: [test, release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+      - run: npm ci # postinstall → patch-package
+        working-directory: mobile
+      - id: vc
+        shell: bash
+        run: |
+          V="${{ needs.release.outputs.version }}"
+          BASE="${V%%-*}" # strip any -rc.N suffix for the numeric code
+          IFS=. read -r MAJ MIN PAT <<< "$BASE"
+          echo "code=$(( MAJ*10000 + MIN*100 + PAT ))" >> "$GITHUB_OUTPUT"
+          echo "name=$V" >> "$GITHUB_OUTPUT"
+      # Fresh prebuild regenerates android/ from the current app.json — this is
+      # what structurally avoids the stale-app.config bug we hit locally.
+      - name: Expo prebuild (android)
+        working-directory: mobile
+        env:
+          APP_VERSION: ${{ steps.vc.outputs.name }}
+          ANDROID_VERSION_CODE: ${{ steps.vc.outputs.code }}
+        run: npx expo prebuild -p android --no-install
+      - name: Decode upload keystore
+        shell: bash
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > mobile/android/app/upload.keystore
+      - name: Build signed release APK
+        working-directory: mobile/android
+        env:
+          # Fed into the withReleaseSigning config-plugin's Gradle properties.
+          ORG_GRADLE_PROJECT_MURGAT_UPLOAD_STORE_FILE: upload.keystore
+          ORG_GRADLE_PROJECT_MURGAT_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_MURGAT_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ORG_GRADLE_PROJECT_MURGAT_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew :app:assembleRelease --no-daemon
+      - id: apk
+        shell: bash
+        working-directory: mobile/android
+        run: |
+          SRC=app/build/outputs/apk/release/app-release.apk
+          DST="Chat_${{ steps.vc.outputs.name }}.apk"
+          cp "$SRC" "$DST"
+          # Guard: the baked Expo config must NOT carry a default server.
+          if unzip -p "$DST" assets/app.config | grep -q '"API_URL":""'; then
+            echo "app.config API_URL is empty ✓"
+          else
+            echo "::error::app.config API_URL is not empty — a server got baked in"; exit 1
+          fi
+          echo "path=mobile/android/$DST" >> "$GITHUB_OUTPUT"
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: ${{ steps.apk.outputs.path }}
+
+  # Flip the draft to a published release once both binaries are attached.
+  publish:
+    needs: [desktop, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: false

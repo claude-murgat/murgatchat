@@ -9,12 +9,14 @@ web/.vite/
 mobile/.expo/
 mobile/dist/
 mobile/web-build/
+# Release binaries are published to GitHub Releases (CI on tag push), not committed.
+dist/
 
 # Tauri / Rust
 web/src-tauri/target/
 web/src-tauri/gen/
 web/src-tauri/.cargo/
-web/src-tauri/Cargo.lock
+# Cargo.lock IS committed for reproducible CI builds (un-ignored).
 
 # env & secrets
 .env
