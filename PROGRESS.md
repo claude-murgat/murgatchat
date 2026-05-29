@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-05-28** (v0.4.0).
+Dernière mise à jour : **2026-05-29** (v0.5.0).
 
 ---
 
@@ -245,13 +245,44 @@ Dernière mise à jour : **2026-05-28** (v0.4.0).
     d'invitation vide pour installer un nouveau serveur. Tests : 3 nouveaux tests
     `test/http/health.test.js` (suite à 94/94). APK et desktop rebuildés en 0.3.1.
 
+## Itération 2026-05-29 — robustesse, recherche, réponses inline, notes perso (v0.5.0)
+
+29. **Cleanup des fichiers orphelins (#26)** — suppression synchrone des blobs sur disque
+    quand un message à PJ est supprimé (route message + scheduled), **+ sweep périodique**
+    (`server/src/sweep.js`, toutes les heures, 1ʳᵉ passe à T+5 min) : blobs sans `Attachment`
+    row > 1 h, et rows `messageId=null` > 24 h. Helpers `server/src/storage.js`.
+30. **Pagination + recherche du panel admin (#27)** — `GET /auth/users?page=&pageSize=&q=`
+    (pageSize clampé ≤ 100, `q` OR insensible sur displayName/username/email). Web « Voir plus »,
+    mobile infinite-scroll, anti-stale-response.
+31. **Chiffrement at-rest des fichiers (#28)** — uploads chiffrés AES-256-GCM
+    (`[version][IV][ciphertext][tag]`, même clé que les bodies). `Attachment.encrypted` ;
+    les blobs pré-existants restent servis en clair (rétro-compat). multer en mémoire.
+32. **Recherche full-text Postgres (#29)** — `Message.searchableBody` (plaintext, mirroir du
+    body chiffré) + index GIN `to_tsvector('french', …)` créé au démarrage (`ensureSearchIndex`).
+    `GET /search?q=&channelId?=&limit?=` scopé aux memberships, snippet `<mark>` via `ts_headline`,
+    ranking `ts_rank`. UI : modale web (Cmd/Ctrl+K + 🔍 sidebar), écran mobile (🔍 header).
+    ⚠ Compromis acté : exclut un futur E2E sur les mêmes canaux.
+33. **Réponses inline « Discord/Messenger » (#31)** — abandon du panneau Thread Slack. Les
+    réponses vivent désormais **dans la timeline** avec une bulle de citation (auteur + extrait)
+    cliquable au-dessus du message. `serializeMessage` embarque `parent {id, author, body}` ;
+    `GET /channels/:id/messages` ne filtre plus `parentId=null` ; `message:send` émet toujours
+    `message:new` (plus de `thread:reply`) ; endpoint `/thread` supprimé. Bandeau « ↩ Réponse à »
+    au-dessus du composer (web + mobile).
+34. **Auto-DM « notes pour soi » (#32)** — un DM avec soi-même (canal à 1 membre) sert de
+    bloc-notes permanent. `POST /channels/dm` accepte `userIds:[self]`/`[]`. UI : « 📝 Mes notes »
+    dans NewDm + icône dédiée dans la sidebar. Checkboxes **mutuellement exclusives** : soi-même
+    OU les autres, jamais les deux.
+
+Tests backend à **128/128 verts**. Desktop + APK rebuildés en **0.5.0** (versionCode 6).
+
 ## Événements Socket.IO (catalogue)
 
 - Client → serveur : `channel:join`, `channel:read`, `message:send`
   (`{channelId, body?, attachmentIds?, scheduledAt?, parentId?}`), `typing {channelId}`,
   `activity` (heartbeat web/desktop). Handshake : `auth.platform` (`web`/`desktop`/`mobile`).
-- Serveur → client : `message:new`, `message:updated`, `message:deleted`,
-  `thread:reply`, `reaction:update`, `channel:created`, `channel:removed`,
+- Serveur → client : `message:new` (les réponses incluses, avec `parent` pour la
+  citation inline — plus de `thread:reply` depuis v0.5.0), `message:updated`,
+  `message:deleted`, `reaction:update`, `channel:created`, `channel:removed`,
   `channel:members`, `notification`, `presence:state`, `presence:update`,
   `typing:update`, **`channel:read`** (rediffusé aux autres appareils du même
   utilisateur pour synchroniser les non-lus).

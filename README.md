@@ -94,7 +94,7 @@ Sur l'émulateur Android, `http://10.0.2.2:4000` est le hôte (déjà configuré
 
 ### Desktop (Tauri — Windows / macOS / Linux)
 
-**Installeur Windows pré-buildé** : [dist/Chat_0.4.0_x64-setup.exe](dist/Chat_0.4.0_x64-setup.exe) (NSIS, non signé — SmartScreen va râler une fois). Embarque `WebView2Loader.dll` (requise par le build GNU, sinon « WebView2Loader.dll introuvable » au lancement). L'adresse du serveur se configure désormais **dans l'app** (écran de connexion) ; le défaut baké est `http://172.16.2.191:4000`. Version portable : [dist/Chat-portable.zip](dist/Chat-portable.zip) (contient `chat-desktop.exe` + `WebView2Loader.dll` — garder les deux fichiers ensemble).
+**Installeur Windows pré-buildé** : [dist/Chat_0.5.0_x64-setup.exe](dist/Chat_0.5.0_x64-setup.exe) (NSIS, non signé — SmartScreen va râler une fois). Embarque `WebView2Loader.dll` (requise par le build GNU, sinon « WebView2Loader.dll introuvable » au lancement). L'adresse du serveur se configure désormais **dans l'app** (écran de connexion) ; le défaut baké est `http://172.16.2.191:4000`. Version portable : [dist/Chat-portable.zip](dist/Chat-portable.zip) (contient `chat-desktop.exe` + `WebView2Loader.dll` — garder les deux fichiers ensemble).
 
 Le scaffold complet est dans [web/src-tauri/](web/src-tauri/). Tauri lance Vite en dev et embarque le `dist/` en release.
 
@@ -122,7 +122,7 @@ L'app pointe par défaut vers `http://localhost:4000` pour l'API. Lance la stack
 npm run tauri:build        # produit src-tauri/target/release/bundle/{msi,nsis}/Chat_*.msi|.exe
 ```
 
-> **Build natif avec la toolchain GNU (sans MSVC).** L'installeur `0.4.0` de [dist/](dist/) a été produit ainsi, sans les *MS C++ Build Tools* : `rustup default stable-x86_64-pc-windows-gnu` + **mingw-w64 sur le `PATH`** (fournit `dlltool` et `windres`, que la toolchain Rust GNU n'embarque pas). Deux pièges rencontrés :
+> **Build natif avec la toolchain GNU (sans MSVC).** L'installeur `0.5.0` de [dist/](dist/) a été produit ainsi, sans les *MS C++ Build Tools* : `rustup default stable-x86_64-pc-windows-gnu` + **mingw-w64 sur le `PATH`** (fournit `dlltool` et `windres`, que la toolchain Rust GNU n'embarque pas). Deux pièges rencontrés :
 > - `dlltool` échoue si le chemin de build contient une **espace** (ex. « Projets Claude ») : `as exited with status 1`. Builder depuis un chemin sans espace **ou** rediriger la sortie : `set CARGO_TARGET_DIR=C:\murgat-build`.
 > - Limiter au bundle NSIS : `npm run tauri:build -- --bundles nsis` (le `.msi`/WiX n'existe pas pour la cible GNU). Tauri télécharge NSIS tout seul au premier build.
 
