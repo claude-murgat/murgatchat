@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-05-29** (v0.5.1).
+Dernière mise à jour : **2026-05-29** (v0.5.2).
 
 ---
 
@@ -297,6 +297,19 @@ Tests backend à **128/128 verts**. Desktop + APK rebuildés en **0.5.0** (versi
 
 E2E web étendu (assertions Markdown `<strong>`/`<code>`, survit au reload). Desktop + APK
 rebuildés en **0.5.1** (versionCode 7).
+
+37. **Fix : serveur `10.0.2.2:4000` baké dans l'APK (v0.5.2)** — bug remonté par l'alpha :
+    une APK fraîchement installée affichait `http://10.0.2.2:4000` pré-rempli dans le champ
+    serveur, malgré `app.json extra.API_URL=""`. **Cause racine** : le défaut runtime mobile vient
+    de `Constants.expoConfig.extra.API_URL`, lu depuis `android/.../assets/app.config` **figé au
+    build** — pas de `app.json` directement ni du bundle JS. Le sync robocopy **exclut `android/`**
+    et la tâche Gradle `createExpoConfig` restait `UP-TO-DATE`, donc cet `app.config` datait d'un
+    prebuild **antérieur à PR #12** (quand `extra.API_URL` valait encore `10.0.2.2`). Invisible sur
+    l'émulateur (où `10.0.2.2` fonctionne), visible sur un vrai téléphone. **Fix** : `gradlew clean`
+    avant `assembleRelease` pour régénérer `app.config` depuis l'`app.json` courant ; vérification
+    par `unzip -p app-release.apk assets/app.config | grep API_URL` → `""`. Desktop + APK rebuildés
+    en **0.5.2** (versionCode 8, règle pair). Le desktop n'était pas affecté (jamais de `10.0.2.2`,
+    et `172.16.2.191` déjà retiré en 0.5.1).
 
 ## Événements Socket.IO (catalogue)
 
