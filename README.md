@@ -7,7 +7,7 @@ Copie graphiquement inspirée de Slack avec :
 - **Desktop** Tauri 2 (Windows / macOS / Linux) — réutilise le React, ajoute system tray + notifications natives
 - **Mobile** React Native via Expo (Android d'abord, iOS prêt à activer)
 - **Docker** `docker-compose` pour DB + backend + web
-- **Fonctionnalités** : auth JWT, salons publics/privés, messages directs, *Ne pas déranger*, **messages planifiés** (créer / modifier / supprimer), **pièces jointes** (drag-drop, picker, collage Cmd/Ctrl+V), **chiffrement at-rest** des bodies (AES-256-GCM), notifications temps réel, **notifications système** (toast Windows/macOS via Tauri ou API browser)
+- **Fonctionnalités** : auth JWT, salons publics/privés, messages directs (+ auto-DM « notes pour soi »), *Ne pas déranger*, **messages planifiés** (créer / modifier / supprimer), réponses inline (citation cliquable), **rendu Markdown** (GFM : gras, code inline + blocs colorés, listes, liens, tables…), **pièces jointes chiffrées at-rest** + bodies chiffrés (AES-256-GCM), recherche full-text, notifications temps réel, **notifications système** (toast Windows/macOS via Tauri ou API browser)
 
 ```
 .

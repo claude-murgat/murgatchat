@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-05-29** (v0.5.0).
+Dernière mise à jour : **2026-05-29** (v0.5.1).
 
 ---
 
@@ -274,6 +274,29 @@ Dernière mise à jour : **2026-05-29** (v0.5.0).
     OU les autres, jamais les deux.
 
 Tests backend à **128/128 verts**. Desktop + APK rebuildés en **0.5.0** (versionCode 6).
+
+## Itération 2026-05-29 (bis) — Markdown + retrait des serveurs bakés (v0.5.1)
+
+35. **Rendu Markdown (GFM) des messages** — les bodies sont saisis en texte brut et
+    **interprétés en Markdown à l'affichage** (gras/italique, code inline + blocs avec
+    coloration syntaxique, listes, liens, citations, tables, barré, task-lists). Web/desktop :
+    `react-markdown` + `remark-gfm` + `rehype-highlight` (`web/src/components/MessageMarkdown.jsx`,
+    thème highlight.js scoped `.md-body` dans `styles.css`). Mobile : `react-native-markdown-display`
+    (`mobile/src/components/MessageMarkdown.js`, blocs de code monospace sans coloration par
+    langage). **Aucun HTML brut rendu → pas de XSS** ; liens ouverts en nouvel onglet / navigateur
+    système. Le rendu ne s'applique qu'à la timeline ; les aperçus (citation de réponse, sidebar,
+    notifications, recherche) restent en texte brut. Pas de changement serveur (le `body` stocké
+    EST la source Markdown ; la recherche full-text marche sur cette source).
+36. **Retrait des serveurs bakés dans les builds (desktop + APK)** — `web/src/api.js` :
+    le défaut `localhost:4000` ne s'applique plus qu'en **dev** (`import.meta.env.DEV`) ;
+    un build de prod **sans** `VITE_API_URL` part avec un serveur **vide**, forçant la saisie
+    de l'adresse sur l'écran de connexion. L'installeur desktop 0.5.1 est désormais buildé **sans**
+    `VITE_API_URL` (plus d'IP LAN `172.16.2.191` bakée). L'APK était déjà sans serveur baké
+    (`extra.API_URL=""`) — inchangé, confirmé. Le web servi par Docker garde son `VITE_API_URL`
+    baké (LAN), inchangé.
+
+E2E web étendu (assertions Markdown `<strong>`/`<code>`, survit au reload). Desktop + APK
+rebuildés en **0.5.1** (versionCode 7).
 
 ## Événements Socket.IO (catalogue)
 
