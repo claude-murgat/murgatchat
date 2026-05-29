@@ -15,6 +15,8 @@ import InviteModal from "./components/InviteModal.jsx";
 import ProfileModal from "./components/ProfileModal.jsx";
 import SearchModal from "./components/SearchModal.jsx";
 import AdminPanelModal from "./components/AdminPanelModal.jsx";
+import UpdateBanner from "./components/UpdateBanner.jsx";
+import { checkForUpdate } from "./version.js";
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -33,6 +35,8 @@ export default function App() {
   const [showSearch, setShowSearch] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [toast, setToast] = useState(null);
+  const [updateInfo, setUpdateInfo] = useState(null);
+  const [dismissedVersion, setDismissedVersion] = useState(null);
   const [onlineUserIds, setOnlineUserIds] = useState(() => new Set());
   const [typingByChannel, setTypingByChannel] = useState({});
   const typingTimers = useRef({});
@@ -54,6 +58,27 @@ export default function App() {
   useEffect(() => {
     activeChannelIdRef.current = activeChannelId;
   }, [activeChannelId]);
+
+  // Version check: on mount, on window focus, and every 15 min. If the server
+  // advertises a newer version, surface the banner (web → refresh, desktop →
+  // download). Only runs once authenticated (the bulk of usage time).
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    const run = () =>
+      checkForUpdate().then((info) => {
+        if (!cancelled && info?.updateAvailable) setUpdateInfo(info);
+      });
+    run();
+    const onFocus = () => run();
+    window.addEventListener("focus", onFocus);
+    const iv = setInterval(run, 15 * 60_000);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", onFocus);
+      clearInterval(iv);
+    };
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -327,9 +352,18 @@ export default function App() {
   if (!user) return <Login onLoggedIn={onLoggedIn} />;
 
   const activeChannel = channels.find((c) => c.id === activeChannelId) || null;
+  const showUpdate =
+    updateInfo?.updateAvailable && updateInfo.latest !== dismissedVersion;
 
   return (
-    <div className="h-screen w-screen flex bg-aubergine-900">
+    <div className="h-screen w-screen flex flex-col bg-aubergine-900">
+      {showUpdate && (
+        <UpdateBanner
+          info={updateInfo}
+          onDismiss={() => setDismissedVersion(updateInfo.latest)}
+        />
+      )}
+      <div className="flex-1 flex min-h-0">
       <Sidebar
         user={user}
         channels={channels}
@@ -355,6 +389,7 @@ export default function App() {
         onAddMembers={() => setShowAddMembers(true)}
         onShowMembers={() => setShowMembers(true)}
       />
+      </div>
 
       {showNewChannel && (
         <NewChannelModal

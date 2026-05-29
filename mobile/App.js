@@ -15,6 +15,7 @@ import BrowseChannelsScreen from "./src/screens/BrowseChannelsScreen";
 import DndScreen from "./src/screens/DndScreen";
 import AdminPanelScreen from "./src/screens/AdminPanelScreen";
 import SearchScreen from "./src/screens/SearchScreen";
+import UpdateBanner from "./src/components/UpdateBanner";
 import { colors } from "./src/theme";
 
 const Stack = createNativeStackNavigator();
@@ -69,6 +70,7 @@ function Root() {
         <LoginScreen />
       )}
       <Toast />
+      <UpdateBanner />
     </NavigationContainer>
   );
 }

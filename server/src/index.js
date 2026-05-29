@@ -1,5 +1,7 @@
 import http from "node:http";
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import express from "express";
 import cors from "cors";
 import authRouter, { ensureOwner } from "./routes/auth.js";
@@ -13,6 +15,23 @@ import { sweepOrphanAttachments } from "./sweep.js";
 
 const PORT = parseInt(process.env.PORT || "4000", 10);
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
+
+// Version advertised to clients for the in-app update prompt. Set CLIENT_VERSION
+// to the version you just published (e.g. "0.5.3") so older clients prompt to
+// update. Without it we fall back to the server package version, which is lower
+// than any shipped client → no prompt (safe default / feature off).
+function serverPackageVersion() {
+  try {
+    const p = join(dirname(fileURLToPath(import.meta.url)), "..", "package.json");
+    return JSON.parse(readFileSync(p, "utf8")).version || "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+const CLIENT_VERSION = process.env.CLIENT_VERSION || serverPackageVersion();
+// Where the desktop "Download" button and release notes point.
+const DOWNLOAD_URL =
+  process.env.DOWNLOAD_URL || "https://github.com/claude-murgat/murgatchat/releases/latest";
 
 // Build the HTTP + Socket.IO server without listening, so tests can boot it on
 // an ephemeral port (or drive the Express app directly via supertest).
@@ -41,6 +60,12 @@ export function createServer() {
       // (the misleading flag won't be needed if /health itself is failing).
     }
     res.json({ ok: true, needsBootstrap });
+  });
+
+  // Public: the client compares its baked version to this and prompts to update
+  // (web → refresh, desktop → download installer, mobile → info banner).
+  app.get("/version", (_req, res) => {
+    res.json({ version: CLIENT_VERSION, downloadUrl: DOWNLOAD_URL });
   });
   app.use("/auth", authRouter);
   app.use("/users", usersRouter);

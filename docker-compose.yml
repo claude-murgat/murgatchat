@@ -41,6 +41,9 @@ services:
       SMTP_REQUIRE_TLS: ${SMTP_REQUIRE_TLS:-false}
       MAIL_FROM: ${MAIL_FROM:-Chat <no-reply@murgat-chat.local>}
       APP_URL: ${APP_URL:-http://localhost:5173}
+      # Version annoncée aux clients (GET /version) pour la bannière de MAJ.
+      CLIENT_VERSION: ${CLIENT_VERSION:-}
+      DOWNLOAD_URL: ${DOWNLOAD_URL:-https://github.com/claude-murgat/murgatchat/releases/latest}
     ports:
       - "4000:4000"
     volumes:
