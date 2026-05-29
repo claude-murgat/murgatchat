@@ -160,6 +160,18 @@ keytool -genkeypair -v -keystore upload.keystore -alias murgat-upload \
 ```
 La signature release est câblée par le config-plugin [`mobile/plugins/withReleaseSigning.js`](mobile/plugins/withReleaseSigning.js) (fallback debug en local si les secrets sont absents, donc un build local reste possible).
 
+### Bannière de mise à jour (version checker)
+
+Le serveur expose `GET /version` → `{ version, downloadUrl }`, piloté par les variables d'env **`CLIENT_VERSION`** (la version publiée à annoncer) et **`DOWNLOAD_URL`** (lien du bouton desktop ; défaut = page Releases). Chaque client compare sa version embarquée à celle annoncée — **au démarrage, au focus, toutes les 15 min** — et affiche une bannière si une version plus récente existe :
+
+| Plateforme | Action proposée |
+| --- | --- |
+| Web | **Rafraîchir** (recharge le bundle déjà servi) |
+| Desktop (Tauri) | **Télécharger** (ouvre `DOWNLOAD_URL`) |
+| Android | bannière d'info seule (pas d'action) |
+
+Sans `CLIENT_VERSION`, le serveur renvoie sa propre version (basse) → aucune bannière (checker inactif). Pour tester : `CLIENT_VERSION=0.5.3 docker compose up -d server`, puis ouvrir un client plus ancien.
+
 **Comportements desktop :**
 
 - **System tray** — icône aubergine `#` ; clic gauche bascule afficher/masquer la fenêtre, clic droit ouvre un menu *Afficher / Masquer / Quitter*.

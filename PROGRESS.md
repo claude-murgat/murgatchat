@@ -298,6 +298,18 @@ Tests backend à **128/128 verts**. Desktop + APK rebuildés en **0.5.0** (versi
 E2E web étendu (assertions Markdown `<strong>`/`<code>`, survit au reload). Desktop + APK
 rebuildés en **0.5.1** (versionCode 7).
 
+39. **Version checker in-app (bannière de MAJ)** — le serveur expose `GET /version`
+    `{version, downloadUrl}` (piloté par les env `CLIENT_VERSION` / `DOWNLOAD_URL` ; défaut =
+    version du `server/package.json`, basse → checker inactif tant que non configuré). Chaque
+    client embarque sa version au build (web/desktop via `__APP_VERSION__` injecté par Vite ;
+    mobile via `Constants.expoConfig.version`) et la compare à celle du serveur **au démarrage,
+    au focus, et toutes les 15 min**. Si une version plus récente est annoncée, une bannière
+    apparaît : **web → « Rafraîchir »** (`location.reload`), **desktop (Tauri) → « Télécharger »**
+    (ouvre `downloadUrl` = page Releases), **Android → bannière d'info seule** (sans action, par
+    décision produit). Comparaison semver maison (`version.js`, suffixe `-rc` ignoré), bannière
+    masquable par version. Pour tester : déployer le serveur avec `CLIENT_VERSION=<version publiée>`
+    > version du client ouvert. Tests : +2 `test/http/version.test.js` (suite à 132/132).
+
 38. **Pipeline de release automatisé (CI sur tag `v*`)** — nouveau
     [`.github/workflows/release.yml`](.github/workflows/release.yml) : push d'un tag `v*` →
     `test` (réutilise `tests.yml` via `workflow_call`) → `release` (release **draft** + validation

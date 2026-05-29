@@ -98,6 +98,7 @@ export const api = {
   register: (body) => request("/auth/register", { method: "POST", body, auth: false }),
   login: (body) => request("/auth/login", { method: "POST", body, auth: false }),
   me: () => request("/auth/me"),
+  version: () => request("/version", { auth: false }),
   updateProfile: (body) => request("/auth/me", { method: "PATCH", body }),
   forgotPassword: (emailOrUsername) =>
     request("/auth/forgot-password", {
