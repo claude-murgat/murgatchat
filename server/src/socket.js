@@ -123,7 +123,12 @@ export function setupSocket(httpServer, corsOrigin) {
 
         if (parentId) {
           const parent = await prisma.message.findUnique({ where: { id: parentId } });
-          if (!parent || parent.channelId !== channelId || !parent.delivered || parent.parentId) {
+          // Discord/Messenger model: you can reply to ANY delivered message in
+          // the channel, including another reply. The quote stays one level deep
+          // (we only render the cited message, never its own parent), so there's
+          // no nesting — `parent.parentId` is allowed (was rejected under the old
+          // Slack-thread model).
+          if (!parent || parent.channelId !== channelId || !parent.delivered) {
             return ack?.({ error: "invalid_parent" });
           }
         }
