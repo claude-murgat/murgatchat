@@ -23,3 +23,25 @@ body {
 .scroll-thin::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.25);
 }
+
+/* Minimal syntax theme for rehype-highlight (highlight.js) inside message code
+   blocks. Scoped to .md-body so it can't leak into the rest of the UI; tuned
+   for the dark <pre> background set in MessageMarkdown.jsx. Importing the full
+   highlight.js stylesheet would add weight for colors we don't need. */
+.md-body .hljs-comment,
+.md-body .hljs-quote { color: #8b949e; font-style: italic; }
+.md-body .hljs-keyword,
+.md-body .hljs-selector-tag,
+.md-body .hljs-built_in { color: #ff7b72; }
+.md-body .hljs-string,
+.md-body .hljs-attr { color: #a5d6ff; }
+.md-body .hljs-number,
+.md-body .hljs-literal { color: #79c0ff; }
+.md-body .hljs-title,
+.md-body .hljs-name,
+.md-body .hljs-function { color: #d2a8ff; }
+.md-body .hljs-type,
+.md-body .hljs-class .hljs-title { color: #ffa657; }
+.md-body .hljs-tag { color: #7ee787; }
+.md-body .hljs-emphasis { font-style: italic; }
+.md-body .hljs-strong { font-weight: 700; }

@@ -1,8 +1,13 @@
 // The server address is configurable at runtime from the login screen and
-// persisted in localStorage, so the same build can point at any server (and the
-// URL isn't baked into a public bundle). Falls back to the build-time
-// VITE_API_URL, then localhost.
-const DEFAULT_API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+// persisted in localStorage, so the same build can point at any server.
+// Default precedence:
+//   1. VITE_API_URL baked at build time (Docker web image sets it to the LAN IP)
+//   2. localhost:4000 ONLY during local dev (`vite dev`)
+//   3. otherwise empty — desktop/standalone builds ship with NO baked server,
+//      forcing the user to enter the address on the login screen (parity with
+//      the public mobile build).
+const DEFAULT_API_URL =
+  import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:4000" : "");
 const API_BASE_KEY = "chat_api_base";
 
 export function normalizeBaseUrl(raw) {

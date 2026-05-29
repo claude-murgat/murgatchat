@@ -10,6 +10,7 @@ import {
   StyleSheet,
 } from "react-native";
 import Avatar from "./Avatar";
+import MessageMarkdown from "./MessageMarkdown";
 import EmojiPicker from "./EmojiPicker";
 import { colors } from "../theme";
 import { formatTime, reactionLabel, fmtBytes } from "../format";
@@ -121,10 +122,10 @@ export default function MessageItem({
         </View>
       ) : (
         !!message.body && (
-          <Text style={styles.body}>
-            {message.body}
-            {message.editedAt && <Text style={styles.edited}> (modifié)</Text>}
-          </Text>
+          <View>
+            <MessageMarkdown>{message.body}</MessageMarkdown>
+            {message.editedAt && <Text style={styles.edited}>(modifié)</Text>}
+          </View>
         )
       )}
       <Attachments attachments={message.attachments} />

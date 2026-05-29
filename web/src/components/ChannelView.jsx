@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import EmojiPicker from "emoji-picker-react";
 import Avatar from "./Avatar.jsx";
 import Composer from "./Composer.jsx";
+import MessageMarkdown from "./MessageMarkdown.jsx";
 import { api, attachmentUrl } from "../api.js";
 import { isWindowFocused } from "../desktop.js";
 
@@ -637,8 +638,8 @@ function MessageRow({
     </div>
   ) : (
     message.body && (
-      <div className="text-slate-900 whitespace-pre-wrap break-words">
-        {message.body}
+      <div className="text-slate-900 break-words">
+        <MessageMarkdown>{message.body}</MessageMarkdown>
         {message.editedAt && (
           <span
             className="text-xs text-slate-400 ml-1"

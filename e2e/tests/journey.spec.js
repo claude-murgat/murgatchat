@@ -132,10 +132,20 @@ test("invitation registration + full web journey", async ({ page }) => {
   // The quote banner above the composer goes away once the reply is sent.
   await expect(page.getByText("↩ Réponse à")).toBeHidden();
 
+  // Markdown rendering: a message with inline markdown renders real elements
+  // (not literal asterisks/backticks).
+  await composer.fill("du **gras** et du `code`");
+  await composer.press("Enter");
+  const mdRow = messageRow(page, "gras");
+  await expect(mdRow.locator("strong", { hasText: "gras" })).toBeVisible();
+  await expect(mdRow.locator("code", { hasText: "code" })).toBeVisible();
+
   await page.reload();
   await page.getByRole("button", { name: new RegExp(channel) }).click();
   // After the reload there are 2 "hello edited" on screen: the original
   // message and the quote bubble inside our reply. .first() targets the
   // original (the topmost in the timeline).
   await expect(page.getByText("hello edited").first()).toBeVisible();
+  // Markdown survives a reload (re-parsed from the stored source).
+  await expect(messageRow(page, "gras").locator("strong")).toBeVisible();
 });
