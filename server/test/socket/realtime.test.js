@@ -90,6 +90,52 @@ describe("message:send", () => {
     expect(reply.parent.author.id).toBe(alice.user.id);
   });
 
+  it("allows replying to a reply (Discord-style, quote stays one level deep)", async () => {
+    const { alice, bob, channelId } = await pairInChannel();
+    const aSock = await ready(alice.token, channelId);
+    const bSock = await ready(bob.token, channelId);
+
+    const root = await send(aSock, { channelId, body: "racine" });
+    const reply = await send(aSock, {
+      channelId,
+      body: "première réponse",
+      parentId: root.message.id,
+    });
+    expect(reply.ok).toBe(true);
+
+    // Reply to the reply — used to be rejected with invalid_parent under the
+    // old Slack-thread rule; now accepted.
+    const evt = waitForEvent(bSock, "message:new", (m) => m.body === "réponse à la réponse");
+    const ack = await send(aSock, {
+      channelId,
+      body: "réponse à la réponse",
+      parentId: reply.message.id,
+    });
+    expect(ack.ok).toBe(true);
+    const grandReply = await evt;
+    // The quote points at the cited reply itself (one level), not the root.
+    expect(grandReply.parentId).toBe(reply.message.id);
+    expect(grandReply.parent).toMatchObject({ id: reply.message.id, body: "première réponse" });
+  });
+
+  it("still rejects a parent from another channel (invalid_parent)", async () => {
+    const { alice, bob, channelId } = await pairInChannel();
+    const other = await pairInChannel();
+    const aSock = await ready(alice.token, channelId);
+    await ready(bob.token, channelId);
+
+    const foreign = await send(
+      await ready(other.alice.token, other.channelId),
+      { channelId: other.channelId, body: "ailleurs" }
+    );
+    const ack = await send(aSock, {
+      channelId,
+      body: "réponse cross-channel",
+      parentId: foreign.message.id,
+    });
+    expect(ack.error).toBe("invalid_parent");
+  });
+
   it("acks a scheduled message without broadcasting message:new", async () => {
     const { alice, bob, channelId } = await pairInChannel();
     const aSock = await ready(alice.token, channelId);

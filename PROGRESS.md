@@ -328,7 +328,11 @@ rebuildés en **0.5.1** (versionCode 7).
 - **Auteur uniquement** pour éditer/supprimer/répondre/réagir n'est pas restreint
   (réagir & répondre ouverts à tous ; éditer/supprimer = auteur). Rôle **admin minimal**
   introduit (`User.isAdmin`, 1er compte bootstrap) uniquement pour gérer les invitations.
-- **Pas de threads imbriqués** (répondre à une réponse est refusé).
+- **Réponses inline à plat** (modèle Discord/Messenger depuis #31) : on peut répondre à
+  **n'importe quel** message livré du salon, **y compris une autre réponse**. La citation
+  reste sur **un seul niveau** (on n'affiche que le message cité, jamais sa propre citation),
+  donc pas d'imbrication. _(Avant le fix v0.5.2-bis, répondre à une réponse était refusé avec
+  `invalid_parent` — reliquat du modèle Slack-threads.)_
 - **Mobile (Expo)** désormais à parité complète avec le web (réactions, présence,
   typing, threads, gestion des membres, DM de groupe, planning DND, push).
 - Présence & typing : état **en mémoire** (perdu au redémarrage serveur, OK pour ce stade).
