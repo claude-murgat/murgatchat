@@ -298,6 +298,21 @@ Tests backend à **128/128 verts**. Desktop + APK rebuildés en **0.5.0** (versi
 E2E web étendu (assertions Markdown `<strong>`/`<code>`, survit au reload). Desktop + APK
 rebuildés en **0.5.1** (versionCode 7).
 
+38. **Pipeline de release automatisé (CI sur tag `v*`)** — nouveau
+    [`.github/workflows/release.yml`](.github/workflows/release.yml) : push d'un tag `v*` →
+    `test` (réutilise `tests.yml` via `workflow_call`) → `release` (release **draft** + validation
+    que les 5 fichiers de version == tag) → `desktop` (`windows-latest`, **MSVC** via
+    `tauri-apps/tauri-action`, sans `VITE_API_URL`) **et** `android` (`ubuntu-latest`, `expo prebuild`
+    + APK **signée upload-keystore**) en parallèle → `publish` (draft → live). Les deux binaires sont
+    attachés à la Release ; **on ne committe plus `dist/`** (gitignoré). Signature Android via le
+    config-plugin [`mobile/plugins/withReleaseSigning.js`](mobile/plugins/withReleaseSigning.js)
+    (`signingConfig release` gardé par `hasProperty`, fallback debug en local) + `app.config.js`
+    (injecte versionName/versionCode depuis le tag) + `usesCleartextTraffic` via `expo-build-properties`.
+    versionCode dérivé du semver (monotone). 4 secrets GitHub à créer (keystore base64 + mots de passe +
+    alias). Cleanup : `WebView2Loader.dll` + `bundle.resources` retirés (MSVC lie en statique),
+    `Cargo.lock` désormais committé. **Les builds locaux GNU sont dépréciés** au profit de la CI.
+    Dry-run config-plugin validé en local (signingConfig release injecté, cleartext OK).
+
 37. **Fix : serveur `10.0.2.2:4000` baké dans l'APK (v0.5.2)** — bug remonté par l'alpha :
     une APK fraîchement installée affichait `http://10.0.2.2:4000` pré-rempli dans le champ
     serveur, malgré `app.json extra.API_URL=""`. **Cause racine** : le défaut runtime mobile vient
