@@ -255,7 +255,10 @@ router.patch("/messages/:messageId", requireAuth, async (req, res) => {
       author: true,
       attachments: true,
       reactions: { include: { user: true } },
-      _count: { select: { replies: true } },
+      // Re-hydrate the parent so the inline quote survives the edit. Without it,
+      // serializeMessage emits parent:null and clients drop the quote bubble
+      // until a reload re-fetches via GET /messages (which already includes it).
+      parent: { include: { author: true } },
     },
   });
 

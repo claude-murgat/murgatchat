@@ -72,6 +72,35 @@ describe("PATCH /channels/messages/:id (edit)", () => {
     expect(res.body.message.editedAt).toBeTruthy();
   });
 
+  it("keeps the parent quote hydrated when editing a reply (regression #44)", async () => {
+    const { owner, channelId } = await setup();
+    const parent = await seedMessage({ channelId, authorId: owner.user.id, body: "le parent" });
+    const reply = await seedMessage({
+      channelId, authorId: owner.user.id, body: "réponse", parentId: parent.id,
+    });
+
+    const res = await authed(app, owner.token)
+      .patch(`/channels/messages/${reply.id}`)
+      .send({ body: "réponse éditée" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.message.body).toBe("réponse éditée");
+    expect(res.body.message.parentId).toBe(parent.id);
+    // The quote must survive the edit (it returned null before the include fix).
+    expect(res.body.message.parent).toMatchObject({ id: parent.id, body: "le parent" });
+    expect(res.body.message.parent.author.id).toBe(owner.user.id);
+  });
+
+  it("leaves parent null when editing a root message", async () => {
+    const { owner, channelId } = await setup();
+    const msg = await seedMessage({ channelId, authorId: owner.user.id, body: "racine" });
+    const res = await authed(app, owner.token)
+      .patch(`/channels/messages/${msg.id}`)
+      .send({ body: "racine éditée" });
+    expect(res.status).toBe(200);
+    expect(res.body.message.parent).toBeNull();
+  });
+
   it("rejects a non-author (404), empty body (400), and scheduled/unknown (404)", async () => {
     const { owner, member, channelId } = await setup();
     const msg = await seedMessage({ channelId, authorId: owner.user.id, body: "x" });
