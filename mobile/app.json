@@ -2,7 +2,7 @@
   "expo": {
     "name": "Chat",
     "slug": "chat",
-    "version": "0.5.3",
+    "version": "0.5.4",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "splash": {
