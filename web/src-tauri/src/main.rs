@@ -7,6 +7,7 @@ use tauri::{Manager, WindowEvent};
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let show_i = MenuItem::with_id(app, "show", "Afficher Chat", true, None::<&str>)?;
             let hide_i = MenuItem::with_id(app, "hide", "Masquer la fenêtre", true, None::<&str>)?;

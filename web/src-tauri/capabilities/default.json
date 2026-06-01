@@ -8,6 +8,7 @@
     "core:window:allow-show",
     "core:window:allow-hide",
     "core:window:allow-set-focus",
-    "notification:default"
+    "notification:default",
+    "opener:default"
   ]
 }
