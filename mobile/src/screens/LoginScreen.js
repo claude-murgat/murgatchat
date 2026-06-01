@@ -15,8 +15,9 @@ import { useChat } from "../ChatContext";
 import { colors } from "../theme";
 
 export default function LoginScreen() {
-  const { login } = useChat();
+  const { login, bootstrapError, retryConnection } = useChat();
   const [mode, setMode] = useState("login"); // login | register | forgot | reset
+  const [retrying, setRetrying] = useState(false);
   const [emailOrUsername, setEmailOrUsername] = useState("");
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
@@ -157,6 +158,17 @@ export default function LoginScreen() {
     setMode(next);
   }
 
+  // Retry resuming the stored session after a "server unreachable" cold start.
+  // On success ChatContext sets the user and this screen unmounts.
+  async function retryConnect() {
+    setRetrying(true);
+    try {
+      await retryConnection();
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   async function submit() {
     const base = await setApiBaseUrl(serverUrl);
     if (!base) {
@@ -245,6 +257,21 @@ export default function LoginScreen() {
         <View style={styles.card}>
           <Text style={styles.title}>Chat</Text>
           <Text style={styles.subtitle}>{subtitle}</Text>
+
+          {bootstrapError === "network" && (
+            <View style={styles.offlineBox}>
+              <Text style={styles.offlineTitle}>Serveur injoignable</Text>
+              <Text style={styles.offlineBody}>
+                Votre session n'a pas pu être reprise : le serveur ne répond pas.
+                Vérifiez votre connexion (ou l'adresse ci-dessous), puis réessayez.
+              </Text>
+              <TouchableOpacity onPress={retryConnect} disabled={retrying}>
+                <Text style={styles.offlineLink}>
+                  {retrying ? "Reconnexion…" : "Réessayer"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           <Text style={styles.label}>Adresse du serveur</Text>
           <View style={styles.serverRow}>
@@ -510,6 +537,22 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   infoLine: { fontSize: 13, color: "#16A34A", marginBottom: 8 },
+  offlineBox: {
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+    backgroundColor: "#FEF2F2",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+  offlineTitle: { color: "#991B1B", fontWeight: "700", fontSize: 14 },
+  offlineBody: { color: "#7F1D1D", fontSize: 13, marginTop: 2 },
+  offlineLink: {
+    color: "#991B1B",
+    fontWeight: "700",
+    marginTop: 8,
+    textDecorationLine: "underline",
+  },
   bootstrapBox: {
     borderWidth: 1,
     borderColor: "#FCD34D",

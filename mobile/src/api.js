@@ -49,12 +49,35 @@ export async function setApiBaseUrl(url) {
   return currentBaseUrl;
 }
 
+// Hard ceiling on any single request. Without it, an unreachable "black hole"
+// server (no RST, just a hanging TCP connect — dropped VPN, unroutable IP, Wi-Fi
+// off) leaves fetch() pending until the OS TCP timeout, which can be minutes and
+// is what froze the cold-start splash (issue #42).
+const REQUEST_TIMEOUT_MS = 10000;
+
+// fetch() with a hard timeout. We use AbortController (universally available in
+// RN) rather than AbortSignal.timeout() which isn't on every Hermes runtime.
+async function fetchWithTimeout(url, options = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Reachability probe for the "Tester" button on the login screen.
 // Returns the full /health payload so the caller can also inspect needsBootstrap.
 export async function pingServer(url) {
   const base = normalizeBaseUrl(url) || currentBaseUrl;
   if (!base) throw new Error("adresse vide");
-  const res = await fetch(`${base}/health`, { method: "GET" });
+  let res;
+  try {
+    res = await fetchWithTimeout(`${base}/health`, { method: "GET" });
+  } catch {
+    throw new Error("délai dépassé ou injoignable");
+  }
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json().catch(() => ({}));
   if (!data || data.ok !== true) throw new Error("réponse inattendue");
@@ -81,14 +104,23 @@ async function request(path, { method = "GET", body, auth = true } = {}) {
     const token = await getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
   }
-  const res = await fetch(`${getApiBaseUrl()}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetchWithTimeout(`${getApiBaseUrl()}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (e) {
+    // No HTTP response: timeout (abort) or transport failure. Flag it so callers
+    // can distinguish "server unreachable" from an auth rejection and avoid
+    // destroying a still-valid session over a transient network blip (#42).
+    throw Object.assign(new Error("Serveur injoignable"), { network: true, cause: e });
+  }
   const text = await res.text();
   const data = text ? JSON.parse(text) : {};
-  if (!res.ok) throw Object.assign(new Error(data.error || res.statusText), { data });
+  // Carry the HTTP status so callers can react to 401/403 specifically.
+  if (!res.ok) throw Object.assign(new Error(data.error || res.statusText), { data, status: res.status });
   return data;
 }
 
