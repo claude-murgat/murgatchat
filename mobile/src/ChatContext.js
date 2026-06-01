@@ -21,6 +21,9 @@ export function useChat() {
 export function ChatProvider({ children }) {
   const [user, setUser] = useState(null);
   const [bootstrapped, setBootstrapped] = useState(false);
+  // "network" when the stored session couldn't be resumed because the server is
+  // unreachable (vs. a real auth rejection). Drives the retry banner on login.
+  const [bootstrapError, setBootstrapError] = useState(null);
   const [channels, setChannels] = useState([]);
   const [socket, setSocket] = useState(null);
   const [onlineUserIds, setOnlineUserIds] = useState(() => new Set());
@@ -41,24 +44,43 @@ export function ChatProvider({ children }) {
   }, [user]);
 
   // Bootstrap: load the configured server address, then resume any stored session.
-  useEffect(() => {
-    (async () => {
+  // Two invariants the old version violated and that froze the cold-start splash
+  // (#42): (1) `bootstrapped` must ALWAYS flip to true, even if something before
+  // api.me() throws; (2) the stored token must only be dropped on a real auth
+  // rejection (401/403) — an unreachable server / timeout keeps the session and
+  // surfaces a retryable "Serveur injoignable" banner instead of logging the user
+  // out for a transient network blip.
+  const runBootstrap = useCallback(async () => {
+    try {
       await loadApiBaseUrl();
       const token = await getToken();
       if (!token) {
-        setBootstrapped(true);
-        return;
+        setBootstrapError(null);
+        return; // no stored session → straight to login
       }
       try {
         const res = await api.me();
         setUser(res.user);
-      } catch {
-        await setToken(null);
-      } finally {
-        setBootstrapped(true);
+        setBootstrapError(null);
+      } catch (e) {
+        if (e?.status === 401 || e?.status === 403) {
+          await setToken(null); // session genuinely invalid → clear it
+          setBootstrapError(null);
+        } else {
+          setBootstrapError("network"); // unreachable/timeout/5xx → keep token, offer retry
+        }
       }
-    })();
+    } catch {
+      // A failure before api.me() (storage read, etc.) must not trap the splash.
+      setBootstrapError("network");
+    } finally {
+      setBootstrapped(true);
+    }
   }, []);
+
+  useEffect(() => {
+    runBootstrap();
+  }, [runBootstrap]);
 
   // Socket + channel list once authenticated.
   useEffect(() => {
@@ -252,6 +274,8 @@ export function ChatProvider({ children }) {
     user,
     setUser,
     bootstrapped,
+    bootstrapError,
+    retryConnection: runBootstrap,
     channels,
     socket,
     onlineUserIds,
