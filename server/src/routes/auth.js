@@ -15,7 +15,9 @@ const palette = [
 ];
 
 const registerSchema = z.object({
-  email: z.string().email(),
+  // Lowercased too: emails are de-facto case-insensitive; storing them normalized
+  // lets the @unique constraint dedupe case-variants and login match exactly.
+  email: z.string().email().transform((s) => s.toLowerCase()),
   // Lowercased so the handle is case-insensitive everywhere: the @unique
   // constraint then enforces case-insensitive uniqueness, and login can match
   // on an exact (lowercased) value — no ILIKE/wildcard surprises.
@@ -104,10 +106,10 @@ router.post("/login", async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const { emailOrUsername, password } = parsed.data;
 
+  // Both email and username are stored lowercased → match case-insensitively.
+  const id = emailOrUsername.toLowerCase();
   const user = await prisma.user.findFirst({
-    // Username is stored lowercased → match it case-insensitively. Email is left
-    // as-is (its own case behavior is unchanged).
-    where: { OR: [{ email: emailOrUsername }, { username: emailOrUsername.toLowerCase() }] },
+    where: { OR: [{ email: id }, { username: id }] },
   });
   if (!user) return res.status(401).json({ error: "invalid_credentials" });
 
@@ -511,33 +513,43 @@ export async function ensureOwner() {
   });
 }
 
-// Self-heal: lowercase legacy mixed-case usernames so case-insensitive login
-// works for accounts created before this rollout. Collision-safe — if two
-// accounts differ only by case, neither is touched (an admin resolves it). A
-// no-op once every username is already lowercase, so it's cheap to run each boot.
-export async function ensureLowercaseUsernames() {
-  const users = await prisma.user.findMany({ select: { id: true, username: true } });
-  const counts = new Map();
+// Self-heal: lowercase legacy mixed-case usernames AND emails so case-insensitive
+// login works for accounts created before this rollout. Each field is
+// collision-safe — if two accounts differ only by case on that field, neither is
+// touched (an admin resolves it). A no-op once everything is already lowercase, so
+// it's cheap to run each boot.
+export async function ensureLowercaseIdentifiers() {
+  const users = await prisma.user.findMany({
+    select: { id: true, username: true, email: true },
+  });
+  const counts = { username: new Map(), email: new Map() };
   for (const u of users) {
-    const lc = u.username.toLowerCase();
-    counts.set(lc, (counts.get(lc) || 0) + 1);
+    for (const field of ["username", "email"]) {
+      const lc = u[field].toLowerCase();
+      counts[field].set(lc, (counts[field].get(lc) || 0) + 1);
+    }
   }
   let fixed = 0;
   for (const u of users) {
-    const lc = u.username.toLowerCase();
-    if (u.username === lc) continue; // already normalized
-    if (counts.get(lc) > 1) {
-      console.warn(`[username-ci] "${u.username}" collides in lowercase — left as-is`);
-      continue;
+    const data = {};
+    for (const field of ["username", "email"]) {
+      const lc = u[field].toLowerCase();
+      if (u[field] === lc) continue; // already normalized
+      if (counts[field].get(lc) > 1) {
+        console.warn(`[auth-ci] ${field} "${u[field]}" collides in lowercase — left as-is`);
+        continue;
+      }
+      data[field] = lc;
     }
+    if (Object.keys(data).length === 0) continue;
     try {
-      await prisma.user.update({ where: { id: u.id }, data: { username: lc } });
+      await prisma.user.update({ where: { id: u.id }, data });
       fixed += 1;
     } catch (e) {
-      console.warn(`[username-ci] could not normalize "${u.username}": ${e.message}`);
+      console.warn(`[auth-ci] could not normalize user ${u.id}: ${e.message}`);
     }
   }
-  if (fixed) console.log(`[username-ci] normalized ${fixed} username(s) to lowercase`);
+  if (fixed) console.log(`[auth-ci] normalized ${fixed} user identifier(s) to lowercase`);
 }
 
 function serializeInvitation(inv) {

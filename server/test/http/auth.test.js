@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import { createServer } from "../../src/index.js";
 import { ensureDefaultChannel } from "../../src/routes/channels.js";
-import { ensureLowercaseUsernames } from "../../src/routes/auth.js";
+import { ensureLowercaseIdentifiers } from "../../src/routes/auth.js";
 import { registerUser, authed } from "../helpers/api.js";
 import { prisma } from "../helpers/db.js";
 
@@ -188,6 +188,21 @@ describe("POST /auth/login", () => {
     }
   });
 
+  it("stores the email lowercased and logs in by email case-insensitively", async () => {
+    const reg = await request(app).post("/auth/register").send({
+      email: "Mixed.Case@Test.Local",
+      username: "emailcaseuser",
+      displayName: "E",
+      password: "secret123",
+    });
+    expect(reg.status).toBe(200);
+    expect(reg.body.user.email).toBe("mixed.case@test.local"); // stored lowercased
+    const login = await request(app)
+      .post("/auth/login")
+      .send({ emailOrUsername: "MIXED.CASE@TEST.LOCAL", password: "secret123" });
+    expect(login.status).toBe(200);
+  });
+
   it("rejects wrong password and unknown user with 401", async () => {
     const { input } = await registerUser(app);
     const wrong = await request(app)
@@ -203,26 +218,29 @@ describe("POST /auth/login", () => {
   });
 });
 
-describe("ensureLowercaseUsernames (self-heal)", () => {
-  it("lowercases legacy usernames and skips case-only collisions", async () => {
+describe("ensureLowercaseIdentifiers (self-heal)", () => {
+  it("lowercases legacy usernames + emails and skips case-only collisions", async () => {
     // Seed legacy rows directly, bypassing the lowercasing register path.
-    await prisma.user.create({
-      data: { email: "legacy@test.local", username: "LegacyMixed", displayName: "L", passwordHash: "x" },
+    const legacy = await prisma.user.create({
+      data: { email: "Legacy@Test.Local", username: "LegacyMixed", displayName: "L", passwordHash: "x" },
     });
-    // A case-only collision pair that must be left untouched.
-    await prisma.user.create({
-      data: { email: "dup1@test.local", username: "Dup", displayName: "D1", passwordHash: "x" },
+    // A username case-only collision pair that must be left untouched.
+    const dupA = await prisma.user.create({
+      data: { email: "dupa@test.local", username: "Dup", displayName: "DA", passwordHash: "x" },
     });
-    await prisma.user.create({
-      data: { email: "dup2@test.local", username: "dup", displayName: "D2", passwordHash: "x" },
+    const dupB = await prisma.user.create({
+      data: { email: "dupb@test.local", username: "dup", displayName: "DB", passwordHash: "x" },
     });
 
-    await ensureLowercaseUsernames();
+    await ensureLowercaseIdentifiers();
 
-    expect((await prisma.user.findFirst({ where: { email: "legacy@test.local" } })).username).toBe("legacymixed");
-    // Collision pair untouched (admin resolves manually).
-    expect((await prisma.user.findFirst({ where: { email: "dup1@test.local" } })).username).toBe("Dup");
-    expect((await prisma.user.findFirst({ where: { email: "dup2@test.local" } })).username).toBe("dup");
+    const byId = (id) => prisma.user.findUnique({ where: { id } });
+    const fixed = await byId(legacy.id);
+    expect(fixed.username).toBe("legacymixed");
+    expect(fixed.email).toBe("legacy@test.local"); // email normalized too
+    // Username collision: both left as-is.
+    expect((await byId(dupA.id)).username).toBe("Dup");
+    expect((await byId(dupB.id)).username).toBe("dup");
   });
 });
 
