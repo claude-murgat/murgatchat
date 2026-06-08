@@ -16,7 +16,15 @@ const palette = [
 
 const registerSchema = z.object({
   email: z.string().email(),
-  username: z.string().min(2).max(30).regex(/^[a-zA-Z0-9_.-]+$/),
+  // Lowercased so the handle is case-insensitive everywhere: the @unique
+  // constraint then enforces case-insensitive uniqueness, and login can match
+  // on an exact (lowercased) value — no ILIKE/wildcard surprises.
+  username: z
+    .string()
+    .min(2)
+    .max(30)
+    .regex(/^[a-zA-Z0-9_.-]+$/)
+    .transform((s) => s.toLowerCase()),
   displayName: z.string().min(1).max(60),
   password: z.string().min(6).max(200),
   token: z.string().optional(), // invitation token
@@ -97,7 +105,9 @@ router.post("/login", async (req, res) => {
   const { emailOrUsername, password } = parsed.data;
 
   const user = await prisma.user.findFirst({
-    where: { OR: [{ email: emailOrUsername }, { username: emailOrUsername }] },
+    // Username is stored lowercased → match it case-insensitively. Email is left
+    // as-is (its own case behavior is unchanged).
+    where: { OR: [{ email: emailOrUsername }, { username: emailOrUsername.toLowerCase() }] },
   });
   if (!user) return res.status(401).json({ error: "invalid_credentials" });
 
@@ -163,7 +173,7 @@ router.post("/forgot-password", async (req, res) => {
   const id = parsed.data.emailOrUsername.trim();
 
   const user = await prisma.user.findFirst({
-    where: { OR: [{ email: id.toLowerCase() }, { email: id }, { username: id }] },
+    where: { OR: [{ email: id.toLowerCase() }, { email: id }, { username: id.toLowerCase() }] },
   });
   if (user) {
     // Invalidate any pending reset for this user, then mint a new one.
@@ -499,6 +509,35 @@ export async function ensureOwner() {
     where: { id: firstAdmin.id },
     data: { isOwner: true },
   });
+}
+
+// Self-heal: lowercase legacy mixed-case usernames so case-insensitive login
+// works for accounts created before this rollout. Collision-safe — if two
+// accounts differ only by case, neither is touched (an admin resolves it). A
+// no-op once every username is already lowercase, so it's cheap to run each boot.
+export async function ensureLowercaseUsernames() {
+  const users = await prisma.user.findMany({ select: { id: true, username: true } });
+  const counts = new Map();
+  for (const u of users) {
+    const lc = u.username.toLowerCase();
+    counts.set(lc, (counts.get(lc) || 0) + 1);
+  }
+  let fixed = 0;
+  for (const u of users) {
+    const lc = u.username.toLowerCase();
+    if (u.username === lc) continue; // already normalized
+    if (counts.get(lc) > 1) {
+      console.warn(`[username-ci] "${u.username}" collides in lowercase — left as-is`);
+      continue;
+    }
+    try {
+      await prisma.user.update({ where: { id: u.id }, data: { username: lc } });
+      fixed += 1;
+    } catch (e) {
+      console.warn(`[username-ci] could not normalize "${u.username}": ${e.message}`);
+    }
+  }
+  if (fixed) console.log(`[username-ci] normalized ${fixed} username(s) to lowercase`);
 }
 
 function serializeInvitation(inv) {

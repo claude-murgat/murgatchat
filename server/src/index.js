@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import express from "express";
 import cors from "cors";
-import authRouter, { ensureOwner } from "./routes/auth.js";
+import authRouter, { ensureOwner, ensureLowercaseUsernames } from "./routes/auth.js";
 import usersRouter from "./routes/users.js";
 import channelsRouter, { ensureDefaultChannel } from "./routes/channels.js";
 import uploadsRouter from "./routes/uploads.js";
@@ -108,6 +108,11 @@ export function startServer() {
     ensureOwner()
       .then((o) => o && console.log(`Owner ready: ${o.username} (${o.id})`))
       .catch((e) => console.error("ensureOwner error", e));
+    // Lowercase legacy mixed-case usernames so case-insensitive login works for
+    // accounts created before this rollout. Collision-safe + no-op once done.
+    ensureLowercaseUsernames().catch((e) =>
+      console.error("ensureLowercaseUsernames error", e)
+    );
     // Idempotent: creates the GIN expression index on Message.searchableBody
     // if it doesn't already exist. No-op after the first boot post-rollout.
     ensureSearchIndex()

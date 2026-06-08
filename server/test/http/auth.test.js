@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
 import { createServer } from "../../src/index.js";
 import { ensureDefaultChannel } from "../../src/routes/channels.js";
+import { ensureLowercaseUsernames } from "../../src/routes/auth.js";
 import { registerUser, authed } from "../helpers/api.js";
 import { prisma } from "../helpers/db.js";
 
@@ -122,6 +123,27 @@ describe("POST /auth/register (invitation-based)", () => {
     expect(res.body.error).toBe("email_or_username_taken");
   });
 
+  it("stores the username lowercased (case-insensitive handle)", async () => {
+    const { user } = await registerUser(app, { username: "MixedCase" });
+    expect(user.username).toBe("mixedcase");
+  });
+
+  it("rejects a case-variant duplicate username (409)", async () => {
+    const admin = await registerUser(app, { username: "uniquename" });
+    const inv = await authed(app, admin.token)
+      .post("/auth/invitations")
+      .send({ email: "cv@test.local" });
+    const res = await request(app).post("/auth/register").send({
+      token: inv.body.token,
+      email: "cv@test.local",
+      username: "UniqueName", // same handle, different case → must be rejected
+      displayName: "x",
+      password: "test1234",
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toBe("email_or_username_taken");
+  });
+
   it("auto-joins the default channel 'Général'", async () => {
     const def = await ensureDefaultChannel();
     const { token, user } = await registerUser(app);
@@ -156,6 +178,16 @@ describe("POST /auth/login", () => {
     expect(byUsername.status).toBe(200);
   });
 
+  it("logs in by username case-insensitively", async () => {
+    await registerUser(app, { username: "CamelUser", password: "secret123" });
+    for (const variant of ["cameluser", "CAMELUSER", "CamelUser"]) {
+      const res = await request(app)
+        .post("/auth/login")
+        .send({ emailOrUsername: variant, password: "secret123" });
+      expect(res.status, `login variant "${variant}"`).toBe(200);
+    }
+  });
+
   it("rejects wrong password and unknown user with 401", async () => {
     const { input } = await registerUser(app);
     const wrong = await request(app)
@@ -168,6 +200,29 @@ describe("POST /auth/login", () => {
       .post("/auth/login")
       .send({ emailOrUsername: "ghost@test.local", password: "whatever" });
     expect(unknown.status).toBe(401);
+  });
+});
+
+describe("ensureLowercaseUsernames (self-heal)", () => {
+  it("lowercases legacy usernames and skips case-only collisions", async () => {
+    // Seed legacy rows directly, bypassing the lowercasing register path.
+    await prisma.user.create({
+      data: { email: "legacy@test.local", username: "LegacyMixed", displayName: "L", passwordHash: "x" },
+    });
+    // A case-only collision pair that must be left untouched.
+    await prisma.user.create({
+      data: { email: "dup1@test.local", username: "Dup", displayName: "D1", passwordHash: "x" },
+    });
+    await prisma.user.create({
+      data: { email: "dup2@test.local", username: "dup", displayName: "D2", passwordHash: "x" },
+    });
+
+    await ensureLowercaseUsernames();
+
+    expect((await prisma.user.findFirst({ where: { email: "legacy@test.local" } })).username).toBe("legacymixed");
+    // Collision pair untouched (admin resolves manually).
+    expect((await prisma.user.findFirst({ where: { email: "dup1@test.local" } })).username).toBe("Dup");
+    expect((await prisma.user.findFirst({ where: { email: "dup2@test.local" } })).username).toBe("dup");
   });
 });
 
