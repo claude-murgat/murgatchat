@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Avatar from "./Avatar.jsx";
+import { isTauri } from "../desktop.js";
 
 function dndLabel(user) {
   if (!user?.dndUntil) return null;
@@ -22,6 +23,7 @@ export default function Sidebar({
   onLogout,
   onInvite,
   onProfile,
+  onPreferences,
   onAdminPanel,
   onSearch,
   onBrowseChannels,
@@ -100,6 +102,17 @@ export default function Sidebar({
                 ? "Désactiver Ne pas déranger"
                 : "Activer Ne pas déranger"}
             </button>
+            {isTauri() && (
+              <button
+                onClick={() => {
+                  setShowMenu(false);
+                  onPreferences();
+                }}
+                className="block w-full text-left px-3 py-2 text-sm hover:bg-slate-100"
+              >
+                Préférences
+              </button>
+            )}
             <button
               onClick={() => {
                 setShowMenu(false);

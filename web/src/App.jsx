@@ -15,6 +15,7 @@ import InviteModal from "./components/InviteModal.jsx";
 import ProfileModal from "./components/ProfileModal.jsx";
 import SearchModal from "./components/SearchModal.jsx";
 import AdminPanelModal from "./components/AdminPanelModal.jsx";
+import PreferencesModal from "./components/PreferencesModal.jsx";
 import UpdateBanner from "./components/UpdateBanner.jsx";
 import { checkForUpdate } from "./version.js";
 
@@ -34,6 +35,7 @@ export default function App() {
   const [showProfile, setShowProfile] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [showPreferences, setShowPreferences] = useState(false);
   const [toast, setToast] = useState(null);
   const [updateInfo, setUpdateInfo] = useState(null);
   const [dismissedVersion, setDismissedVersion] = useState(null);
@@ -376,6 +378,7 @@ export default function App() {
         onLogout={onLogout}
         onInvite={() => setShowInvite(true)}
         onProfile={() => setShowProfile(true)}
+        onPreferences={() => setShowPreferences(true)}
         onSearch={() => setShowSearch(true)}
         onAdminPanel={() => setShowAdmin(true)}
         onlineUserIds={onlineUserIds}
@@ -445,6 +448,9 @@ export default function App() {
           onClose={() => setShowProfile(false)}
           onUpdated={(u) => setUser(u)}
         />
+      )}
+      {showPreferences && (
+        <PreferencesModal onClose={() => setShowPreferences(false)} />
       )}
       {showSearch && (
         <SearchModal
