@@ -9,14 +9,14 @@
       "backgroundColor": "#3F0E40"
     },
     "android": {
-      "package": "com.example.chat",
+      "package": "com.charlesmurgat.chat",
       "versionCode": 8,
       "adaptiveIcon": {
         "backgroundColor": "#3F0E40"
       }
     },
     "ios": {
-      "bundleIdentifier": "com.example.chat",
+      "bundleIdentifier": "com.charlesmurgat.chat",
       "supportsTablet": true,
       "infoPlist": {
         "NSAppTransportSecurity": {
@@ -25,7 +25,10 @@
       }
     },
     "extra": {
-      "API_URL": ""
+      "API_URL": "",
+      "eas": {
+        "projectId": "a237ea85-6e71-4e59-879b-8eb0e641938b"
+      }
     },
     "plugins": [
       "expo-notifications",
