@@ -7,6 +7,16 @@ use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
 fn main() {
     tauri::Builder::default()
+        // Single instance: a second launch (e.g. clicking the icon while the app
+        // already runs hidden in the tray after autostart) focuses the existing
+        // window instead of spawning a new one. Registered first, as recommended.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         // Start-on-boot. The "--hidden" arg is baked into the autostart command
