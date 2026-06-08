@@ -1,0 +1,45 @@
+name: desktop-installer
+
+# Manually build ONLY the Windows desktop installer (Tauri / MSVC) and upload it
+# as a downloadable artifact — no release, no tag, no APK. Use it to hotfix the
+# installer attached to an existing release: dispatch this, download the artifact,
+# then replace the asset on the release by hand.
+#
+# Runs against whatever ref you dispatch it on (default: main). Version comes from
+# the committed files (web/src-tauri/tauri.conf.json), so the asset is named after
+# the current version, e.g. Chat_0.5.5_x64-setup.exe.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: web/src-tauri
+      - run: npm ci
+        working-directory: web
+      # VITE_API_URL is deliberately NOT set -> the installer ships with NO baked
+      # server (web/src/api.js prod default is ""), exactly like the release build.
+      # Without tagName/releaseId, tauri-action only builds (no upload to a release).
+      - uses: tauri-apps/tauri-action@v0
+        with:
+          projectPath: web
+          args: --bundles nsis
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-installer
+          path: web/src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 7
