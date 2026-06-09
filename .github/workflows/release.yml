@@ -158,9 +158,58 @@ jobs:
           tag_name: ${{ github.ref_name }}
           files: ${{ steps.apk.outputs.path }}
 
-  # Flip the draft to a published release once both binaries are attached.
+  # iOS: cloud-built and signed by EAS Build on M-series Macs in the Expo
+  # infrastructure, then uploaded to TestFlight via EAS Submit. No artifact
+  # is attached to the GitHub release — distribution channel is TestFlight.
+  ios:
+    needs: [test, release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      # postinstall → patch-package applies our expo-device patch so the
+      # tarball that EAS Build receives is already correct.
+      - run: npm ci
+        working-directory: mobile
+      - name: Install EAS CLI
+        run: npm install -g eas-cli
+      # Bump versions in the tarball EAS will receive. Mirrors the android
+      # job's APP_VERSION/ANDROID_VERSION_CODE pattern, but for iOS the
+      # buildNumber is auto-incremented server-side by EAS (see eas.json
+      # production profile: autoIncrement: "buildNumber").
+      - name: Pin app.json version to the release tag
+        working-directory: mobile
+        env:
+          APP_VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          node -e "
+            const fs = require('fs');
+            const a = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+            a.expo.version = process.env.APP_VERSION;
+            fs.writeFileSync('app.json', JSON.stringify(a, null, 2) + '\n');
+          "
+      # --wait blocks until the cloud build finishes (~15-25 min), so failures
+      # fail this job (not silently a few hours later) and the submit step has
+      # the freshly-built artifact available.
+      - name: EAS Build (iOS production)
+        working-directory: mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: eas build --platform ios --profile production --non-interactive --wait
+      - name: EAS Submit to TestFlight
+        working-directory: mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: eas submit --platform ios --profile production --non-interactive --latest
+
+  # Flip the draft to a published release once all three binaries are attached
+  # (desktop + android) or distributed (ios → TestFlight).
   publish:
-    needs: [desktop, android]
+    needs: [desktop, android, ios]
     runs-on: ubuntu-latest
     steps:
       - uses: softprops/action-gh-release@v2

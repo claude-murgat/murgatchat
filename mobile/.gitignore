@@ -12,5 +12,3 @@ upload.keystore
 # FCM client config — materialized from a GitHub secret in CI, or dropped in
 # locally for a dev build. Carries project identifiers, so kept out of git.
 google-services.json
-# EAS CLI config — only used locally for `eas credentials` (we don't use EAS Build).
-eas.json
