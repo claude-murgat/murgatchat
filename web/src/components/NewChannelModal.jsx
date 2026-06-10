@@ -48,13 +48,13 @@ export default function NewChannelModal({ onClose, onCreated, currentUserId }) {
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 grid place-items-center z-50 p-4"
+      className="fixed inset-0 bg-black/50 grid place-items-stretch sm:place-items-center z-50 p-0 sm:p-4"
       onClick={onClose}
     >
       <form
         onSubmit={submit}
         onClick={(e) => e.stopPropagation()}
-        className="bg-white text-slate-900 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col"
+        className="bg-white text-slate-900 sm:rounded-xl shadow-2xl w-full h-full sm:h-auto sm:max-w-lg sm:max-h-[90vh] flex flex-col"
       >
         <div className="p-5 border-b border-slate-200">
           <h2 className="text-xl font-bold">Créer une conversation</h2>

@@ -28,6 +28,7 @@ model User {
   attachments Attachment[]
   reactions   Reaction[]
   pushTokens  PushToken[]
+  webPushSubscriptions WebPushSubscription[]
   invitations Invitation[]
   passwordResets PasswordReset[]
 }
@@ -122,6 +123,25 @@ model PushToken {
   userId    String
   token     String   @unique
   platform  String   @default("android")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// Web Push subscription (browser PWA, used for iOS via "Add to Home Screen"
+// and any other modern browser). Same gating as PushToken in notifyMembers:
+// only sent when the user has been idle on web/desktop for >= 10 min and is
+// not in DnD. Endpoint is the natural unique key (one row per browser).
+model WebPushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String   // base64-url-encoded ECDH public key
+  auth      String   // base64-url-encoded auth secret
+  userAgent String?  // optional, useful for "Connected devices" UIs later
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

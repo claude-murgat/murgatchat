@@ -6,6 +6,7 @@ import { prisma } from "../db.js";
 import { signToken, requireAuth } from "../auth.js";
 import { broadcastMembers } from "./channels.js";
 import { sendInvitationEmail, sendPasswordResetEmail, inviteLink } from "../mail.js";
+import { getVapidPublicKey } from "../webpush.js";
 
 const router = Router();
 
@@ -303,6 +304,63 @@ router.delete("/push-token", requireAuth, async (req, res) => {
   const { token } = req.body || {};
   if (token) {
     await prisma.pushToken.deleteMany({ where: { token, userId: req.userId } });
+  }
+  res.json({ ok: true });
+});
+
+// ── Web Push (browser PWA, including iOS Safari) ──────────────────────────
+// Same lifecycle as native push tokens: clients subscribe at login (or when
+// permission is granted), unsubscribe at logout. Sends are gated identically
+// in notifyMembers (DnD + web/desktop idle ≥ 10 min).
+//
+// Public endpoint — the VAPID public key is required by the client to call
+// pushManager.subscribe(). It's safe to expose (the private key stays server-side).
+router.get("/web-push/vapid-public-key", (_req, res) => {
+  res.json({ publicKey: getVapidPublicKey() });
+});
+
+router.post("/web-push/subscribe", requireAuth, async (req, res) => {
+  const { endpoint, keys, userAgent, oldEndpoint } = req.body || {};
+  if (
+    typeof endpoint !== "string" ||
+    !endpoint.startsWith("https://") ||
+    typeof keys?.p256dh !== "string" ||
+    typeof keys?.auth !== "string"
+  ) {
+    return res.status(400).json({ error: "invalid_subscription" });
+  }
+  // If the browser rotated the endpoint (pushsubscriptionchange), tidy up the
+  // old row first so we don't leak.
+  if (typeof oldEndpoint === "string" && oldEndpoint && oldEndpoint !== endpoint) {
+    await prisma.webPushSubscription
+      .deleteMany({ where: { endpoint: oldEndpoint } })
+      .catch(() => {});
+  }
+  await prisma.webPushSubscription.upsert({
+    where: { endpoint },
+    update: {
+      userId: req.userId,
+      p256dh: keys.p256dh,
+      auth: keys.auth,
+      userAgent: typeof userAgent === "string" ? userAgent.slice(0, 500) : null,
+    },
+    create: {
+      userId: req.userId,
+      endpoint,
+      p256dh: keys.p256dh,
+      auth: keys.auth,
+      userAgent: typeof userAgent === "string" ? userAgent.slice(0, 500) : null,
+    },
+  });
+  res.json({ ok: true });
+});
+
+router.delete("/web-push/subscribe", requireAuth, async (req, res) => {
+  const { endpoint } = req.body || {};
+  if (typeof endpoint === "string" && endpoint) {
+    await prisma.webPushSubscription.deleteMany({
+      where: { endpoint, userId: req.userId },
+    });
   }
   res.json({ ok: true });
 });

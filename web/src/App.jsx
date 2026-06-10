@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { api, getToken, setToken } from "./api.js";
 import { getSocket, closeSocket } from "./socket.js";
 import { notify, isWindowFocused, ensureReady } from "./desktop.js";
+import { ensurePwaReady, isPwaInstalled, unsubscribePush } from "./pwa.js";
 import Login from "./components/Login.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import ChannelView from "./components/ChannelView.jsx";
@@ -207,6 +208,37 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     ensureReady();
+    // PWA: register the service worker + (re)subscribe push if permission was
+    // already granted. On first install / iOS Add-to-Home-Screen, the user
+    // still has to grant permission (we expose a "Activer les notifications"
+    // toggle in the user menu — see Sidebar.jsx).
+    ensurePwaReady();
+  }, [user]);
+
+  // Deep-link from a notification click → focus the matching channel. The PWA
+  // module emits `pwa:deeplink` for both messages (open tab) and Cache-Storage
+  // recovery (cold app launch). The URL format set by the server is
+  // `/?channel=<channelId>` (see webpush.js); we parse it client-side without
+  // a real router.
+  useEffect(() => {
+    if (!user) return;
+    function onDeepLink(e) {
+      try {
+        const url = new URL(e.detail?.url || "/", window.location.origin);
+        const target = url.searchParams.get("channel");
+        if (target) {
+          setActiveChannelId(target);
+          // Make sure the unread badge clears like a normal selection.
+          setChannels((prev) =>
+            prev.map((c) => (c.id === target ? { ...c, unread: false } : c))
+          );
+        }
+      } catch {
+        // Ignore malformed URLs.
+      }
+    }
+    window.addEventListener("pwa:deeplink", onDeepLink);
+    return () => window.removeEventListener("pwa:deeplink", onDeepLink);
   }, [user]);
 
   // Cmd/Ctrl+K opens the search modal — global, only when logged in.
@@ -273,6 +305,9 @@ export default function App() {
   }, []);
 
   const onLogout = useCallback(() => {
+    // Best-effort: unsubscribe push BEFORE clearing the token so the API call
+    // still authenticates. Don't block logout if it fails (network down etc.).
+    unsubscribePush().catch(() => {});
     setToken(null);
     closeSocket();
     setUser(null);
@@ -365,33 +400,53 @@ export default function App() {
           onDismiss={() => setDismissedVersion(updateInfo.latest)}
         />
       )}
+      {/*
+        Layout responsive : sur mobile (<md=768px) on n'affiche QU'UN écran à la fois,
+        Sidebar (= liste des conversations) OU ChannelView (= la conversation ouverte).
+        L'état "actif" est piloté par activeChannelId (déjà existant). Sur tablette+ (md+)
+        les deux sont toujours visibles côte à côte comme avant. Aucun media-query JS :
+        Tailwind hidden/md:flex fait tout le travail.
+      */}
       <div className="flex-1 flex min-h-0">
-      <Sidebar
-        user={user}
-        channels={channels}
-        activeChannelId={activeChannelId}
-        onSelectChannel={onSelectChannel}
-        onNewChannel={() => setShowNewChannel(true)}
-        onNewDm={() => setShowNewDm(true)}
-        onBrowseChannels={() => setShowBrowseChannels(true)}
-        onToggleDnd={toggleDnd}
-        onLogout={onLogout}
-        onInvite={() => setShowInvite(true)}
-        onProfile={() => setShowProfile(true)}
-        onPreferences={() => setShowPreferences(true)}
-        onSearch={() => setShowSearch(true)}
-        onAdminPanel={() => setShowAdmin(true)}
-        onlineUserIds={onlineUserIds}
-        typingByChannel={typingByChannel}
-      />
-      <ChannelView
-        channel={activeChannel}
-        currentUser={user}
-        socket={socket}
-        onlineUserIds={onlineUserIds}
-        onAddMembers={() => setShowAddMembers(true)}
-        onShowMembers={() => setShowMembers(true)}
-      />
+        <div
+          className={`${
+            activeChannelId ? "hidden md:flex" : "flex"
+          } flex-1 md:flex-none min-h-0`}
+        >
+          <Sidebar
+            user={user}
+            channels={channels}
+            activeChannelId={activeChannelId}
+            onSelectChannel={onSelectChannel}
+            onNewChannel={() => setShowNewChannel(true)}
+            onNewDm={() => setShowNewDm(true)}
+            onBrowseChannels={() => setShowBrowseChannels(true)}
+            onToggleDnd={toggleDnd}
+            onLogout={onLogout}
+            onInvite={() => setShowInvite(true)}
+            onProfile={() => setShowProfile(true)}
+            onPreferences={() => setShowPreferences(true)}
+            onSearch={() => setShowSearch(true)}
+            onAdminPanel={() => setShowAdmin(true)}
+            onlineUserIds={onlineUserIds}
+            typingByChannel={typingByChannel}
+          />
+        </div>
+        <div
+          className={`${
+            activeChannelId ? "flex" : "hidden md:flex"
+          } flex-1 min-w-0 min-h-0`}
+        >
+          <ChannelView
+            channel={activeChannel}
+            currentUser={user}
+            socket={socket}
+            onlineUserIds={onlineUserIds}
+            onAddMembers={() => setShowAddMembers(true)}
+            onShowMembers={() => setShowMembers(true)}
+            onBackToList={() => setActiveChannelId(null)}
+          />
+        </div>
       </div>
 
       {showNewChannel && (

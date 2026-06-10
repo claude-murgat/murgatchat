@@ -22,6 +22,10 @@ web/src-tauri/.cargo/
 .env
 .env.local
 .env.*.local
+# VAPID keys (auto-generated on first server start). Persisted in /data which
+# should be mounted as a Docker volume so subscriptions don't break on restart.
+server/data/
+vapid.json
 
 # logs / OS junk
 *.log
