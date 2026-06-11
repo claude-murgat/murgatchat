@@ -2,6 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+/* The app is light-themed. Force native controls (inputs, textareas, selects,
+   date/time pickers, default scrollbars) to render light even when the OS is in
+   dark mode — otherwise the browser paints inputs with a dark UA background. */
+:root {
+  color-scheme: light;
+}
+
 html, body, #root {
   height: 100%;
 }
