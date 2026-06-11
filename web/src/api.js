@@ -168,4 +168,11 @@ export const api = {
   deleteScheduled: (id) => request(`/channels/scheduled/${id}`, { method: "DELETE" }),
   updateScheduled: (id, body) =>
     request(`/channels/scheduled/${id}`, { method: "PATCH", body }),
+  // Web Push (browser PWA, including iOS via Add to Home Screen). The VAPID
+  // public key is needed by the service worker to subscribe.
+  webPushVapidKey: () => request("/auth/web-push/vapid-public-key", { auth: false }),
+  webPushSubscribe: (body) =>
+    request("/auth/web-push/subscribe", { method: "POST", body }),
+  webPushUnsubscribe: (endpoint) =>
+    request("/auth/web-push/subscribe", { method: "DELETE", body: { endpoint } }),
 };

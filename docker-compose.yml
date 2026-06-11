@@ -29,6 +29,13 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       MESSAGE_ENCRYPTION_KEY: ${MESSAGE_ENCRYPTION_KEY}
       UPLOAD_DIR: /data/uploads
+      # VAPID keys for Web Push (PWA). On first start, the server generates and
+      # persists them here; the volume mount survives container restarts so
+      # subscriptions don't break. Override via VAPID_PUBLIC_KEY/PRIVATE_KEY env.
+      VAPID_FILE: /data/meta/vapid.json
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@murgat-chat.local}
       PORT: "4000"
       CORS_ORIGIN: "*"
       # Par défaut on cible le Mailpit du compose (dev). Pour basculer sur Brevo
@@ -48,6 +55,9 @@ services:
       - "4000:4000"
     volumes:
       - uploads-data:/data/uploads
+      # Server-side state outside of Postgres: VAPID keys, anything else we
+      # need to keep across container restarts that isn't user-uploaded.
+      - server-meta:/data/meta
 
   # Mail-catcher: invitation emails land here. UI at http://localhost:8025.
   mail:
@@ -71,3 +81,4 @@ services:
 volumes:
   db-data:
   uploads-data:
+  server-meta:

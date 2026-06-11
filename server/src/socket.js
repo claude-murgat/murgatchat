@@ -4,6 +4,7 @@ import { prisma } from "./db.js";
 import { serializeMessage } from "./routes/channels.js";
 import { encryptBody } from "./crypto.js";
 import { sendExpoPush } from "./push.js";
+import { sendWebPush } from "./webpush.js";
 
 // DnD actif si fenêtre ponctuelle (dndUntil) OU plage quotidienne (heure serveur)
 export function isUserDnd(user, now = new Date()) {
@@ -34,7 +35,9 @@ function webDesktopInactive(userId) {
 }
 
 // Notify channel members (except author) who aren't in DnD: in-app "notification"
-// event, plus a mobile push for those whose web/desktop has been idle >= 10 min.
+// event, plus a push (Expo for native, Web Push for browser PWAs) for those
+// whose web/desktop has been idle >= 10 min. Web push is the iOS distribution
+// channel since the PWA pivot (no TestFlight build).
 async function notifyMembers(io, channelId, authorId, serialized) {
   const members = await prisma.membership.findMany({
     where: { channelId },
@@ -48,19 +51,42 @@ async function notifyMembers(io, channelId, authorId, serialized) {
     if (webDesktopInactive(cm.userId)) awayUserIds.push(cm.userId);
   }
   if (awayUserIds.length === 0) return;
-  const tokens = await prisma.pushToken.findMany({
-    where: { userId: { in: awayUserIds } },
-  });
-  if (tokens.length === 0) {
-    console.log("[push] away (web/desktop idle) but no device token:", awayUserIds.join(","));
-    return;
-  }
   const title = serialized.author?.displayName || "Nouveau message";
   const body = serialized.body || "(pièce jointe)";
-  console.log(`[push] notifying ${tokens.length} device(s) for ${awayUserIds.length} away user(s)`);
-  await sendExpoPush(
-    tokens.map((t) => ({ to: t.token, title, body, sound: "default", data: { channelId } }))
+
+  const [tokens, webSubs] = await Promise.all([
+    prisma.pushToken.findMany({ where: { userId: { in: awayUserIds } } }),
+    prisma.webPushSubscription.findMany({ where: { userId: { in: awayUserIds } } }),
+  ]);
+  if (tokens.length === 0 && webSubs.length === 0) {
+    console.log(
+      "[push] away (web/desktop idle) but no device/web subscription:",
+      awayUserIds.join(",")
+    );
+    return;
+  }
+  console.log(
+    `[push] notifying ${tokens.length} native + ${webSubs.length} web for ${awayUserIds.length} away user(s)`
   );
+  // Native pushes (Expo / FCM) for Android (and historically iOS).
+  if (tokens.length) {
+    await sendExpoPush(
+      tokens.map((t) => ({ to: t.token, title, body, sound: "default", data: { channelId } }))
+    );
+  }
+  // Web pushes (browser / installed PWA, including iOS Safari Add to Home Screen).
+  // `url` lets the service worker focus / deep-link to the right conversation.
+  if (webSubs.length) {
+    await sendWebPush(webSubs, {
+      title,
+      body,
+      url: `/?channel=${encodeURIComponent(channelId)}`,
+      channelId,
+      // Unique tag per channel: iOS coalesces same-tag notifications so the
+      // dock badge stays accurate but the user only sees the most recent banner.
+      tag: `channel:${channelId}`,
+    });
+  }
 }
 
 export function setupSocket(httpServer, corsOrigin) {

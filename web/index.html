@@ -2,9 +2,33 @@
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
+    <!--
+      viewport-fit=cover : permet à l'app d'occuper toute la zone safe-area incluse,
+      utile sur iPhone (notch) une fois installée en PWA et lancée depuis l'écran d'accueil.
+      Le CSS utilise env(safe-area-inset-*) pour le padding.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+
+    <!-- Manifest + favicon dynamique (généré par vite-plugin-pwa au build). -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/png" href="/icons/icon-192.png" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%233F0E40'/%3E%3Ctext x='50%25' y='56%25' text-anchor='middle' font-family='Arial' font-size='38' font-weight='bold' fill='white'%3E%23%3C/text%3E%3C/svg%3E" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Chat</title>
+
+    <!-- iOS standalone PWA : icône d'écran d'accueil + status bar transparente. -->
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Murgat Chat" />
+
+    <!-- Couleur de la barre adresse Chrome Android + thème système. -->
+    <meta name="theme-color" content="#3F0E40" />
+    <meta name="color-scheme" content="light dark" />
+
+    <!-- Détection iOS : un device-detection rapide pour l'install prompt
+         (handler dans pwa.js / banner UI). -->
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <title>Murgat Chat</title>
   </head>
   <body class="bg-aubergine-900 text-white">
     <div id="root"></div>

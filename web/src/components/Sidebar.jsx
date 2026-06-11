@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Avatar from "./Avatar.jsx";
 import { isTauri } from "../desktop.js";
+import { pwaSupported, requestNotificationPermission, isPwaInstalled } from "../pwa.js";
 
 function dndLabel(user) {
   if (!user?.dndUntil) return null;
@@ -31,14 +32,67 @@ export default function Sidebar({
   typingByChannel,
 }) {
   const [showMenu, setShowMenu] = useState(false);
+  // Statut PWA / notifications web. Calculé au montage et après chaque action
+  // pour piloter le libellé du menu ("Activer les notifications" vs "Activées").
+  const [notifPerm, setNotifPerm] = useState(
+    typeof Notification !== "undefined" ? Notification.permission : "default"
+  );
+  const [pwaInstallable, setPwaInstallable] = useState(false);
+  const [installed, setInstalled] = useState(isPwaInstalled());
+  useEffect(() => {
+    function onBeforeInstallPrompt(e) {
+      // Chrome / Edge desktop: garde l'événement pour pouvoir le déclencher
+      // depuis notre bouton "Installer".
+      e.preventDefault();
+      window.__deferredInstallPrompt = e;
+      setPwaInstallable(true);
+    }
+    function onInstalled() {
+      setInstalled(true);
+      setPwaInstallable(false);
+    }
+    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
+
+  async function enableNotifs() {
+    const r = await requestNotificationPermission();
+    setNotifPerm(typeof Notification !== "undefined" ? Notification.permission : "default");
+    if (!r.ok) {
+      if (r.reason === "denied") {
+        alert(
+          "Les notifications ont été refusées. Activez-les dans les réglages du navigateur (icône cadenas → Notifications) pour réessayer."
+        );
+      } else if (r.reason === "unsupported") {
+        alert("Votre navigateur ne supporte pas les notifications push.");
+      }
+    }
+  }
+
+  async function installPwa() {
+    const evt = window.__deferredInstallPrompt;
+    if (!evt) return;
+    evt.prompt();
+    await evt.userChoice;
+    window.__deferredInstallPrompt = null;
+    setPwaInstallable(false);
+  }
+
   const groups = channels.filter((c) => !c.isDirect);
   const dms = channels.filter((c) => c.isDirect);
 
   const dnd = dndLabel(user);
 
   return (
-    <aside className="bg-aubergine-700 text-white w-72 shrink-0 flex flex-col h-full">
-      <div className="px-4 py-3 border-b border-aubergine-600 flex items-center justify-between relative">
+    <aside className="bg-aubergine-700 text-white w-full md:w-72 md:shrink-0 flex flex-col h-full">
+      <div
+        className="px-4 py-3 border-b border-aubergine-600 flex items-center justify-between relative"
+        style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}
+      >
         <div>
           <div className="font-bold text-lg leading-tight">Chat Workspace</div>
           <button
@@ -54,7 +108,8 @@ export default function Sidebar({
           type="button"
           onClick={onSearch}
           title="Rechercher (Ctrl+K)"
-          className="text-aubergine-400 hover:text-white text-lg px-2 py-1"
+          className="text-aubergine-400 hover:text-white text-xl w-11 h-11 grid place-items-center rounded hover:bg-aubergine-600"
+          aria-label="Rechercher"
         >
           🔍
         </button>
@@ -102,6 +157,33 @@ export default function Sidebar({
                 ? "Désactiver Ne pas déranger"
                 : "Activer Ne pas déranger"}
             </button>
+            {/* PWA: bouton pour demander la permission notifs (idempotent — disparaît
+                une fois accordée). En navigateur uniquement (Tauri a son propre flow). */}
+            {!isTauri() && pwaSupported() && notifPerm !== "granted" && (
+              <button
+                onClick={() => {
+                  setShowMenu(false);
+                  enableNotifs();
+                }}
+                className="block w-full text-left px-3 py-2 text-sm hover:bg-slate-100"
+              >
+                🔔 Activer les notifications
+              </button>
+            )}
+            {/* PWA: déclencher l'install prompt (Chrome/Edge desktop, Android Chrome).
+                Sur iOS Safari il n'y a pas d'événement — l'utilisateur doit faire
+                "Partager → Ajouter à l'écran d'accueil" à la main. */}
+            {!isTauri() && pwaInstallable && !installed && (
+              <button
+                onClick={() => {
+                  setShowMenu(false);
+                  installPwa();
+                }}
+                className="block w-full text-left px-3 py-2 text-sm hover:bg-slate-100"
+              >
+                📱 Installer l'application
+              </button>
+            )}
             {isTauri() && (
               <button
                 onClick={() => {
@@ -154,7 +236,7 @@ export default function Sidebar({
               <button
                 key={c.id}
                 onClick={() => onSelectChannel(c)}
-                className={`w-full flex items-center gap-2 px-2 py-1 rounded text-left ${
+                className={`w-full flex items-center gap-2 px-3 py-2.5 md:py-1.5 rounded text-left text-[15px] md:text-sm ${
                   c.id === activeChannelId
                     ? "bg-slackblue text-white"
                     : c.unread
@@ -243,7 +325,7 @@ function SidebarItem({ active, onClick, prefix, label, unread }) {
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left px-2 py-1 rounded flex items-center gap-2 ${
+      className={`w-full text-left px-3 py-2.5 md:py-1.5 rounded flex items-center gap-2 text-[15px] md:text-sm ${
         active
           ? "bg-slackblue text-white"
           : unread

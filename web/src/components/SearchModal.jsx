@@ -45,7 +45,7 @@ export default function SearchModal({ onClose, onJump }) {
   return (
     <div className="fixed inset-0 bg-black/50 grid place-items-start z-50 p-4 pt-16" onClick={onClose}>
       <div
-        className="bg-white text-slate-900 rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col"
+        className="bg-white text-slate-900 sm:rounded-xl shadow-2xl w-full h-full sm:h-auto sm:max-w-2xl sm:max-h-[80vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-3 border-b border-slate-200 flex items-center gap-2">

@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-05-29** (v0.5.2).
+Dernière mise à jour : **2026-06-10** (PWA + responsive web).
 
 ---
 
@@ -380,3 +380,74 @@ rebuildés en **0.5.1** (versionCode 7).
 - **Notifications push** (livrées — voir plus haut) : reste à câbler côté infra un
   **projectId Expo + FCM** (`google-services.json` + `android.googleServicesFile`) pour
   la livraison réelle sur device, et `usesCleartextTraffic` (ou HTTPS) pour joindre l'API.
+
+## Itération 2026-06-10 — Pivot PWA + responsive web
+
+**Pivot stratégique iOS** (cf [`memory/project_pwa-pivot.md`](.) et conversation du 2026-06-10) :
+abandon des builds natifs iOS (Xcode 26 exigé par Apple = arm64-only = incompatible
+avec la Mac VM x86_64). **Les utilisateurs iPhone passent par la PWA installée via
+Safari → "Ajouter à l'écran d'accueil"** plutôt que par TestFlight.
+
+40. **PWA core + iOS support (#46)** — Le client web est désormais une PWA installable :
+    `vite-plugin-pwa` en mode `injectManifest`, manifest web auto-généré au build
+    (`name`, `short_name`, `start_url`, `display: standalone`, `theme_color: #3F0E40`).
+    Icônes PNG générées sans dépendance externe par `web/scripts/generate-icons.cjs`
+    (encodeur PNG zlib + CRC32) : `icon-192`, `icon-512`, `icon-512-maskable`, `badge-72`.
+    `index.html` reçoit les meta iOS standalone (`apple-mobile-web-app-capable`,
+    status bar `black-translucent`, `apple-touch-icon`, `theme-color`, viewport
+    `viewport-fit=cover` pour le notch). Service worker dans `web/src/sw.js` :
+    handler `push` défensif (parsing JSON → text → fallback, `showNotification`
+    inconditionnel — silence-push = SW révoqué sur iOS), handler `notificationclick`
+    qui focus une fenêtre existante OU `openWindow` avec workaround Cache Storage
+    pour le bug WebKit "kill-app perd targetUrl" (le SW stocke l'URL cible dans
+    une Cache Storage, le client la consomme au prochain boot via `pwa.js`).
+    `web/src/pwa.js` orchestre côté client : registration SW, subscription push
+    (resubscribe robuste au focus, gère `pushsubscriptionchange`), dispatch des
+    messages SW vers la fenêtre. Sidebar expose "🔔 Activer les notifications"
+    (idempotent) et "📱 Installer l'application" (déclenche `beforeinstallprompt`
+    sur Chrome/Edge ; iOS Safari n'a pas d'événement, l'utilisateur fait Partager
+    → Ajouter à l'écran d'accueil manuellement).
+
+41. **Web Push backend (VAPID + endpoints) (#46)** — Nouveau modèle Prisma
+    `WebPushSubscription` (endpoint unique par navigateur, `p256dh`, `auth`, `userAgent`
+    optionnel). `server/src/webpush.js` charge ou génère les clés VAPID au démarrage,
+    persistées dans `/data/meta/vapid.json` (volume Docker `server-meta`), surchargeables
+    par les env `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT`. Trois nouveaux
+    endpoints : `GET /auth/web-push/vapid-public-key` (public, le SW en a besoin pour
+    `pushManager.subscribe`), `POST /auth/web-push/subscribe` (upsert par endpoint, gère
+    `oldEndpoint` pour rotation), `DELETE /auth/web-push/subscribe`. `notifyMembers`
+    dans `socket.js` envoie **EN PLUS** des Expo pushes aux web-pushes, avec le même
+    gating (DnD + web/desktop idle ≥ 10 min). Auto-cleanup sur 404/410 dans `sendWebPush`.
+    Volume Docker `server-meta:/data/meta` ajouté à `docker-compose.yml`. `.env.example`
+    documenté avec bloc VAPID prêt à décommenter (rotation, partage entre instances).
+
+42. **Responsive web (mobile-first) (#46)** — L'app web fonctionne désormais sur
+    smartphone, tablette et desktop. Approche : sur mobile (`<md=768px`), un seul
+    écran à la fois (Sidebar OU ChannelView), commuté par `activeChannelId` ; sur
+    tablette+ (`md+`), les deux côte à côte comme avant. **Aucun useMediaQuery / JS** —
+    Tailwind `hidden md:flex` et `flex md:hidden` font tout le travail.
+    `App.jsx` enveloppe Sidebar et ChannelView dans des divs responsive et passe
+    `onBackToList` à ChannelView. ChannelView affiche un bouton retour `←` dans
+    son header en mobile uniquement (`md:hidden`, touch target 44×44). Sidebar
+    devient `w-full md:w-72`, items avec padding `py-2.5 md:py-1.5` pour respecter
+    les touch targets Apple HIG. Les 11 modales (NewChannel, NewDm, Members,
+    AddMembers, Browse, Profile, Invite, Dnd, Search, AdminPanel, Preferences)
+    passent en **plein écran sur mobile** (`place-items-stretch` + `w-full h-full`
+    + `rounded-none`) et **carte centrée sur sm+** (rounded-xl + max-w-md/lg/2xl).
+    Composer reçoit `safe-area-inset-bottom` (iPhone home indicator).
+
+**Tests :** la suite backend (push gating, etc.) reste verte — le test de push mock
+le `fetch` global (Expo) qui est inchangé ; l'extension web push est silencieuse
+quand aucune `WebPushSubscription` n'existe dans le test DB. `prisma db push` du
+globalSetup crée automatiquement la nouvelle table.
+
+**Limites connues / à durcir avant prod :**
+- Le service worker précache l'app shell (`workbox-precaching`). En dev (`vite dev`)
+  Workbox tourne via `devOptions.enabled` — peut être bruyant à invalider si on
+  itère sur le SW lui-même. Préférer `vite build && vite preview` pour valider.
+- Sur **Safari iOS**, web push nécessite que l'utilisateur **installe la PWA**
+  d'abord ("Ajouter à l'écran d'accueil"). Sinon `Notification.permission` n'est
+  même pas exposé. Le bouton "🔔 Activer les notifications" ne s'affiche pas dans
+  Safari normal (faute de support) — c'est attendu.
+- **HTTPS requis** côté production : Safari refuse `serviceWorker.register` en HTTP
+  hors localhost. Le dev se fait via ngrok ou `mkcert` (voir TESTING.md).
