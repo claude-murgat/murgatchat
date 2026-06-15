@@ -81,6 +81,23 @@ describe("push gating (notifyMembers)", () => {
     expect(fetchMock).not.toHaveBeenCalled(); // but no mobile push
   });
 
+  it("pushes once an active recipient signals 'away' (PWA backgrounded)", async () => {
+    const fetchMock = mockExpo();
+    const { author, recipient, channelId, pushToken } = await setup();
+    // recipient online & active on web -> not away (no push yet)...
+    const rSock = await ready(recipient.token, channelId, "web");
+    const aSock = await ready(author.token, channelId);
+    // ...then backgrounds the PWA -> client emits "away" -> immediately away.
+    rSock.emit("away");
+    await new Promise((r) => setTimeout(r, 150)); // let the server process it
+
+    await send(aSock, { channelId, body: "fenêtre cachée" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.map((m) => m.to)).toContain(pushToken);
+  });
+
   it("sends neither notification nor push when the recipient is in DnD", async () => {
     const fetchMock = mockExpo();
     const { author, recipient, channelId } = await setup();
