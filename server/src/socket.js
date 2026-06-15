@@ -22,16 +22,39 @@ export function isUserDnd(user, now = new Date()) {
 }
 
 const TEN_MIN_MS = 10 * 60 * 1000;
-// userId -> last activity timestamp (ms), from web/desktop clients only
-const lastWebActivity = new Map();
+// userId -> Map(socketId -> last activity ms), web/desktop clients only. A socket
+// stays fresh while the page is visible (60s heartbeat from the client); the
+// client signals "away" the instant it's hidden (PWA backgrounded / minimised),
+// which drops it immediately, and a disconnect removes it too. The 10-min ceiling
+// is a safety net for a frozen client that stopped heartbeating without
+// disconnecting. Per-socket so one focused device doesn't suppress pushes meant
+// for another (a desktop in front shouldn't mute the phone).
+const webActivity = new Map();
 
-function markWebActivity(userId) {
-  lastWebActivity.set(userId, Date.now());
+function markWebActivity(userId, socketId) {
+  let sockets = webActivity.get(userId);
+  if (!sockets) {
+    sockets = new Map();
+    webActivity.set(userId, sockets);
+  }
+  sockets.set(socketId, Date.now());
 }
-// True if no web/desktop activity in the last 10 min (user likely away from computer).
+function markWebInactive(userId, socketId) {
+  const sockets = webActivity.get(userId);
+  if (!sockets) return;
+  sockets.delete(socketId);
+  if (sockets.size === 0) webActivity.delete(userId);
+}
+// True when the user has no visible/recent web/desktop socket — i.e. away from
+// their computer, so a push is warranted.
 function webDesktopInactive(userId) {
-  const last = lastWebActivity.get(userId);
-  return !last || Date.now() - last > TEN_MIN_MS;
+  const sockets = webActivity.get(userId);
+  if (!sockets || sockets.size === 0) return true;
+  const now = Date.now();
+  for (const ts of sockets.values()) {
+    if (now - ts <= TEN_MIN_MS) return false;
+  }
+  return true;
 }
 
 // Notify channel members (except author) who aren't in DnD: in-app "notification"
@@ -120,9 +143,14 @@ export function setupSocket(httpServer, corsOrigin) {
     if (prevCount === 0) io.emit("presence:update", { userId, online: true });
     socket.emit("presence:state", { userIds: [...online.keys()] });
 
-    if (socket.data.platform !== "mobile") markWebActivity(userId);
+    if (socket.data.platform !== "mobile") markWebActivity(userId, socket.id);
     socket.on("activity", () => {
-      if (socket.data.platform !== "mobile") markWebActivity(userId);
+      if (socket.data.platform !== "mobile") markWebActivity(userId, socket.id);
+    });
+    // Page hidden / backgrounded -> drop this socket so push resumes right away
+    // (no 10-min wait). Becoming visible/focused again re-emits "activity".
+    socket.on("away", () => {
+      if (socket.data.platform !== "mobile") markWebInactive(userId, socket.id);
     });
 
     socket.on("channel:join", (channelId) => {
@@ -239,6 +267,7 @@ export function setupSocket(httpServer, corsOrigin) {
     });
 
     socket.on("disconnect", () => {
+      markWebInactive(userId, socket.id);
       const count = (online.get(userId) || 1) - 1;
       if (count <= 0) {
         online.delete(userId);

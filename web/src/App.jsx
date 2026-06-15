@@ -255,24 +255,33 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [user]);
 
-  // Signal web/desktop activity so the server pushes to mobile only when the
-  // user is away from their computer (no activity for 10 min).
+  // Tell the server whether the user can actually SEE the app: "activity" while
+  // the page is visible (no push needed — they'll see the in-app toast), "away"
+  // the instant it's hidden (PWA backgrounded, window/tab minimised). The server
+  // then pushes immediately instead of waiting out a 10-min idle window. Also
+  // re-reported on every (re)connect so a background reconnect isn't seen "active".
   useEffect(() => {
     if (!socket) return;
-    const ping = () => {
-      if (typeof document === "undefined" || document.hasFocus()) socket.emit("activity");
+    const report = () => {
+      const hidden =
+        typeof document !== "undefined" && document.visibilityState === "hidden";
+      socket.emit(hidden ? "away" : "activity");
     };
-    ping();
+    report();
+    socket.on("connect", report);
+    const onVisibility = () => report();
     const onFocus = () => socket.emit("activity");
-    const onVisible = () => {
-      if (document.visibilityState === "visible") socket.emit("activity");
-    };
+    document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVisible);
-    const iv = setInterval(ping, 60_000);
+    const iv = setInterval(() => {
+      if (typeof document === "undefined" || document.visibilityState !== "hidden") {
+        socket.emit("activity");
+      }
+    }, 60_000);
     return () => {
+      socket.off("connect", report);
+      document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVisible);
       clearInterval(iv);
     };
   }, [socket]);
