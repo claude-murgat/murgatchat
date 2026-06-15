@@ -2,9 +2,9 @@ name: tests
 
 on:
   pull_request:
-  push:
-    branches: [main]
-  # Allow other workflows (release.yml) to run the full suite as a gate.
+  # No `push` trigger: a PR's checks already validate the code, so re-running the
+  # full suite on push to main after a merge is redundant. release.yml still calls
+  # this (workflow_call) as a gate before building/publishing a release.
   workflow_call:
 
 jobs:
