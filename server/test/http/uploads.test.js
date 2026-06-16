@@ -64,6 +64,26 @@ describe("POST /uploads + GET /uploads/:id", () => {
     expect(att.uploadedBy).toBe(user.id);
   });
 
+  it("serves inline by default and as an attachment with ?download=1", async () => {
+    const { token } = await registerUser(app);
+    const up = await request(app)
+      .post("/uploads")
+      .set("Authorization", `Bearer ${token}`)
+      .attach("file", Buffer.from("hello"), "rapport final.pdf");
+    const id = up.body.attachment.id;
+
+    const inline = await request(app).get(`/uploads/${id}?token=${token}`);
+    expect(inline.headers["content-disposition"]).toMatch(/^inline;/);
+
+    const dl = await request(app).get(`/uploads/${id}?token=${token}&download=1`);
+    expect(dl.status).toBe(200);
+    expect(dl.headers["content-disposition"]).toMatch(/^attachment;/);
+    // The real (UTF-8, spaced) filename is preserved in the header either way.
+    expect(dl.headers["content-disposition"]).toContain(
+      `filename*=UTF-8''${encodeURIComponent("rapport final.pdf")}`
+    );
+  });
+
   it("falls back to raw streaming for legacy un-encrypted blobs", async () => {
     const { token, user } = await registerUser(app);
     const storagePath = "legacy-uploads-test.bin";

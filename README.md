@@ -233,12 +233,12 @@ E2E (le serveur ne peut pas lire) a été écarté pour cette itération car inc
 ### Pièces jointes
 - Upload `multipart/form-data` via `POST /uploads` (multer, **25 Mo max** par fichier).
 - Stockage disque dans `UPLOAD_DIR` (volume Docker `uploads-data` monté sur `/data/uploads`).
-- Téléchargement `GET /uploads/:id?token=<jwt>` — auth + check d'appartenance au salon du message lié (ou être l'uploader si pas encore attaché).
+- Téléchargement / aperçu `GET /uploads/:id?token=<jwt>` — auth + check d'appartenance au salon du message lié (ou être l'uploader si pas encore attaché). `?download=1` force le téléchargement (`Content-Disposition: attachment`) au lieu de l'inline.
 - UI Composer : bouton `📎 Fichier`, picker multi-sélection, **collage Cmd/Ctrl+V** (capture d'écran ou n'importe quel fichier dans le presse-papier).
-- Rendu : miniature pour les images (`image/*`), pavé icône + nom + taille pour les autres types.
+- Rendu : miniature pour les images (`image/*`), pavé icône + nom + taille pour les autres types. **Clic → modale de preview** (image / vidéo / audio / PDF) avec bouton Télécharger. Sur mobile (Android), image+vidéo en in-app ; PDF et autres types sont téléchargés puis ouverts/partagés via l'OS (`expo-file-system` + `expo-sharing`).
 - Encodage des noms : multer décode en latin1 par défaut → reconverti côté serveur en UTF-8 pour préserver accents/apostrophes.
 
-**Décision : le contenu des fichiers n'est pas chiffré sur disque.** Seuls les bodies texte le sont. Pour chiffrer les blobs, il faudrait stream-encrypt à l'upload et stream-decrypt au download — à faire si on stocke des PJ sensibles.
+**Chiffrement at rest : oui.** Les blobs sont chiffrés en **AES-256-GCM** (`cryptoFile.js`, même clé que les bodies de messages) au format `[version][iv][ciphertext][tag]`, et déchiffrés à la volée au download (`Attachment.encrypted=true`). Les blobs antérieurs au rollout du chiffrement restent servis en clair (`encrypted=false`).
 
 ### Schéma de données
 Tables (Prisma) :
@@ -284,7 +284,7 @@ Génère une clé prod avec : `openssl rand -hex 32`.
 | PATCH   | `/channels/scheduled/:id`          | modifier un planifié (body, scheduledAt)     |
 | DELETE  | `/channels/scheduled/:id`          | annuler une planification                    |
 | POST    | `/uploads`                         | upload multipart (champ `file`, ≤ 25 Mo)     |
-| GET     | `/uploads/:id?token=<jwt>`         | télécharger une PJ                           |
+| GET     | `/uploads/:id?token=<jwt>`         | aperçu (inline) d'une PJ ; `&download=1` force le téléchargement |
 | POST    | `/bug-reports`                     | signaler un bug (`{ message, logs?, diagnostics?, appVersion?, platform? }`) |
 | GET     | `/bug-reports?status=&page=`       | lister les rapports (admin)                  |
 | PATCH   | `/bug-reports/:id`                 | changer le statut `open`/`closed` (admin)    |
@@ -324,7 +324,7 @@ Récap des choix faits pendant le build (et pourquoi), pour qu'on puisse les rem
   - messages planifiés (le serveur doit pouvoir les délivrer en différé sans clé du destinataire)
   - une future recherche full-text Postgres
   - les notifications avec aperçu du contenu
-- **Bodies texte chiffrés, fichiers en clair** sur disque. À renforcer (stream-encrypt à l'upload) si on stocke des PJ sensibles.
+- **Bodies texte ET fichiers chiffrés** at-rest sur disque (AES-256-GCM, même clé serveur). Les blobs de PJ antérieurs au rollout restent en clair (`Attachment.encrypted=false`).
 - **Clé symétrique serveur** via `MESSAGE_ENCRYPTION_KEY` (32 octets hex). Valeur dev par défaut + warning logué.
 - **AES-256-GCM** avec IV aléatoire 12 octets par message, format `enc1:<base64(iv||tag||ct)>` (le prefix permet le fallback plaintext pour les anciens messages).
 
@@ -395,8 +395,6 @@ par thème :
   les bundles).
 
 ### Fonctionnalités
-- **Chiffrement at-rest des fichiers** (stream-encrypt à l'upload, stream-decrypt
-  au download). Pour l'instant seuls les bodies texte sont chiffrés.
 - **E2E (chiffrement bout-en-bout) pour les DM** — empêcherait la recherche
   full-text et la planification de messages, donc à exclure sur ces canaux.
 - **Recherche full-text Postgres** (incompatible avec l'E2E ci-dessus, à

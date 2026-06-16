@@ -3,6 +3,7 @@ import EmojiPicker from "emoji-picker-react";
 import Avatar from "./Avatar.jsx";
 import Composer from "./Composer.jsx";
 import MessageMarkdown from "./MessageMarkdown.jsx";
+import AttachmentModal from "./AttachmentModal.jsx";
 import { api, attachmentUrl } from "../api.js";
 import { isWindowFocused } from "../desktop.js";
 
@@ -13,39 +14,49 @@ function fmtBytes(n) {
 }
 
 function Attachments({ attachments }) {
+  // Clicking an attachment opens an in-app preview modal (with a download button)
+  // instead of navigating to the raw server URL in a new tab.
+  const [selected, setSelected] = useState(null);
   if (!attachments?.length) return null;
   return (
-    <div className="mt-1 flex flex-wrap gap-2">
-      {attachments.map((a) => {
-        const isImg = a.mimeType?.startsWith("image/");
-        const url = attachmentUrl(a.id);
-        if (isImg) {
+    <>
+      <div className="mt-1 flex flex-wrap gap-2">
+        {attachments.map((a) => {
+          const isImg = a.mimeType?.startsWith("image/");
+          if (isImg) {
+            return (
+              <button
+                key={a.id}
+                type="button"
+                onClick={() => setSelected(a)}
+                className="block rounded overflow-hidden focus:outline-none focus:ring-2 focus:ring-aubergine-400"
+              >
+                <img
+                  src={attachmentUrl(a.id)}
+                  alt={a.filename}
+                  className="max-h-56 max-w-xs rounded border border-slate-200 object-cover"
+                />
+              </button>
+            );
+          }
           return (
-            <a key={a.id} href={url} target="_blank" rel="noreferrer" className="block">
-              <img
-                src={url}
-                alt={a.filename}
-                className="max-h-56 max-w-xs rounded border border-slate-200 object-cover"
-              />
-            </a>
+            <button
+              key={a.id}
+              type="button"
+              onClick={() => setSelected(a)}
+              className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 rounded px-2 py-1.5 text-sm text-slate-800 max-w-xs text-left"
+            >
+              <span className="text-lg">📄</span>
+              <span className="flex-1 truncate">{a.filename}</span>
+              <span className="text-slate-500 text-xs">{fmtBytes(a.size)}</span>
+            </button>
           );
-        }
-        return (
-          <a
-            key={a.id}
-            href={url}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 rounded px-2 py-1.5 text-sm text-slate-800 max-w-xs"
-            download={a.filename}
-          >
-            <span className="text-lg">📄</span>
-            <span className="flex-1 truncate">{a.filename}</span>
-            <span className="text-slate-500 text-xs">{fmtBytes(a.size)}</span>
-          </a>
-        );
-      })}
-    </div>
+        })}
+      </div>
+      {selected && (
+        <AttachmentModal attachment={selected} onClose={() => setSelected(null)} />
+      )}
+    </>
   );
 }
 

@@ -85,11 +85,16 @@ router.get("/:id", async (req, res) => {
     return res.status(404).json({ error: "missing_file" });
   }
 
+  // `?download=1` forces a download (attachment) instead of inline rendering.
+  // The web client uses it for its "Télécharger" button so the browser saves the
+  // file with its real name rather than navigating to it; the preview path leaves
+  // it off so <img>/<video>/<iframe> can render the bytes in place.
+  const disposition = req.query.download ? "attachment" : "inline";
   res.setHeader("Content-Type", att.mimeType);
   res.setHeader("Content-Length", String(att.size));
   res.setHeader(
     "Content-Disposition",
-    `inline; filename*=UTF-8''${encodeURIComponent(att.filename)}`
+    `${disposition}; filename*=UTF-8''${encodeURIComponent(att.filename)}`
   );
 
   if (att.encrypted) {
