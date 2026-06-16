@@ -12,6 +12,7 @@ import Avatar from "../components/Avatar";
 import PresenceDot from "../components/PresenceDot";
 import InviteModal from "../components/InviteModal";
 import ProfileModal from "../components/ProfileModal";
+import BugReportModal from "../components/BugReportModal";
 import { colors } from "../theme";
 
 function dndActive(user) {
@@ -23,6 +24,7 @@ export default function ChannelListScreen({ navigation }) {
   const [menu, setMenu] = useState(false);
   const [invite, setInvite] = useState(false);
   const [profile, setProfile] = useState(false);
+  const [bugReport, setBugReport] = useState(false);
 
   const groups = channels.filter((c) => !c.isDirect);
   const dms = channels.filter((c) => c.isDirect);
@@ -169,6 +171,26 @@ export default function ChannelListScreen({ navigation }) {
                 <Text style={styles.menuText}>Administration</Text>
               </Pressable>
             )}
+            {user?.isAdmin && (
+              <Pressable
+                style={styles.menuItem}
+                onPress={() => {
+                  setMenu(false);
+                  navigation.navigate("BugReports");
+                }}
+              >
+                <Text style={styles.menuText}>Rapports de bug</Text>
+              </Pressable>
+            )}
+            <Pressable
+              style={styles.menuItem}
+              onPress={() => {
+                setMenu(false);
+                setBugReport(true);
+              }}
+            >
+              <Text style={styles.menuText}>🐞 Signaler un bug</Text>
+            </Pressable>
             <Pressable
               style={styles.menuItem}
               onPress={() => {
@@ -189,6 +211,7 @@ export default function ChannelListScreen({ navigation }) {
         onClose={() => setProfile(false)}
         onUpdated={(u) => setUser(u)}
       />
+      <BugReportModal visible={bugReport} onClose={() => setBugReport(false)} />
     </View>
   );
 }

@@ -1,3 +1,5 @@
+import { logEvent } from "./logbuffer.js";
+
 // The server address is configurable at runtime from the login screen and
 // persisted in localStorage, so the same build can point at any server.
 // Default precedence:
@@ -61,14 +63,25 @@ async function request(path, { method = "GET", body, auth = true } = {}) {
     const token = getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
   }
-  const res = await fetch(`${getApiBaseUrl()}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(`${getApiBaseUrl()}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (e) {
+    // Transport failure (offline, DNS, CORS). Breadcrumb the method+path only —
+    // never the body — then rethrow for the caller to handle.
+    logEvent("error", `API network error ${method} ${path}: ${e?.message || e}`);
+    throw e;
+  }
   const text = await res.text();
   const data = text ? JSON.parse(text) : {};
-  if (!res.ok) throw Object.assign(new Error(data.error || res.statusText), { data });
+  if (!res.ok) {
+    logEvent("warn", `API ${res.status} ${method} ${path}${data.error ? ` (${data.error})` : ""}`);
+    throw Object.assign(new Error(data.error || res.statusText), { data });
+  }
   return data;
 }
 
@@ -175,4 +188,18 @@ export const api = {
     request("/auth/web-push/subscribe", { method: "POST", body }),
   webPushUnsubscribe: (endpoint) =>
     request("/auth/web-push/subscribe", { method: "DELETE", body: { endpoint } }),
+  // Bug reports: any user can file one; admins consult/triage them.
+  reportBug: (body) => request("/bug-reports", { method: "POST", body }),
+  listBugReports: ({ page = 1, pageSize = 30, status = "" } = {}) => {
+    const params = new URLSearchParams();
+    if (page > 1) params.set("page", String(page));
+    if (pageSize !== 30) params.set("pageSize", String(pageSize));
+    if (status) params.set("status", status);
+    const qs = params.toString();
+    return request(`/bug-reports${qs ? `?${qs}` : ""}`);
+  },
+  updateBugReport: (id, status) =>
+    request(`/bug-reports/${encodeURIComponent(id)}`, { method: "PATCH", body: { status } }),
+  deleteBugReport: (id) =>
+    request(`/bug-reports/${encodeURIComponent(id)}`, { method: "DELETE" }),
 };

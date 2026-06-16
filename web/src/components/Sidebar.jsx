@@ -25,6 +25,7 @@ export default function Sidebar({
   onInvite,
   onProfile,
   onPreferences,
+  onReportBug,
   onAdminPanel,
   onSearch,
   onBrowseChannels,
@@ -195,6 +196,15 @@ export default function Sidebar({
                 Préférences
               </button>
             )}
+            <button
+              onClick={() => {
+                setShowMenu(false);
+                onReportBug();
+              }}
+              className="block w-full text-left px-3 py-2 text-sm hover:bg-slate-100"
+            >
+              🐞 Signaler un bug
+            </button>
             <button
               onClick={() => {
                 setShowMenu(false);

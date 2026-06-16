@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import Avatar from "./Avatar.jsx";
+import BugReportsPanel from "./BugReportsPanel.jsx";
 
 const PAGE_SIZE = 50;
 
@@ -44,6 +45,7 @@ function roleBadge(u) {
 }
 
 export default function AdminPanelModal({ currentUser, onClose, onUserUpdated }) {
+  const [tab, setTab] = useState("users"); // "users" | "reports"
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -167,14 +169,28 @@ export default function AdminPanelModal({ currentUser, onClose, onUserUpdated })
             {currentUser.isOwner ? "Propriétaire" : "Administrateur"} — gérez rôles, accès et propriété.
           </p>
         </div>
-        <div className="p-3 border-b border-slate-200">
-          <input
-            className="w-full border rounded-md px-3 py-2 text-sm"
-            placeholder="Rechercher (nom, username, email)"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </div>
+        <nav className="flex gap-1 px-3 border-b border-slate-200">
+          <TabButton active={tab === "users"} onClick={() => setTab("users")}>
+            Utilisateurs
+          </TabButton>
+          <TabButton active={tab === "reports"} onClick={() => setTab("reports")}>
+            Rapports de bug
+          </TabButton>
+        </nav>
+
+        {tab === "reports" && <BugReportsPanel />}
+
+        {tab === "users" && (
+          <div className="p-3 border-b border-slate-200">
+            <input
+              className="w-full border rounded-md px-3 py-2 text-sm"
+              placeholder="Rechercher (nom, username, email)"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+        )}
+        {tab === "users" && (
         <div className="flex-1 overflow-y-auto">
           {loading && <div className="p-5 text-sm text-slate-500">Chargement…</div>}
           {error && <div className="p-3 text-sm text-red-600">{error}</div>}
@@ -242,16 +258,19 @@ export default function AdminPanelModal({ currentUser, onClose, onUserUpdated })
             </div>
           )}
         </div>
+        )}
         <div className="p-3 border-t border-slate-200 flex items-center justify-between">
           <span className="text-xs text-slate-500">
-            {users.length} / {total} affiché{total > 1 ? "s" : ""}
+            {tab === "users"
+              ? `${users.length} / ${total} affiché${total > 1 ? "s" : ""}`
+              : ""}
           </span>
           <button onClick={onClose} className="px-3 py-1.5 rounded-md border border-slate-300">
             Fermer
           </button>
         </div>
 
-        {confirmAction && (
+        {tab === "users" && confirmAction && (
           <div
             className="fixed inset-0 bg-black/50 grid place-items-stretch sm:place-items-center z-[60] p-0 sm:p-4"
             onClick={() => setConfirmAction(null)}
@@ -282,5 +301,20 @@ export default function AdminPanelModal({ currentUser, onClose, onUserUpdated })
         )}
       </div>
     </div>
+  );
+}
+
+function TabButton({ active, onClick, children }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-2 text-sm -mb-px border-b-2 ${
+        active
+          ? "border-aubergine-600 text-aubergine-800 font-semibold"
+          : "border-transparent text-slate-500 hover:text-slate-700"
+      }`}
+    >
+      {children}
+    </button>
   );
 }

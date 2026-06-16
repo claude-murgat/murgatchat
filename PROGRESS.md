@@ -451,3 +451,37 @@ globalSetup crée automatiquement la nouvelle table.
   Safari normal (faute de support) — c'est attendu.
 - **HTTPS requis** côté production : Safari refuse `serviceWorker.register` en HTTP
   hors localhost. Le dev se fait via ngrok ou `mkcert` (voir TESTING.md).
+
+43. **Remontée de bug + logs de diagnostic (web/PWA/desktop + mobile)** — Deux
+    fonctionnalités jumelles : un buffer de logs client et un formulaire « Signaler
+    un bug » qui le consomme. Stockage **DB uniquement** (pas de mailer) — choix
+    assumé ; la consultation se fait dans l'Administration (sinon les rapports
+    tomberaient dans un trou noir).
+    - **Serveur** : modèle Prisma `BugReport` (`userId?` en `onDelete: SetNull` pour
+      ne pas perdre un rapport quand l'auteur est supprimé ; `diagnostics Json?`,
+      `logs String?`). Routeur `server/src/routes/bugReports.js` : `POST /bug-reports`
+      (tout utilisateur authentifié), `GET` (admin, paginé + filtre `status` +
+      `openCount`), `PATCH /:id` (statut open/closed), `DELETE /:id` (admin). Caps
+      serveur (message 5 KB, logs 100 KB, diagnostics JSON 20 KB → tronqué en
+      `{truncated:true}`). 10 tests Vitest (suite 140 → 150).
+    - **Buffer de logs** (`logbuffer.js`, un par plateforme) : ring de 300 lignes,
+      capture `console.warn/error` + erreurs globales (`window.onerror` /
+      `unhandledrejection` web, `ErrorUtils` RN) + breadcrumbs applicatifs (socket
+      connect/disconnect/erreur, erreurs API method+path+status, login). En-tête
+      diagnostic (version, plateforme, URL serveur, user, état socket, notifs,
+      écran, locale/device). **Aucun contenu de message** — événements et IDs
+      uniquement. Contexte (serverUrl/user/socket) injecté via `setLogContext` pour
+      éviter les imports circulaires (le buffer n'importe pas `api.js`/`version.js`).
+    - **UI** : entrée « 🐞 Signaler un bug » dans le menu utilisateur (universelle)
+      → modale description + case « joindre les logs » (avec aperçu de ce qui part)
+      + boutons « Copier les logs » (presse-papier ; `expo-clipboard` sur mobile) et
+      « Télécharger .txt » (web). Version + plateforme **toujours** jointes ; logs
+      détaillés seulement si la case est cochée (transparence/RGPD).
+    - **Consultation admin** : web → sélecteur d'onglets « Utilisateurs / Rapports
+      de bug » dans `AdminPanelModal` ; mobile → écran `BugReports` (menu admin).
+      Filtre ouverts/tous, détail dépliable (message + diagnostics + logs), marquer
+      résolu / rouvrir, supprimer (avec confirmation).
+    - **Dépendance** : `expo-clipboard ~6.0.3` ajoutée côté mobile (version pinnée
+      SDK 51 via `bundledNativeModules.json`).
+    - Aucun bump de version ni release (règle no-auto-release) ; `prisma db push` du
+      boot crée la table `BugReport` automatiquement.

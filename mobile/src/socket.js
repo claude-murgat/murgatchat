@@ -1,7 +1,26 @@
 import { io } from "socket.io-client";
 import { getApiBaseUrl } from "./api";
+import { logEvent, setLogContext } from "./logbuffer";
 
 let socket = null;
+
+// Record connection lifecycle into the diagnostic ring + keep the "socket"
+// diagnostic field in sync.
+function instrument(s) {
+  setLogContext({ socket: "connecting" });
+  s.on("connect", () => {
+    setLogContext({ socket: "connected" });
+    logEvent("info", "socket connected");
+  });
+  s.on("disconnect", (reason) => {
+    setLogContext({ socket: "disconnected" });
+    logEvent("warn", `socket disconnected: ${reason}`);
+  });
+  s.on("connect_error", (err) => {
+    setLogContext({ socket: "error" });
+    logEvent("error", `socket connect_error: ${err?.message || err}`);
+  });
+}
 
 export function getSocket(token) {
   if (socket && socket.connected) return socket;
@@ -12,6 +31,7 @@ export function getSocket(token) {
     auth: { token, platform: "mobile" },
     transports: ["websocket", "polling"],
   });
+  instrument(socket);
   return socket;
 }
 

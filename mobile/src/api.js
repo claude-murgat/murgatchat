@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
+import { logEvent } from "./logbuffer";
 
 // The server address is configured at runtime from the login screen and stored
 // in AsyncStorage, so the SAME build can target any server. Crucially, the
@@ -115,12 +116,16 @@ async function request(path, { method = "GET", body, auth = true } = {}) {
     // No HTTP response: timeout (abort) or transport failure. Flag it so callers
     // can distinguish "server unreachable" from an auth rejection and avoid
     // destroying a still-valid session over a transient network blip (#42).
+    logEvent("error", `API network error ${method} ${path}: ${e?.message || e}`);
     throw Object.assign(new Error("Serveur injoignable"), { network: true, cause: e });
   }
   const text = await res.text();
   const data = text ? JSON.parse(text) : {};
   // Carry the HTTP status so callers can react to 401/403 specifically.
-  if (!res.ok) throw Object.assign(new Error(data.error || res.statusText), { data, status: res.status });
+  if (!res.ok) {
+    logEvent("warn", `API ${res.status} ${method} ${path}${data.error ? ` (${data.error})` : ""}`);
+    throw Object.assign(new Error(data.error || res.statusText), { data, status: res.status });
+  }
   return data;
 }
 
@@ -219,4 +224,18 @@ export const api = {
     request("/auth/push-token", { method: "POST", body: { token, platform } }),
   removePushToken: (token) =>
     request("/auth/push-token", { method: "DELETE", body: { token } }),
+  // Bug reports: any user can file one; admins consult/triage them.
+  reportBug: (body) => request("/bug-reports", { method: "POST", body }),
+  listBugReports: ({ page = 1, pageSize = 30, status = "" } = {}) => {
+    const params = new URLSearchParams();
+    if (page > 1) params.set("page", String(page));
+    if (pageSize !== 30) params.set("pageSize", String(pageSize));
+    if (status) params.set("status", status);
+    const qs = params.toString();
+    return request(`/bug-reports${qs ? `?${qs}` : ""}`);
+  },
+  updateBugReport: (id, status) =>
+    request(`/bug-reports/${encodeURIComponent(id)}`, { method: "PATCH", body: { status } }),
+  deleteBugReport: (id) =>
+    request(`/bug-reports/${encodeURIComponent(id)}`, { method: "DELETE" }),
 };
