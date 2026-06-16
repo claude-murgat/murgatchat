@@ -1,25 +1,44 @@
-import { isTauri } from "../desktop.js";
+import { isTauri, openExternal } from "../desktop.js";
 
 // Shown at the top of the app when the server advertises a newer version.
-// - Web   : the fresh bundle is already served → "Rafraîchir" reloads the page.
+// - Web   : a new bundle is deployed → "Rafraîchir" does a cache-bypassing
+//   reload (the PWA service worker would otherwise re-serve the cached old shell).
 // - Desktop: the app is installed → "Télécharger" opens the release page so the
 //   user can grab the new installer (refreshing wouldn't change the bundled app).
+
+// Behave like Ctrl/Cmd+F5: a plain location.reload() re-serves the SW-precached
+// (old) bundle, so the banner kept reappearing. Drop the caches + nudge the SW
+// so the reload fetches the freshly-deployed assets from the network. The version
+// banner is server-driven (/version), so there's usually no "waiting" worker yet —
+// clearing caches is what reliably forces fresh assets, independent of SW timing.
+async function hardReload() {
+  try {
+    if (typeof caches !== "undefined") {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+    if (typeof navigator !== "undefined" && navigator.serviceWorker) {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg?.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
+      if (reg) reg.update().catch(() => {});
+    }
+  } catch {
+    /* fall through to a plain reload */
+  }
+  window.location.reload();
+}
+
 export default function UpdateBanner({ info, onDismiss }) {
   if (!info?.updateAvailable) return null;
   const desktop = isTauri();
 
   function action() {
     if (desktop) {
-      // Open the release page in the system browser. window.open is the
-      // dependency-free path; the URL is also shown below as a fallback.
-      try {
-        window.open(info.downloadUrl, "_blank", "noopener,noreferrer");
-      } catch {
-        /* ignore — user can use the visible link */
-      }
+      // Route through the opener plugin: under Tauri, window.open is swallowed by
+      // the webview (#43) so the button did nothing. openExternal hits the OS browser.
+      openExternal(info.downloadUrl);
     } else {
-      // Hard reload to pull the freshly-served bundle.
-      window.location.reload();
+      hardReload();
     }
   }
 
