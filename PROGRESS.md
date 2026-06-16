@@ -485,3 +485,28 @@ globalSetup crée automatiquement la nouvelle table.
       SDK 51 via `bundledNativeModules.json`).
     - Aucun bump de version ni release (règle no-auto-release) ; `prisma db push` du
       boot crée la table `BugReport` automatiquement.
+
+44. **Preview + téléchargement des pièces jointes (web/PWA/desktop + mobile)** —
+    Cliquer une PJ ouvrait un onglet/navigateur sur l'URL interne du serveur ;
+    désormais ça ouvre une **modale de preview avec bouton télécharger**. _Note :
+    le chiffrement at rest des PJ était **déjà** en place (AES-256-GCM dans
+    `cryptoFile.js`, flag `Attachment.encrypted`, déchiffrement à la volée au
+    download) — rien à refaire de ce côté._
+    - **Serveur** : `GET /uploads/:id` accepte `?download=1` →
+      `Content-Disposition: attachment` (au lieu d'`inline`) pour forcer un vrai
+      téléchargement avec le bon nom de fichier ; sans le paramètre, l'inline
+      permet à `<img>/<video>/<iframe>` de prévisualiser. Test ajouté (suite 150 → 151).
+    - **Web/PWA/desktop** : `AttachmentModal.jsx` (lightbox plein écran) prévisualise
+      image / vidéo (`<video controls>`) / audio / PDF (`<iframe>`) ; types non gérés
+      → carte « aperçu indisponible » + bouton. Téléchargement : web via une ancre
+      vers `?download=1` ; desktop via le plugin opener (sinon la webview Tauri avale
+      la navigation, cf #43). `ChannelView` ouvre la modale au clic au lieu de
+      `<a target="_blank">`.
+    - **Mobile (Android)** : `AttachmentModal.js` — image (`<Image>`) et vidéo
+      (`expo-av <Video>`) en preview in-app, audio via les contrôles natifs ;
+      PDF/autres → téléchargement (`expo-file-system`) puis partage/ouverture via
+      l'OS (`expo-sharing`), la WebView Android ne rendant pas les PDF inline.
+      `MessageItem` ouvre la modale au lieu de `Linking.openURL`.
+    - **Dépendances mobiles** : `expo-av ~14.0.7`, `expo-file-system ~17.0.1`,
+      `expo-sharing ~12.0.1` (pins SDK 51) → APK à rebuild à la prochaine release.
+    - Aucun bump de version ni release (règle no-auto-release).

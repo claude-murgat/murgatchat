@@ -6,32 +6,38 @@ import {
   TextInput,
   Image,
   Modal,
-  Linking,
   StyleSheet,
 } from "react-native";
 import Avatar from "./Avatar";
 import MessageMarkdown from "./MessageMarkdown";
 import EmojiPicker from "./EmojiPicker";
+import AttachmentModal from "./AttachmentModal";
 import { colors } from "../theme";
 import { formatTime, reactionLabel, fmtBytes } from "../format";
 import { attachmentUrl } from "../api";
 
 function Attachments({ attachments }) {
+  // Tapping an attachment opens an in-app preview/download modal instead of
+  // bouncing the user out to the browser on the raw server URL.
+  const [selected, setSelected] = useState(null);
   if (!attachments?.length) return null;
   return (
     <View style={styles.attachments}>
       {attachments.map((a) => {
-        const url = attachmentUrl(a.id);
         const isImg = a.mimeType?.startsWith("image/");
         if (isImg) {
           return (
-            <Pressable key={a.id} onPress={() => Linking.openURL(url)}>
-              <Image source={{ uri: url }} style={styles.image} resizeMode="cover" />
+            <Pressable key={a.id} onPress={() => setSelected(a)}>
+              <Image
+                source={{ uri: attachmentUrl(a.id) }}
+                style={styles.image}
+                resizeMode="cover"
+              />
             </Pressable>
           );
         }
         return (
-          <Pressable key={a.id} style={styles.fileChip} onPress={() => Linking.openURL(url)}>
+          <Pressable key={a.id} style={styles.fileChip} onPress={() => setSelected(a)}>
             <Text style={styles.fileIcon}>📄</Text>
             <Text style={styles.fileName} numberOfLines={1}>
               {a.filename}
@@ -40,6 +46,11 @@ function Attachments({ attachments }) {
           </Pressable>
         );
       })}
+      <AttachmentModal
+        attachment={selected}
+        visible={!!selected}
+        onClose={() => setSelected(null)}
+      />
     </View>
   );
 }
