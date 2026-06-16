@@ -1,13 +1,32 @@
 import { useState } from "react";
-import { View, Text, TextInput, Pressable, StyleSheet } from "react-native";
+import { View, Text, TextInput, Pressable, StyleSheet, Alert } from "react-native";
 import EmojiPicker from "./EmojiPicker";
+import GifPicker from "./GifPicker";
+import { api } from "../api";
 import { colors } from "../theme";
 
 export default function Composer({ onSend, onTyping, placeholder, allowSchedule = true }) {
   const [text, setText] = useState("");
   const [showEmoji, setShowEmoji] = useState(false);
+  const [showGif, setShowGif] = useState(false);
+  const [gifBusy, setGifBusy] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [minutes, setMinutes] = useState("");
+
+  // Picking a GIF imports it (re-hosted, encrypted) and sends it immediately as
+  // its own message — the typical GIF UX, and it leaves any in-progress text alone.
+  async function onGifSelect(gif) {
+    setShowGif(false);
+    setGifBusy(true);
+    try {
+      const att = await api.importGif(gif.fullUrl);
+      onSend({ body: "", attachmentIds: [att.id] });
+    } catch (e) {
+      Alert.alert("Erreur", e?.message || "Échec de l'envoi du GIF");
+    } finally {
+      setGifBusy(false);
+    }
+  }
 
   function send(schedule = false) {
     const body = text.trim();
@@ -46,6 +65,9 @@ export default function Composer({ onSend, onTyping, placeholder, allowSchedule 
         <Pressable style={styles.iconBtn} onPress={() => setShowEmoji(true)}>
           <Text style={styles.icon}>😀</Text>
         </Pressable>
+        <Pressable style={styles.iconBtn} onPress={() => setShowGif(true)} disabled={gifBusy}>
+          <Text style={styles.gifLabel}>{gifBusy ? "…" : "GIF"}</Text>
+        </Pressable>
         {allowSchedule && (
           <Pressable style={styles.iconBtn} onPress={() => setShowSchedule((v) => !v)}>
             <Text style={styles.icon}>⏰</Text>
@@ -74,6 +96,11 @@ export default function Composer({ onSend, onTyping, placeholder, allowSchedule 
         onSelect={(e) => setText((t) => t + e)}
         onClose={() => setShowEmoji(false)}
       />
+      <GifPicker
+        visible={showGif}
+        onSelect={onGifSelect}
+        onClose={() => setShowGif(false)}
+      />
     </View>
   );
 }
@@ -83,6 +110,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "flex-end", gap: 6 },
   iconBtn: { paddingHorizontal: 4, paddingVertical: 8 },
   icon: { fontSize: 20 },
+  gifLabel: { fontSize: 13, fontWeight: "800", color: colors.textMuted, letterSpacing: 0.5 },
   input: {
     flex: 1,
     borderWidth: 1,

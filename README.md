@@ -289,6 +289,12 @@ Génère une clé prod avec : `openssl rand -hex 32`.
 | GET     | `/bug-reports?status=&page=`       | lister les rapports (admin)                  |
 | PATCH   | `/bug-reports/:id`                 | changer le statut `open`/`closed` (admin)    |
 | DELETE  | `/bug-reports/:id`                 | supprimer un rapport (admin)                 |
+| GET     | `/gifs/search?q=&pos=`             | recherche/tendances GIF (proxy GIPHY, clé serveur) |
+| POST    | `/gifs/import`                     | ré-héberge le GIF choisi (`{ url }`) comme PJ chiffrée |
+
+### Sélecteur de GIF (GIPHY)
+
+Bouton **GIF** dans le Composer (web/PWA/desktop + mobile) → recherche/tendances, clic = envoi. La clé `GIPHY_API_KEY` vit **uniquement côté serveur** (proxy `/gifs/search`, jamais dans le bundle client) ; le filtre de contenu est réglable via `GIF_RATING`. Le GIF choisi est **ré-hébergé chiffré** : le serveur le télécharge (URL restreinte aux hôtes `*.giphy.com`, anti-SSRF) et le stocke comme pièce jointe `image/gif` — donc chiffré at rest, rendu inline + modale de preview, et les destinataires ne touchent jamais le CDN GIPHY. Sans clé, la recherche est désactivée proprement (« non configuré »). Sur mobile, `expo-image` anime les GIF (Android).
 
 ### Remontée de bug & logs de diagnostic
 

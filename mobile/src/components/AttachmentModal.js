@@ -4,10 +4,10 @@ import {
   Text,
   Pressable,
   Modal,
-  Image,
   StyleSheet,
   Alert,
 } from "react-native";
+import { Image } from "expo-image";
 import { Video, ResizeMode } from "expo-av";
 import * as FileSystem from "expo-file-system";
 import * as Sharing from "expo-sharing";
@@ -77,7 +77,7 @@ export default function AttachmentModal({ attachment, visible, onClose }) {
         <Pressable style={styles.body} onPress={onClose}>
           <Pressable style={styles.bodyInner} onPress={() => {}}>
             {kind === "image" && (
-              <Image source={{ uri: url }} style={styles.image} resizeMode="contain" />
+              <Image source={{ uri: url }} style={styles.image} contentFit="contain" />
             )}
             {kind === "video" && (
               <Video

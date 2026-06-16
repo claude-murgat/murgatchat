@@ -19,40 +19,49 @@ const upload = multer({
 
 const router = Router();
 
-router.post("/", requireAuth, upload.single("file"), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: "no_file" });
-  const filename = Buffer.from(req.file.originalname, "latin1").toString("utf8");
-  const ext = path.extname(req.file.originalname).slice(0, 20);
+// Encrypt a buffer to disk and create its Attachment row. Shared by the file
+// upload route and the GIF import route (routes/gifs.js) so both go through the
+// same AES-256-GCM-at-rest path. `size` is the plaintext length; the on-disk
+// blob is larger (header + tag). Cleans up the partial blob if encryption throws.
+export async function storeEncryptedAttachment(buffer, { filename, mimeType, uploadedBy }) {
+  const safeName = filename || "fichier";
+  const ext = path.extname(safeName).slice(0, 20);
   const storageName = crypto.randomBytes(16).toString("hex") + ext;
   const finalPath = path.join(UPLOAD_DIR, storageName);
-
   try {
-    await encryptBufferToFile(req.file.buffer, finalPath);
+    await encryptBufferToFile(buffer, finalPath);
   } catch (e) {
-    console.error("[uploads] encrypt failed:", e.message);
-    // Best-effort cleanup: a partial blob would otherwise hang around until the sweep.
     try { await fs.promises.unlink(finalPath); } catch { /* nothing to clean */ }
-    return res.status(500).json({ error: "encrypt_failed" });
+    throw e;
   }
-
-  const att = await prisma.attachment.create({
+  return prisma.attachment.create({
     data: {
-      uploadedBy: req.userId,
-      filename,
-      mimeType: req.file.mimetype || "application/octet-stream",
-      size: req.file.size, // plaintext size; the blob on disk is larger
+      uploadedBy,
+      filename: safeName,
+      mimeType: mimeType || "application/octet-stream",
+      size: buffer.length,
       storagePath: storageName,
       encrypted: true,
     },
   });
-  res.json({
-    attachment: {
-      id: att.id,
-      filename: att.filename,
-      mimeType: att.mimeType,
-      size: att.size,
-    },
-  });
+}
+
+router.post("/", requireAuth, upload.single("file"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "no_file" });
+  const filename = Buffer.from(req.file.originalname, "latin1").toString("utf8");
+  try {
+    const att = await storeEncryptedAttachment(req.file.buffer, {
+      filename,
+      mimeType: req.file.mimetype,
+      uploadedBy: req.userId,
+    });
+    res.json({
+      attachment: { id: att.id, filename: att.filename, mimeType: att.mimeType, size: att.size },
+    });
+  } catch (e) {
+    console.error("[uploads] store failed:", e.message);
+    res.status(500).json({ error: "encrypt_failed" });
+  }
 });
 
 router.get("/:id", async (req, res) => {
