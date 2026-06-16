@@ -31,6 +31,7 @@ model User {
   webPushSubscriptions WebPushSubscription[]
   invitations Invitation[]
   passwordResets PasswordReset[]
+  bugReports  BugReport[]
 }
 
 model Channel {
@@ -175,4 +176,28 @@ model PasswordReset {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+// In-app bug reports. Submitted by any authenticated user, consulted by admins
+// in the Administration panel (DB-only — no email side-channel by design).
+model BugReport {
+  id          String   @id @default(cuid())
+  // Nullable + SetNull: a report outlives its author (deleting a user keeps the
+  // report, just unlinks it) so the admin backlog isn't silently pruned.
+  userId      String?
+  message     String
+  // Free-form diagnostic header (app version, platform, server URL, socket state,
+  // notif/push permission, screen, locale). JSON so the client shape can evolve.
+  diagnostics Json?
+  // Captured client log ring buffer (console warns/errors + app breadcrumbs).
+  // Capped server-side (see routes/bugReports.js); never contains message bodies.
+  logs        String?
+  appVersion  String?
+  platform    String?  // "web" | "pwa" | "desktop" | "android" | "ios"
+  status      String   @default("open") // "open" | "closed"
+  createdAt   DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
 }

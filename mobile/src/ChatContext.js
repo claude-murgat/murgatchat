@@ -9,6 +9,7 @@ import {
 import { api, getToken, setToken, loadApiBaseUrl } from "./api";
 import { getSocket, closeSocket } from "./socket";
 import { registerForPush } from "./push";
+import { setLogContext, logEvent } from "./logbuffer";
 
 const ChatContext = createContext(null);
 
@@ -41,6 +42,13 @@ export function ChatProvider({ children }) {
   // Register for push notifications once authenticated (no-op until push creds set).
   useEffect(() => {
     if (user) registerForPush();
+  }, [user]);
+
+  // Keep the diagnostic context (used by bug reports) in sync with the server
+  // address and the signed-in user.
+  useEffect(() => {
+    setLogContext({ serverUrl: api.url, userId: user?.id, username: user?.username });
+    if (user) logEvent("info", `signed in as @${user.username}`);
   }, [user]);
 
   // Bootstrap: load the configured server address, then resume any stored session.

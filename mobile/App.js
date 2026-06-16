@@ -14,9 +14,15 @@ import NewDmScreen from "./src/screens/NewDmScreen";
 import BrowseChannelsScreen from "./src/screens/BrowseChannelsScreen";
 import DndScreen from "./src/screens/DndScreen";
 import AdminPanelScreen from "./src/screens/AdminPanelScreen";
+import BugReportsScreen from "./src/screens/BugReportsScreen";
 import SearchScreen from "./src/screens/SearchScreen";
 import UpdateBanner from "./src/components/UpdateBanner";
 import { colors } from "./src/theme";
+import { installLogCapture } from "./src/logbuffer";
+
+// Start capturing console warnings/errors into the diagnostic ring as early as
+// possible, so a bug report can include what happened before the user noticed.
+installLogCapture();
 
 const Stack = createNativeStackNavigator();
 
@@ -64,6 +70,7 @@ function Root() {
           <Stack.Screen name="Browse" component={BrowseChannelsScreen} options={{ title: "Parcourir les salons" }} />
           <Stack.Screen name="Dnd" component={DndScreen} options={{ title: "Ne pas déranger" }} />
           <Stack.Screen name="AdminPanel" component={AdminPanelScreen} options={{ title: "Administration" }} />
+          <Stack.Screen name="BugReports" component={BugReportsScreen} options={{ title: "Rapports de bug" }} />
           <Stack.Screen name="Search" component={SearchScreen} options={{ title: "Rechercher" }} />
         </Stack.Navigator>
       ) : (

@@ -9,6 +9,7 @@ import usersRouter from "./routes/users.js";
 import channelsRouter, { ensureDefaultChannel } from "./routes/channels.js";
 import uploadsRouter from "./routes/uploads.js";
 import searchRouter, { ensureSearchIndex } from "./routes/search.js";
+import bugReportsRouter from "./routes/bugReports.js";
 import { setupSocket, dispatchScheduledMessages } from "./socket.js";
 import { prisma } from "./db.js";
 import { sweepOrphanAttachments } from "./sweep.js";
@@ -76,6 +77,7 @@ export function createServer() {
   app.use("/channels", channelsRouter);
   app.use("/uploads", uploadsRouter);
   app.use("/search", searchRouter);
+  app.use("/bug-reports", bugReportsRouter);
 
   return { app, server, io };
 }

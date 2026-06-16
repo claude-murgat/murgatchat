@@ -285,6 +285,20 @@ Génère une clé prod avec : `openssl rand -hex 32`.
 | DELETE  | `/channels/scheduled/:id`          | annuler une planification                    |
 | POST    | `/uploads`                         | upload multipart (champ `file`, ≤ 25 Mo)     |
 | GET     | `/uploads/:id?token=<jwt>`         | télécharger une PJ                           |
+| POST    | `/bug-reports`                     | signaler un bug (`{ message, logs?, diagnostics?, appVersion?, platform? }`) |
+| GET     | `/bug-reports?status=&page=`       | lister les rapports (admin)                  |
+| PATCH   | `/bug-reports/:id`                 | changer le statut `open`/`closed` (admin)    |
+| DELETE  | `/bug-reports/:id`                 | supprimer un rapport (admin)                 |
+
+### Remontée de bug & logs de diagnostic
+
+Le menu utilisateur expose **« 🐞 Signaler un bug »** sur toutes les plateformes
+(web, PWA, desktop, mobile). Le client tient un **buffer de logs en mémoire**
+(`logbuffer.js` : ~300 lignes ; `console.warn/error`, erreurs globales et
+breadcrumbs socket/API — **jamais de contenu de message**) ; l'utilisateur peut le
+copier, le télécharger (`.txt`, web) ou le joindre au rapport. Les rapports sont
+**stockés en base** (`BugReport`) — pas d'e-mail — et consultés par les admins dans
+**Administration → Rapports de bug** (filtre ouverts/tous, marquer résolu, supprimer).
 
 ## Événements Socket.IO
 

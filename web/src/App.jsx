@@ -17,8 +17,10 @@ import ProfileModal from "./components/ProfileModal.jsx";
 import SearchModal from "./components/SearchModal.jsx";
 import AdminPanelModal from "./components/AdminPanelModal.jsx";
 import PreferencesModal from "./components/PreferencesModal.jsx";
+import BugReportModal from "./components/BugReportModal.jsx";
 import UpdateBanner from "./components/UpdateBanner.jsx";
 import { checkForUpdate } from "./version.js";
+import { setLogContext, logEvent } from "./logbuffer.js";
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -37,6 +39,7 @@ export default function App() {
   const [showSearch, setShowSearch] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showPreferences, setShowPreferences] = useState(false);
+  const [showBugReport, setShowBugReport] = useState(false);
   const [toast, setToast] = useState(null);
   const [updateInfo, setUpdateInfo] = useState(null);
   const [dismissedVersion, setDismissedVersion] = useState(null);
@@ -61,6 +64,17 @@ export default function App() {
   useEffect(() => {
     activeChannelIdRef.current = activeChannelId;
   }, [activeChannelId]);
+
+  // Keep the diagnostic context (used by bug reports) in sync with the server
+  // address and the signed-in user, so a report carries the right header.
+  useEffect(() => {
+    setLogContext({
+      serverUrl: api.url,
+      userId: user?.id,
+      username: user?.username,
+    });
+    if (user) logEvent("info", `signed in as @${user.username}`);
+  }, [user]);
 
   // Version check: on mount, on window focus, and every 15 min. If the server
   // advertises a newer version, surface the banner (web → refresh, desktop →
@@ -435,6 +449,7 @@ export default function App() {
             onInvite={() => setShowInvite(true)}
             onProfile={() => setShowProfile(true)}
             onPreferences={() => setShowPreferences(true)}
+            onReportBug={() => setShowBugReport(true)}
             onSearch={() => setShowSearch(true)}
             onAdminPanel={() => setShowAdmin(true)}
             onlineUserIds={onlineUserIds}
@@ -515,6 +530,9 @@ export default function App() {
       )}
       {showPreferences && (
         <PreferencesModal onClose={() => setShowPreferences(false)} />
+      )}
+      {showBugReport && (
+        <BugReportModal user={user} onClose={() => setShowBugReport(false)} />
       )}
       {showSearch && (
         <SearchModal
