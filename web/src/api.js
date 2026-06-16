@@ -202,4 +202,13 @@ export const api = {
     request(`/bug-reports/${encodeURIComponent(id)}`, { method: "PATCH", body: { status } }),
   deleteBugReport: (id) =>
     request(`/bug-reports/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  // GIF picker (GIPHY proxied server-side). Empty q → trending.
+  gifSearch: ({ q = "", pos = 0 } = {}) => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (pos) params.set("pos", String(pos));
+    const qs = params.toString();
+    return request(`/gifs/search${qs ? `?${qs}` : ""}`);
+  },
+  importGif: (url) => request("/gifs/import", { method: "POST", body: { url } }),
 };

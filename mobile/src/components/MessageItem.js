@@ -4,10 +4,10 @@ import {
   Text,
   Pressable,
   TextInput,
-  Image,
   Modal,
   StyleSheet,
 } from "react-native";
+import { Image } from "expo-image";
 import Avatar from "./Avatar";
 import MessageMarkdown from "./MessageMarkdown";
 import EmojiPicker from "./EmojiPicker";
@@ -31,7 +31,7 @@ function Attachments({ attachments }) {
               <Image
                 source={{ uri: attachmentUrl(a.id) }}
                 style={styles.image}
-                resizeMode="cover"
+                contentFit="cover"
               />
             </Pressable>
           );

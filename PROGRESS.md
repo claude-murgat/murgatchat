@@ -510,3 +510,29 @@ globalSetup crée automatiquement la nouvelle table.
     - **Dépendances mobiles** : `expo-av ~14.0.7`, `expo-file-system ~17.0.1`,
       `expo-sharing ~12.0.1` (pins SDK 51) → APK à rebuild à la prochaine release.
     - Aucun bump de version ni release (règle no-auto-release).
+
+45. **Sélecteur de GIF (GIPHY) — web/PWA/desktop + mobile)** — Bouton GIF dans le
+    Composer → recherche/tendances → clic envoie le GIF. Un GIF = une pièce jointe
+    `image/gif`, donc réutilise tout le pipeline (chiffré at rest + rendu inline +
+    modale de preview). **Provider : GIPHY** ; **stockage : ré-hébergement chiffré**
+    (le GIF choisi est téléchargé puis stocké comme attachment — les destinataires
+    ne touchent jamais le CDN GIPHY, pas de lien mort).
+    - **Serveur** : `routes/gifs.js` — `GET /gifs/search?q=&pos=` (proxy GIPHY, clé
+      `GIPHY_API_KEY` **lue côté serveur uniquement**, rating `GIF_RATING` ; `q` vide
+      = tendances), `POST /gifs/import {url}` (⚠️ **anti-SSRF** : URL restreinte aux
+      hôtes `*.giphy.com` + https, cap 25 Mo, content-type image/*), `GET /gifs/config`.
+      L'import réutilise `storeEncryptedAttachment` (extrait de `uploads.js` →
+      source unique pour upload + GIF). 6 tests Vitest (auth, SSRF, not_configured,
+      search & import mockés) ; suite 151 → 157.
+    - **Web/PWA/desktop** : `GifPicker.jsx` (popover : recherche debouncée + grille
+      masonry de miniatures GIPHY + « Powered by GIPHY » + pagination). Bouton GIF
+      dans `Composer` → au clic, `importGif(fullUrl)` puis envoi immédiat
+      `{ body:"", attachmentIds:[id] }` (UX GIF classique, ne touche pas au texte en cours).
+    - **Mobile (Android)** : `GifPicker.js` (modal plein écran, grille FlatList).
+      Bouton GIF dans le Composer (qui était text-only) → import + `onSend` immédiat.
+      **`expo-image`** (`~1.13.0`, pin SDK 51) remplace `<Image>` RN dans
+      `MessageItem` + `AttachmentModal` pour **animer les GIF sur Android** (Fresco
+      core ne les anime pas).
+    - **Config** : `GIPHY_API_KEY` + `GIF_RATING` dans `.env.example` + `docker-compose.yml`.
+      Sans clé → recherche désactivée proprement (« non configuré »).
+    - APK à rebuild à la prochaine release (`expo-image`). Aucun bump de version ni release.

@@ -51,6 +51,10 @@ services:
       # Version annoncée aux clients (GET /version) pour la bannière de MAJ.
       CLIENT_VERSION: ${CLIENT_VERSION:-}
       DOWNLOAD_URL: ${DOWNLOAD_URL:-https://github.com/claude-murgat/murgatchat/releases/latest}
+      # Sélecteur de GIF (GIPHY) : clé d'API serveur (vide = fonctionnalité off) +
+      # filtre de contenu (g / pg / pg-13 / r). Voir .env.example.
+      GIPHY_API_KEY: ${GIPHY_API_KEY:-}
+      GIF_RATING: ${GIF_RATING:-pg-13}
     ports:
       - "4000:4000"
     volumes:

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import EmojiPicker from "emoji-picker-react";
-import { uploadFile } from "../api.js";
+import GifPicker from "./GifPicker.jsx";
+import { uploadFile, api } from "../api.js";
 
 function formatLocalIso(dt) {
   const pad = (n) => String(n).padStart(2, "0");
@@ -25,6 +26,10 @@ export default function Composer({ onSend, placeholder, allowSchedule = true, on
   const [showEmoji, setShowEmoji] = useState(false);
   const emojiRef = useRef(null);
   const emojiBtnRef = useRef(null);
+  const [showGif, setShowGif] = useState(false);
+  const [gifBusy, setGifBusy] = useState(false);
+  const gifRef = useRef(null);
+  const gifBtnRef = useRef(null);
 
   useEffect(() => {
     const ta = taRef.current;
@@ -43,6 +48,32 @@ export default function Composer({ onSend, placeholder, allowSchedule = true, on
     document.addEventListener("mousedown", onDocMouseDown);
     return () => document.removeEventListener("mousedown", onDocMouseDown);
   }, [showEmoji]);
+
+  useEffect(() => {
+    if (!showGif) return;
+    function onDocMouseDown(e) {
+      if (gifRef.current?.contains(e.target)) return;
+      if (gifBtnRef.current?.contains(e.target)) return;
+      setShowGif(false);
+    }
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [showGif]);
+
+  // Picking a GIF imports it (re-hosted, encrypted) and sends it straight away as
+  // its own message — the typical GIF UX, and it leaves any in-progress text alone.
+  async function onGifSelect(gif) {
+    setShowGif(false);
+    setGifBusy(true);
+    try {
+      const att = await api.importGif(gif.fullUrl);
+      onSend({ body: "", attachmentIds: [att.id] });
+    } catch (err) {
+      alert(err?.message || "Échec de l'envoi du GIF");
+    } finally {
+      setGifBusy(false);
+    }
+  }
 
   async function ingestFiles(files) {
     if (!files.length) return;
@@ -124,6 +155,11 @@ export default function Composer({ onSend, placeholder, allowSchedule = true, on
           />
         </div>
       )}
+      {showGif && (
+        <div ref={gifRef} className="absolute bottom-full left-2 mb-2 z-50">
+          <GifPicker onSelect={onGifSelect} />
+        </div>
+      )}
       <textarea
         ref={taRef}
         rows={1}
@@ -199,6 +235,15 @@ export default function Composer({ onSend, placeholder, allowSchedule = true, on
           >
             <span>📎</span>
             {uploading ? "Envoi..." : "Fichier"}
+          </button>
+          <button
+            ref={gifBtnRef}
+            onClick={() => setShowGif((v) => !v)}
+            disabled={gifBusy}
+            className="text-slate-500 hover:text-slate-800 px-2 py-1 text-sm font-bold tracking-wide disabled:opacity-50"
+            title="Envoyer un GIF"
+          >
+            {gifBusy ? "…" : "GIF"}
           </button>
           {allowSchedule && (
             <button
