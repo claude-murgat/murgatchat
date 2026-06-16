@@ -6,7 +6,9 @@ export function isTauri() {
 }
 
 // Open an external URL in the OS default browser via the opener plugin.
-function openExternal(url) {
+// Exported so buttons (not just <a> links) can reach the browser under Tauri —
+// window.open is swallowed by the webview (same root cause as #43).
+export function openExternal(url) {
   import("@tauri-apps/plugin-opener")
     .then((mod) => mod.openUrl(url))
     .catch((e) => console.error("[desktop] openUrl failed:", e));
