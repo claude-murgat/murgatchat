@@ -1,6 +1,8 @@
 import { isTauri, openExternal } from "../desktop.js";
 
-// Shown at the top of the app when the server advertises a newer version.
+// Shown when the server advertises a newer version. Position: top on
+// desktop/tablet; on mobile web/PWA it sits at the BOTTOM (out of the way of the
+// header, within thumb reach) — see `layout` below.
 // - Web   : a new bundle is deployed → "Rafraîchir" does a cache-bypassing
 //   reload (the PWA service worker would otherwise re-serve the cached old shell).
 // - Desktop: the app is installed → "Télécharger" opens the release page so the
@@ -32,6 +34,13 @@ export default function UpdateBanner({ info, onDismiss }) {
   if (!info?.updateAvailable) return null;
   const desktop = isTauri();
 
+  // The banner is a direct flex child of the app's column layout, so `order`
+  // alone repositions it. On web/PWA: bottom on mobile (order-last), top from
+  // `md` up. Under Tauri it stays at the top. Border flips to match the edge.
+  const layout = desktop
+    ? "border-b"
+    : "order-last md:order-none border-t md:border-b";
+
   function action() {
     if (desktop) {
       // Route through the opener plugin: under Tauri, window.open is swallowed by
@@ -43,7 +52,12 @@ export default function UpdateBanner({ info, onDismiss }) {
   }
 
   return (
-    <div className="bg-amber-100 border-b border-amber-300 text-amber-900 px-4 py-2 text-sm flex items-center gap-3">
+    <div
+      className={`bg-amber-100 ${layout} border-amber-300 text-amber-900 px-4 py-2 text-sm flex items-center gap-3`}
+      style={
+        desktop ? undefined : { paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }
+      }
+    >
       <span className="font-semibold">Nouvelle version disponible ({info.latest})</span>
       <span className="opacity-80 hidden sm:inline">
         {desktop
