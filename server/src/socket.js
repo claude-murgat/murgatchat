@@ -166,8 +166,15 @@ export function setupSocket(httpServer, corsOrigin) {
       try {
         const { channelId, body, scheduledAt, attachmentIds = [], parentId } =
           payload || {};
+        // Defensive: a buggy client could send [undefined]/garbage, and Prisma
+        // throws on a non-string inside a `where id in […]` filter — which
+        // surfaced as a 500 → "server_error" (e.g. a GIF send passing the wrong
+        // id). Keep only non-empty string ids.
+        const ids = (Array.isArray(attachmentIds) ? attachmentIds : []).filter(
+          (x) => typeof x === "string" && x.length > 0
+        );
         const trimmed = (body || "").trim();
-        if (!channelId || (!trimmed && attachmentIds.length === 0)) {
+        if (!channelId || (!trimmed && ids.length === 0)) {
           return ack?.({ error: "invalid_payload" });
         }
         const member = await prisma.membership.findUnique({
@@ -187,16 +194,16 @@ export function setupSocket(httpServer, corsOrigin) {
           }
         }
 
-        if (attachmentIds.length) {
+        if (ids.length) {
           const valid = await prisma.attachment.findMany({
             where: {
-              id: { in: attachmentIds },
+              id: { in: ids },
               uploadedBy: userId,
               messageId: null,
             },
             select: { id: true },
           });
-          if (valid.length !== attachmentIds.length) {
+          if (valid.length !== ids.length) {
             return ack?.({ error: "invalid_attachments" });
           }
         }
@@ -224,9 +231,9 @@ export function setupSocket(httpServer, corsOrigin) {
           },
         });
 
-        if (attachmentIds.length) {
+        if (ids.length) {
           await prisma.attachment.updateMany({
-            where: { id: { in: attachmentIds } },
+            where: { id: { in: ids } },
             data: { messageId: msg.id },
           });
           msg.attachments = await prisma.attachment.findMany({
