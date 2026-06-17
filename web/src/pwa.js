@@ -15,6 +15,7 @@
 // All API calls go through api.js so they respect the runtime-configured server URL.
 
 import { api, getApiBaseUrl, getToken } from "./api.js";
+import { isTauri } from "./desktop.js";
 
 const PENDING_CACHE = "murgat-pending-nav-v1";
 const PENDING_KEY = "/__pending_nav__";
@@ -42,8 +43,35 @@ export function pwaSupported() {
   );
 }
 
+// Unregister every service worker + drop all Cache Storage. Used on desktop to
+// heal installs whose previous build registered the SW: a desktop app loads its
+// frontend from the local bundle, so a precaching SW just serves a STALE app
+// shell after an update (the "new installer, old UI / update banner" bug). One
+// hard reload loads this code, which then removes the SW for good.
+async function teardownServiceWorker() {
+  try {
+    if (typeof navigator !== "undefined" && navigator.serviceWorker) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+    if (typeof caches !== "undefined") {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch (e) {
+    console.warn("[pwa] desktop SW teardown failed:", e?.message || e);
+  }
+}
+
 // One-shot bootstrap, called after login. Idempotent.
 export async function ensurePwaReady() {
+  // Desktop (Tauri): never register the SW — the frontend is bundled locally and
+  // notifications go through Tauri, so a SW only causes update staleness. Tear
+  // down any SW a pre-fix build left behind.
+  if (isTauri()) {
+    await teardownServiceWorker();
+    return { supported: false, desktop: true };
+  }
   if (!pwaSupported()) return { supported: false };
   try {
     const reg = await registerServiceWorker();
