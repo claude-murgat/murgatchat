@@ -66,8 +66,10 @@ export default function Composer({ onSend, placeholder, allowSchedule = true, on
     setShowGif(false);
     setGifBusy(true);
     try {
-      const att = await api.importGif(gif.fullUrl);
-      onSend({ body: "", attachmentIds: [att.id] });
+      // importGif resolves to { attachment: { id, … } } — send the attachment id,
+      // not the wrapper object (sending `undefined` made the server 500).
+      const { attachment } = await api.importGif(gif.fullUrl);
+      onSend({ body: "", attachmentIds: [attachment.id] });
     } catch (err) {
       alert(err?.message || "Échec de l'envoi du GIF");
     } finally {
