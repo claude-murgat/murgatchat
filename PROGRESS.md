@@ -536,3 +536,16 @@ globalSetup crée automatiquement la nouvelle table.
     - **Config** : `GIPHY_API_KEY` + `GIF_RATING` dans `.env.example` + `docker-compose.yml`.
       Sans clé → recherche désactivée proprement (« non configuré »).
     - APK à rebuild à la prochaine release (`expo-image`). Aucun bump de version ni release.
+
+46. **Fix : staleness du service worker sur desktop (Tauri)** — Après install de la
+    0.6.0, le desktop montrait encore l'ancien front (pas de bouton GIF + bannière
+    de MAJ) ; un Ctrl+F5 corrigeait. Cause : la webview Tauri enregistrait le
+    **service worker de la PWA**, qui précache l'app shell et continue de le servir
+    après mise à jour (même classe de bug que le « Rafraîchir » web, #64, mais sans
+    refresh facile). Le desktop n'a aucun besoin du SW (front embarqué en local,
+    notifs via Tauri). Fix dans `pwa.js` : `ensurePwaReady()` **n'enregistre jamais**
+    le SW sous `isTauri()` et **purge** tout SW + Cache Storage existant
+    (`teardownServiceWorker`) pour soigner les installs déjà touchées. Web/PWA (vrai
+    navigateur, iOS A2HS) inchangés. `injectRegister: false` côté vite-plugin-pwa →
+    gater ce seul point suffit. Transition : sur la 1ʳᵉ build avec ce fix, un dernier
+    Ctrl+F5 charge le code de purge, puis le SW disparaît définitivement.
