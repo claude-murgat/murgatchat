@@ -1,6 +1,6 @@
 [package]
 name = "chat-desktop"
-version = "0.6.0"
+version = "0.6.1"
 description = "Chat desktop wrapper (Tauri)"
 edition = "2021"
 
