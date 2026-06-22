@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { api, getToken, setToken } from "./api.js";
 import { getSocket, closeSocket } from "./socket.js";
-import { notify, isWindowFocused, ensureReady } from "./desktop.js";
+import { notify, isWindowFocused, ensureReady, setTrayBadge } from "./desktop.js";
 import { ensurePwaReady, isPwaInstalled, unsubscribePush } from "./pwa.js";
 import Login from "./components/Login.jsx";
 import Sidebar from "./components/Sidebar.jsx";
@@ -315,6 +315,7 @@ export default function App() {
         setTimeout(() => setToast(null), 4500);
         if (!isWindowFocused()) {
           notify(title, body);
+          setTrayBadge(true); // desktop: red dot on the tray icon (no-op on web)
         }
         return prev;
       });
@@ -322,6 +323,13 @@ export default function App() {
     socket.on("notification", onNotif);
     return () => socket.off("notification", onNotif);
   }, [socket, activeChannelId]);
+
+  // Desktop: clear the tray unread dot when the window regains focus.
+  useEffect(() => {
+    const onFocus = () => setTrayBadge(false);
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
 
   const onLoggedIn = useCallback((u) => {
     setUser(u);
