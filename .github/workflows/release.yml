@@ -1,8 +1,8 @@
 name: release
 
-# Push a tag like v0.5.3 → run the full test suite, then build the Windows
-# desktop installer (Tauri/MSVC) and the signed Android APK, and publish both
-# to a single GitHub Release. Version comes from the tag.
+# Push a tag like v0.6.2 → run the full test suite, then build the Windows
+# desktop installer (Tauri/MSVC) and publish it to a GitHub Release. Version
+# comes from the tag. Mobile is PWA-only now — no APK is built here.
 on:
   push:
     tags: ["v*"]
@@ -15,7 +15,7 @@ jobs:
   test:
     uses: ./.github/workflows/tests.yml
 
-  # Create ONE draft Release for the tag; the build jobs attach their assets.
+  # Create ONE draft Release for the tag; the build job attaches its asset.
   release:
     needs: test
     runs-on: ubuntu-latest
@@ -27,9 +27,10 @@ jobs:
       - id: ver
         shell: bash
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-      # Fail fast if the committed version files disagree with the tag. The
-      # 5 files are the source of truth (bumped before tagging); only the
-      # Android versionCode is pipeline-derived (see the android job).
+      # Fail fast if the committed version files disagree with the tag. These
+      # files are the source of truth, bumped before tagging. (Mobile is now
+      # PWA-only — mobile/package.json + mobile/app.json are no longer built or
+      # validated here.)
       - name: Validate versions match the tag
         shell: bash
         run: |
@@ -37,11 +38,9 @@ jobs:
           fail=0
           chk() { [ "$2" = "$V" ] || { echo "::error::$1 = '$2', expected '$V'"; fail=1; }; }
           chk "web/package.json"             "$(jq -r .version web/package.json)"
-          chk "mobile/package.json"          "$(jq -r .version mobile/package.json)"
-          chk "mobile/app.json expo.version" "$(jq -r .expo.version mobile/app.json)"
           chk "tauri.conf.json"              "$(jq -r .version web/src-tauri/tauri.conf.json)"
           chk "Cargo.toml" "$(grep -m1 '^version *= *"' web/src-tauri/Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
-          [ "$fail" = 0 ] || { echo "Bump the 5 version files to $V before tagging."; exit 1; }
+          [ "$fail" = 0 ] || { echo "Bump the 3 web/desktop version files to $V before tagging."; exit 1; }
       - id: create
         uses: softprops/action-gh-release@v2
         with:
@@ -80,87 +79,9 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseId: ${{ needs.release.outputs.id }}
 
-  # Signed Android APK from a clean Expo prebuild.
-  android:
-    needs: [test, release]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: mobile/package-lock.json
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-      - uses: android-actions/setup-android@v3
-      - run: npm ci # postinstall → patch-package
-        working-directory: mobile
-      - id: vc
-        shell: bash
-        run: |
-          V="${{ needs.release.outputs.version }}"
-          BASE="${V%%-*}" # strip any -rc.N suffix for the numeric code
-          IFS=. read -r MAJ MIN PAT <<< "$BASE"
-          echo "code=$(( MAJ*10000 + MIN*100 + PAT ))" >> "$GITHUB_OUTPUT"
-          echo "name=$V" >> "$GITHUB_OUTPUT"
-      # Materialize google-services.json (FCM) from a secret so prebuild wires it
-      # into the native project. Absent secret → APK builds without push.
-      - name: Inject google-services.json (FCM push)
-        shell: bash
-        env:
-          GS_B64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
-        run: |
-          if [ -n "$GS_B64" ]; then
-            echo "$GS_B64" | base64 -d > mobile/google-services.json
-            echo "google-services.json materialized ✓"
-          else
-            echo "::warning::GOOGLE_SERVICES_JSON_BASE64 not set — APK builds WITHOUT push (FCM)"
-          fi
-      # Fresh prebuild regenerates android/ from the current app.json — this is
-      # what structurally avoids the stale-app.config bug we hit locally.
-      - name: Expo prebuild (android)
-        working-directory: mobile
-        env:
-          APP_VERSION: ${{ steps.vc.outputs.name }}
-          ANDROID_VERSION_CODE: ${{ steps.vc.outputs.code }}
-        run: npx expo prebuild -p android --no-install
-      - name: Decode upload keystore
-        shell: bash
-        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > mobile/android/app/upload.keystore
-      - name: Build signed release APK
-        working-directory: mobile/android
-        env:
-          # Fed into the withReleaseSigning config-plugin's Gradle properties.
-          ORG_GRADLE_PROJECT_MURGAT_UPLOAD_STORE_FILE: upload.keystore
-          ORG_GRADLE_PROJECT_MURGAT_UPLOAD_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ORG_GRADLE_PROJECT_MURGAT_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ORG_GRADLE_PROJECT_MURGAT_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew :app:assembleRelease --no-daemon
-      - id: apk
-        shell: bash
-        working-directory: mobile/android
-        run: |
-          SRC=app/build/outputs/apk/release/app-release.apk
-          DST="Chat_${{ steps.vc.outputs.name }}.apk"
-          cp "$SRC" "$DST"
-          # Guard: the baked Expo config must NOT carry a default server.
-          if unzip -p "$DST" assets/app.config | grep -q '"API_URL":""'; then
-            echo "app.config API_URL is empty ✓"
-          else
-            echo "::error::app.config API_URL is not empty — a server got baked in"; exit 1
-          fi
-          echo "path=mobile/android/$DST" >> "$GITHUB_OUTPUT"
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          files: ${{ steps.apk.outputs.path }}
-
-  # Flip the draft to a published release once both binaries are attached.
+  # Flip the draft to a published release once the installer is attached.
   publish:
-    needs: [desktop, android]
+    needs: [desktop]
     runs-on: ubuntu-latest
     steps:
       - uses: softprops/action-gh-release@v2
