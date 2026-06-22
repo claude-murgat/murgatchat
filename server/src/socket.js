@@ -21,14 +21,18 @@ export function isUserDnd(user, now = new Date()) {
   return false;
 }
 
-const TEN_MIN_MS = 10 * 60 * 1000;
-// userId -> Map(socketId -> last activity ms), web/desktop clients only. A socket
-// stays fresh while the page is visible (60s heartbeat from the client); the
-// client signals "away" the instant it's hidden (PWA backgrounded / minimised),
-// which drops it immediately, and a disconnect removes it too. The 10-min ceiling
-// is a safety net for a frozen client that stopped heartbeating without
-// disconnecting. Per-socket so one focused device doesn't suppress pushes meant
-// for another (a desktop in front shouldn't mute the phone).
+// A visible client sends an "activity" heartbeat every 60s, so a socket that
+// hasn't checked in within this window is no longer in the foreground. Kept at
+// ~2.5 min (tolerates one dropped heartbeat) rather than 10 min: the explicit
+// "away" signal a PWA emits on background isn't reliable (the OS can suspend the
+// JS before it flushes), so this fallback is what actually resumes pushes for a
+// just-backgrounded phone — at 10 min, users lost notifications for up to 10 min
+// after closing the app. Server-side, so it applies to existing clients too.
+const AWAY_AFTER_MS = 150 * 1000;
+// userId -> Map(socketId -> last activity ms), web/desktop clients only. The
+// client also signals "away" the instant the page is hidden (fast path), and a
+// disconnect removes the socket too. Per-socket so one focused device doesn't
+// suppress pushes meant for another (a desktop in front shouldn't mute the phone).
 const webActivity = new Map();
 
 function markWebActivity(userId, socketId) {
@@ -52,7 +56,7 @@ function webDesktopInactive(userId) {
   if (!sockets || sockets.size === 0) return true;
   const now = Date.now();
   for (const ts of sockets.values()) {
-    if (now - ts <= TEN_MIN_MS) return false;
+    if (now - ts <= AWAY_AFTER_MS) return false;
   }
   return true;
 }
