@@ -19,6 +19,7 @@ import AdminPanelModal from "./components/AdminPanelModal.jsx";
 import PreferencesModal from "./components/PreferencesModal.jsx";
 import BugReportModal from "./components/BugReportModal.jsx";
 import UpdateBanner from "./components/UpdateBanner.jsx";
+import InstallPwaBanner from "./components/InstallPwaBanner.jsx";
 import { checkForUpdate } from "./version.js";
 import { setLogContext, logEvent } from "./logbuffer.js";
 
@@ -423,6 +424,8 @@ export default function App() {
           onDismiss={() => setDismissedVersion(updateInfo.latest)}
         />
       )}
+      {/* Mobile web only (self-gates): invite to install the PWA, bottom of screen. */}
+      <InstallPwaBanner />
       {/*
         Layout responsive : sur mobile (<md=768px) on n'affiche QU'UN écran à la fois,
         Sidebar (= liste des conversations) OU ChannelView (= la conversation ouverte).
