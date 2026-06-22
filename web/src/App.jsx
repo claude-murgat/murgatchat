@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { api, getToken, setToken } from "./api.js";
 import { getSocket, closeSocket } from "./socket.js";
 import { notify, isWindowFocused, ensureReady, setTrayBadge } from "./desktop.js";
-import { ensurePwaReady, isPwaInstalled, unsubscribePush } from "./pwa.js";
+import { ensurePwaReady, isPwaInstalled, unsubscribePush, resubscribeIfNeeded } from "./pwa.js";
 import Login from "./components/Login.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import ChannelView from "./components/ChannelView.jsx";
@@ -19,6 +19,7 @@ import AdminPanelModal from "./components/AdminPanelModal.jsx";
 import PreferencesModal from "./components/PreferencesModal.jsx";
 import BugReportModal from "./components/BugReportModal.jsx";
 import UpdateBanner from "./components/UpdateBanner.jsx";
+import InstallPwaBanner from "./components/InstallPwaBanner.jsx";
 import { checkForUpdate } from "./version.js";
 import { setLogContext, logEvent } from "./logbuffer.js";
 
@@ -227,6 +228,16 @@ export default function App() {
     // still has to grant permission (we expose a "Activer les notifications"
     // toggle in the user menu — see Sidebar.jsx).
     ensurePwaReady();
+    // Re-validate the push subscription whenever the app returns to the
+    // foreground: a subscription pruned/expired while backgrounded would
+    // otherwise silently stop delivering pushes until a full reload.
+    const onVisible = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        resubscribeIfNeeded();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, [user]);
 
   // Deep-link from a notification click → focus the matching channel. The PWA
@@ -431,6 +442,8 @@ export default function App() {
           onDismiss={() => setDismissedVersion(updateInfo.latest)}
         />
       )}
+      {/* Mobile web only (self-gates): invite to install the PWA, bottom of screen. */}
+      <InstallPwaBanner />
       {/*
         Layout responsive : sur mobile (<md=768px) on n'affiche QU'UN écran à la fois,
         Sidebar (= liste des conversations) OU ChannelView (= la conversation ouverte).
