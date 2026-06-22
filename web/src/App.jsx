@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { api, getToken, setToken } from "./api.js";
 import { getSocket, closeSocket } from "./socket.js";
 import { notify, isWindowFocused, ensureReady } from "./desktop.js";
-import { ensurePwaReady, isPwaInstalled, unsubscribePush } from "./pwa.js";
+import { ensurePwaReady, isPwaInstalled, unsubscribePush, resubscribeIfNeeded } from "./pwa.js";
 import Login from "./components/Login.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import ChannelView from "./components/ChannelView.jsx";
@@ -227,6 +227,16 @@ export default function App() {
     // still has to grant permission (we expose a "Activer les notifications"
     // toggle in the user menu — see Sidebar.jsx).
     ensurePwaReady();
+    // Re-validate the push subscription whenever the app returns to the
+    // foreground: a subscription pruned/expired while backgrounded would
+    // otherwise silently stop delivering pushes until a full reload.
+    const onVisible = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        resubscribeIfNeeded();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, [user]);
 
   // Deep-link from a notification click → focus the matching channel. The PWA

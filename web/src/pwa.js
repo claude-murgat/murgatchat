@@ -100,6 +100,25 @@ export async function ensurePwaReady() {
   }
 }
 
+// Re-validate the push subscription (get-or-create + re-sync to the backend).
+// Called when the app returns to the foreground so a subscription pruned/expired
+// while backgrounded (the push service can invalidate it) is restored promptly
+// — otherwise the user silently stops receiving pushes until a full reload.
+// No-op on desktop (Tauri has no SW) or without granted permission.
+export async function resubscribeIfNeeded() {
+  if (isTauri() || !pwaSupported()) return;
+  if (Notification.permission !== "granted") return;
+  try {
+    if (!swRegistration) {
+      swRegistration = await navigator.serviceWorker.getRegistration();
+    }
+    if (!swRegistration) return;
+    await ensureSubscribed();
+  } catch (e) {
+    console.warn("[pwa] resubscribe failed:", e?.message || e);
+  }
+}
+
 // Triggered by an explicit UI control (button in preferences, banner, etc.).
 // Walks through requesting permission + subscribing + syncing to the backend.
 // Returns { ok: true } on success, { ok: false, reason } on failure.
