@@ -97,6 +97,16 @@ export async function notify(title, body) {
   }
 }
 
+// Desktop only: show (true) or clear (false) a red unread dot on the tray icon.
+// No-op in the browser/PWA. Errors are swallowed — a missing tray must never
+// break message handling.
+export function setTrayBadge(unread) {
+  if (!isTauri()) return;
+  import("@tauri-apps/api/core")
+    .then((mod) => mod.invoke("set_tray_badge", { unread: !!unread }))
+    .catch((e) => console.error("[desktop] set_tray_badge failed:", e));
+}
+
 export function isWindowFocused() {
   if (typeof document === "undefined") return true;
   try {
