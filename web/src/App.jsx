@@ -8,13 +8,11 @@ import Sidebar from "./components/Sidebar.jsx";
 import ChannelView from "./components/ChannelView.jsx";
 import NewChannelModal from "./components/NewChannelModal.jsx";
 import NewDmModal from "./components/NewDmModal.jsx";
-import BrowseChannelsModal from "./components/BrowseChannelsModal.jsx";
 import AddMembersModal from "./components/AddMembersModal.jsx";
 import MembersModal from "./components/MembersModal.jsx";
 import DndModal from "./components/DndModal.jsx";
 import InviteModal from "./components/InviteModal.jsx";
 import ProfileModal from "./components/ProfileModal.jsx";
-import SearchModal from "./components/SearchModal.jsx";
 import AdminPanelModal from "./components/AdminPanelModal.jsx";
 import PreferencesModal from "./components/PreferencesModal.jsx";
 import BugReportModal from "./components/BugReportModal.jsx";
@@ -52,14 +50,14 @@ export default function App() {
   const [activeChannelId, setActiveChannelId] = useState(null);
   const [socket, setSocket] = useState(null);
   const [showNewChannel, setShowNewChannel] = useState(false);
+  // Pre-fills the create-channel modal name when launched from the search field.
+  const [newChannelName, setNewChannelName] = useState("");
   const [showNewDm, setShowNewDm] = useState(false);
   const [showDnd, setShowDnd] = useState(false);
-  const [showBrowseChannels, setShowBrowseChannels] = useState(false);
   const [showAddMembers, setShowAddMembers] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
-  const [showSearch, setShowSearch] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showPreferences, setShowPreferences] = useState(false);
   const [showBugReport, setShowBugReport] = useState(false);
@@ -70,6 +68,9 @@ export default function App() {
   const [typingByChannel, setTypingByChannel] = useState({});
   const typingTimers = useRef({});
   const activeChannelIdRef = useRef(null);
+  // Tracks whether a History sentinel is pushed for the open conversation, so the
+  // phone's back button closes it instead of leaving the app (mobile layout only).
+  const backSentinelRef = useRef(false);
 
   useEffect(() => {
     const token = getToken();
@@ -296,19 +297,32 @@ export default function App() {
     return () => window.removeEventListener("pwa:deeplink", onDeepLink);
   }, [user]);
 
-  // Cmd/Ctrl+K opens the search modal — global, only when logged in.
+  // PWA / mobile: the phone's system "back" button closes the open conversation
+  // (shows the conversation list) instead of leaving the app. Sidebar and
+  // conversation are mutually exclusive only in the single-pane mobile layout, so
+  // this is a no-op on desktop/tablet (md+). Mechanism: opening a conversation
+  // pushes one History sentinel; back pops it and we deselect the channel.
   useEffect(() => {
-    if (!user) return;
-    const onKey = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setShowSearch(true);
+    const onPop = () => {
+      backSentinelRef.current = false;
+      if (window.matchMedia("(max-width: 767px)").matches) {
+        setActiveChannelId((curr) => (curr ? null : curr));
       }
-      if (e.key === "Escape") setShowSearch(false);
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [user]);
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  useEffect(() => {
+    if (
+      activeChannelId &&
+      !backSentinelRef.current &&
+      window.matchMedia("(max-width: 767px)").matches
+    ) {
+      window.history.pushState({ chatPane: "conversation" }, "");
+      backSentinelRef.current = true;
+    }
+  }, [activeChannelId]);
 
   // Tell the server whether the user can actually SEE the app: "activity" while
   // it's in the foreground (no push needed — they'll see the in-app toast),
@@ -418,7 +432,6 @@ export default function App() {
       prev.some((c) => c.id === channel.id) ? prev : [...prev, channel]
     );
     setActiveChannelId(channel.id);
-    setShowBrowseChannels(false);
   }, []);
 
   const onMembersAdded = useCallback((channel) => {
@@ -495,16 +508,19 @@ export default function App() {
             channels={channels}
             activeChannelId={activeChannelId}
             onSelectChannel={onSelectChannel}
-            onNewChannel={() => setShowNewChannel(true)}
+            onNewChannel={(name) => {
+              setNewChannelName(name || "");
+              setShowNewChannel(true);
+            }}
             onNewDm={() => setShowNewDm(true)}
-            onBrowseChannels={() => setShowBrowseChannels(true)}
+            onChannelJoined={onChannelJoined}
+            onDmOpened={onDmOpened}
             onToggleDnd={toggleDnd}
             onLogout={onLogout}
             onInvite={() => setShowInvite(true)}
             onProfile={() => setShowProfile(true)}
             onPreferences={() => setShowPreferences(true)}
             onReportBug={() => setShowBugReport(true)}
-            onSearch={() => setShowSearch(true)}
             onAdminPanel={() => setShowAdmin(true)}
             onlineUserIds={onlineUserIds}
             typingByChannel={typingByChannel}
@@ -522,7 +538,16 @@ export default function App() {
             onlineUserIds={onlineUserIds}
             onAddMembers={() => setShowAddMembers(true)}
             onShowMembers={() => setShowMembers(true)}
-            onBackToList={() => setActiveChannelId(null)}
+            onBackToList={() => {
+              if (
+                backSentinelRef.current &&
+                window.matchMedia("(max-width: 767px)").matches
+              ) {
+                window.history.back(); // pop the sentinel → popstate deselects
+              } else {
+                setActiveChannelId(null);
+              }
+            }}
           />
         </div>
       </div>
@@ -530,7 +555,11 @@ export default function App() {
       {showNewChannel && (
         <NewChannelModal
           currentUserId={user.id}
-          onClose={() => setShowNewChannel(false)}
+          initialName={newChannelName}
+          onClose={() => {
+            setShowNewChannel(false);
+            setNewChannelName("");
+          }}
           onCreated={onNewChannelCreated}
         />
       )}
@@ -539,12 +568,6 @@ export default function App() {
           currentUserId={user.id}
           onClose={() => setShowNewDm(false)}
           onOpened={onDmOpened}
-        />
-      )}
-      {showBrowseChannels && (
-        <BrowseChannelsModal
-          onClose={() => setShowBrowseChannels(false)}
-          onJoined={onChannelJoined}
         />
       )}
       {showAddMembers && activeChannel && !activeChannel.isDirect && (
@@ -587,19 +610,6 @@ export default function App() {
       )}
       {showBugReport && (
         <BugReportModal user={user} onClose={() => setShowBugReport(false)} />
-      )}
-      {showSearch && (
-        <SearchModal
-          onClose={() => setShowSearch(false)}
-          onJump={(r) => {
-            setActiveChannelId(r.channelId);
-            setShowSearch(false);
-            // Clear the unread badge — picking a result acts like selecting the channel.
-            setChannels((prev) =>
-              prev.map((c) => (c.id === r.channelId ? { ...c, unread: false } : c))
-            );
-          }}
-        />
       )}
       {showAdmin && (
         <AdminPanelModal
