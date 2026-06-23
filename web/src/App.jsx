@@ -23,6 +23,28 @@ import InstallPwaBanner from "./components/InstallPwaBanner.jsx";
 import { checkForUpdate } from "./version.js";
 import { setLogContext, logEvent } from "./logbuffer.js";
 
+// Per-user memory of the last conversation actually viewed, so every client
+// (web / desktop / PWA) reopens straight into it instead of the first channel.
+// Keyed by user id so two accounts on one device don't cross over. Wrapped in
+// try/catch because localStorage throws in private mode / when storage is full.
+const LAST_CHANNEL_PREFIX = "murgat:lastChannel:";
+function loadLastChannelId(userId) {
+  if (!userId || typeof localStorage === "undefined") return null;
+  try {
+    return localStorage.getItem(LAST_CHANNEL_PREFIX + userId) || null;
+  } catch {
+    return null;
+  }
+}
+function saveLastChannelId(userId, channelId) {
+  if (!userId || !channelId || typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(LAST_CHANNEL_PREFIX + userId, channelId);
+  } catch {
+    // Non-fatal: the app just won't remember the last channel on this device.
+  }
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [bootstrapped, setBootstrapped] = useState(false);
@@ -64,7 +86,10 @@ export default function App() {
 
   useEffect(() => {
     activeChannelIdRef.current = activeChannelId;
-  }, [activeChannelId]);
+    // Persist the last viewed conversation (never the null "back to list" state
+    // on mobile, so the next launch still reopens the real conversation).
+    if (user && activeChannelId) saveLastChannelId(user.id, activeChannelId);
+  }, [activeChannelId, user]);
 
   // Keep the diagnostic context (used by bug reports) in sync with the server
   // address and the signed-in user, so a report carries the right header.
@@ -105,7 +130,12 @@ export default function App() {
     setSocket(s);
     api.listChannels().then((res) => {
       setChannels(res.channels);
-      setActiveChannelId((curr) => curr || res.channels[0]?.id || null);
+      setActiveChannelId((curr) => {
+        if (curr) return curr; // a deep-link / explicit pick already won
+        const saved = loadLastChannelId(user.id);
+        if (saved && res.channels.some((c) => c.id === saved)) return saved;
+        return res.channels[0]?.id || null;
+      });
     });
 
     const onNew = (msg) => {
