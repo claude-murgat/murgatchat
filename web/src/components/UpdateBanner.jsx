@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { isTauri, openExternal } from "../desktop.js";
 
 // Shown when the server advertises a newer version. Position: top on
@@ -30,9 +31,13 @@ async function hardReload() {
   window.location.reload();
 }
 
-export default function UpdateBanner({ info, onDismiss }) {
+export default function UpdateBanner({ info, onDismiss, onDesktopInstall }) {
+  const [busy, setBusy] = useState(false);
   if (!info?.updateAvailable) return null;
   const desktop = isTauri();
+  // Desktop with the Tauri updater wired: the button installs in place + relaunches.
+  // Without it (older path), fall back to opening the release download page.
+  const canAutoUpdate = desktop && typeof onDesktopInstall === "function";
 
   // The banner is a direct flex child of the app's column layout, so `order`
   // alone repositions it. On web/PWA: bottom on mobile (order-last), top from
@@ -41,8 +46,15 @@ export default function UpdateBanner({ info, onDismiss }) {
     ? "border-b"
     : "order-last md:order-none border-t md:border-b";
 
-  function action() {
-    if (desktop) {
+  async function action() {
+    if (canAutoUpdate) {
+      setBusy(true);
+      try {
+        await onDesktopInstall(); // downloads, installs, relaunches (or throws)
+      } finally {
+        setBusy(false);
+      }
+    } else if (desktop) {
       // Route through the opener plugin: under Tauri, window.open is swallowed by
       // the webview (#43) so the button did nothing. openExternal hits the OS browser.
       openExternal(info.downloadUrl);
@@ -60,17 +72,26 @@ export default function UpdateBanner({ info, onDismiss }) {
     >
       <span className="font-semibold">Nouvelle version disponible ({info.latest})</span>
       <span className="opacity-80 hidden sm:inline">
-        {desktop
+        {canAutoUpdate
+          ? "Elle sera installée et l'application redémarrera."
+          : desktop
           ? "Téléchargez le nouvel installeur pour mettre à jour."
           : "Rafraîchissez la page pour l'utiliser."}
       </span>
       <button
         onClick={action}
-        className="ml-auto px-3 py-1 rounded-md bg-amber-600 text-white font-medium hover:bg-amber-700"
+        disabled={busy}
+        className="ml-auto px-3 py-1 rounded-md bg-amber-600 text-white font-medium hover:bg-amber-700 disabled:opacity-60"
       >
-        {desktop ? "Télécharger" : "Rafraîchir"}
+        {canAutoUpdate
+          ? busy
+            ? "Installation…"
+            : "Installer"
+          : desktop
+          ? "Télécharger"
+          : "Rafraîchir"}
       </button>
-      {desktop && (
+      {desktop && !canAutoUpdate && (
         <a
           href={info.downloadUrl}
           target="_blank"

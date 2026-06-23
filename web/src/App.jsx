@@ -1,7 +1,16 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { api, getToken, setToken } from "./api.js";
 import { getSocket, closeSocket } from "./socket.js";
-import { notify, isWindowFocused, ensureReady, setTrayBadge, isAppHidden } from "./desktop.js";
+import {
+  notify,
+  isWindowFocused,
+  ensureReady,
+  setTrayBadge,
+  isAppHidden,
+  isTauri,
+  checkDesktopUpdate,
+  installDesktopUpdate,
+} from "./desktop.js";
 import { ensurePwaReady, isPwaInstalled, unsubscribePush, resubscribeIfNeeded } from "./pwa.js";
 import Login from "./components/Login.jsx";
 import Sidebar from "./components/Sidebar.jsx";
@@ -71,6 +80,8 @@ export default function App() {
   // Tracks whether a History sentinel is pushed for the open conversation, so the
   // phone's back button closes it instead of leaving the app (mobile layout only).
   const backSentinelRef = useRef(false);
+  // The Tauri Update object from the last desktop update check (installed on demand).
+  const desktopUpdateRef = useRef(null);
 
   useEffect(() => {
     const token = getToken();
@@ -103,11 +114,11 @@ export default function App() {
     if (user) logEvent("info", `signed in as @${user.username}`);
   }, [user]);
 
-  // Version check: on mount, on window focus, and every 15 min. If the server
-  // advertises a newer version, surface the banner (web → refresh, desktop →
-  // download). Only runs once authenticated (the bulk of usage time).
+  // Version check (web/PWA only): the server advertises the published version;
+  // if newer, the banner offers a cache-busting refresh. Desktop uses the Tauri
+  // updater instead (effect below). Runs on mount, on focus, and every 15 min.
   useEffect(() => {
-    if (!user) return;
+    if (!user || isTauri()) return;
     let cancelled = false;
     const run = () =>
       checkForUpdate().then((info) => {
@@ -121,6 +132,22 @@ export default function App() {
       cancelled = true;
       window.removeEventListener("focus", onFocus);
       clearInterval(iv);
+    };
+  }, [user]);
+
+  // Desktop (Tauri): auto-update via the updater plugin. On launch, check the
+  // signed GitHub release endpoint; if a newer version exists, surface the SAME
+  // banner with an "Installer" action (download + install + relaunch).
+  useEffect(() => {
+    if (!user || !isTauri()) return;
+    let cancelled = false;
+    checkDesktopUpdate().then((update) => {
+      if (cancelled || !update) return;
+      desktopUpdateRef.current = update;
+      setUpdateInfo({ updateAvailable: true, latest: update.version });
+    });
+    return () => {
+      cancelled = true;
     };
   }, [user]);
 
@@ -486,6 +513,15 @@ export default function App() {
         <UpdateBanner
           info={updateInfo}
           onDismiss={() => setDismissedVersion(updateInfo.latest)}
+          onDesktopInstall={async () => {
+            const update = desktopUpdateRef.current;
+            if (!update) return;
+            try {
+              await installDesktopUpdate(update);
+            } catch (e) {
+              alert("Échec de la mise à jour : " + (e?.message || e));
+            }
+          }}
         />
       )}
       {/* Mobile web only (self-gates): invite to install the PWA, bottom of screen. */}
