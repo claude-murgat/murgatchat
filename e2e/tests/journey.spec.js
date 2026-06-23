@@ -78,8 +78,12 @@ async function registerWithCode(page, code, email) {
 }
 
 async function createPrivateChannel(page, name) {
-  await page.getByTitle("Ajouter — Salons").click();
+  // Unified search ("quick switcher"): type the name, then pick the
+  // "Créer le salon « … »" action, which opens the create form pre-filled.
+  await page.getByPlaceholder(/Rechercher ou créer/).fill(name);
+  await page.getByRole("button", { name: /Créer le salon/ }).click();
   await expect(page.getByText("Créer une conversation")).toBeVisible();
+  // Name is pre-filled from the search; re-assert it, then mark the channel private.
   await page.getByPlaceholder("Nom du salon (ex. marketing)").fill(name);
   await page.getByText("Salon privé").click();
   await page.getByRole("button", { name: "Créer" }).click();
