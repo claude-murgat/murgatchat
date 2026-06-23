@@ -18,17 +18,18 @@ const palette = [
 const registerSchema = z.object({
   // Lowercased too: emails are de-facto case-insensitive; storing them normalized
   // lets the @unique constraint dedupe case-variants and login match exactly.
-  email: z.string().email().transform((s) => s.toLowerCase()),
+  email: z.string().trim().email().transform((s) => s.toLowerCase()),
   // Lowercased so the handle is case-insensitive everywhere: the @unique
   // constraint then enforces case-insensitive uniqueness, and login can match
   // on an exact (lowercased) value — no ILIKE/wildcard surprises.
   username: z
     .string()
+    .trim()
     .min(2)
     .max(30)
     .regex(/^[a-zA-Z0-9_.-]+$/)
     .transform((s) => s.toLowerCase()),
-  displayName: z.string().min(1).max(60),
+  displayName: z.string().trim().min(1).max(60),
   password: z.string().min(6).max(200),
   token: z.string().optional(), // invitation token
 });
@@ -98,7 +99,7 @@ router.post("/register", async (req, res) => {
 });
 
 const loginSchema = z.object({
-  emailOrUsername: z.string().min(1),
+  emailOrUsername: z.string().trim().min(1),
   password: z.string().min(1),
 });
 
@@ -133,7 +134,7 @@ router.get("/me", requireAuth, async (req, res) => {
 // the current password (defence-in-depth against a stolen session/token).
 const profileSchema = z
   .object({
-    displayName: z.string().min(1).max(60).optional(),
+    displayName: z.string().trim().min(1).max(60).optional(),
     currentPassword: z.string().min(1).optional(),
     newPassword: z.string().min(6).max(200).optional(),
   })

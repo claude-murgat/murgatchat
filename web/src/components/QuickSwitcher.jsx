@@ -138,6 +138,12 @@ export default function QuickSwitcher({
 
       <Section title="Créer">
         <Row onClick={() => onCreateChannel(q)} prefix="➕" label={`Créer le salon « ${q} »`} />
+        <Row
+          onClick={() => dm(user)}
+          busy={busyId === user.id}
+          prefix="📝"
+          label="Mes notes (conversation avec soi-même)"
+        />
         <Row onClick={onNewGroup} prefix="👥" label="Nouveau groupe de discussion" />
       </Section>
 
