@@ -82,6 +82,10 @@ fn main() {
             MacosLauncher::LaunchAgent,
             Some(vec!["--hidden"]),
         ))
+        // Auto-update from the signed GitHub release endpoint, plus the process
+        // plugin so the updater can relaunch the app after installing.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![set_tray_badge])
         .setup(|app| {
             // Launched at login (autostart) -> stay in the tray instead of

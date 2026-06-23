@@ -191,7 +191,7 @@ export default function Login({ onLoggedIn }) {
     try {
       if (mode === "login") {
         const res = await api.login({
-          emailOrUsername: form.emailOrUsername,
+          emailOrUsername: form.emailOrUsername.trim(),
           password: form.password,
         });
         setToken(res.token);
@@ -203,9 +203,9 @@ export default function Login({ onLoggedIn }) {
           return;
         }
         const body = {
-          email: inviteOk ? invite.email : form.email,
-          username: form.username,
-          displayName: form.displayName,
+          email: (inviteOk ? invite.email : form.email).trim(),
+          username: form.username.trim(),
+          displayName: form.displayName.trim(),
           password: form.password,
         };
         if (inviteOk) body.token = code;

@@ -201,3 +201,29 @@ export function isWindowFocused() {
     return true;
   }
 }
+
+// ── Auto-update (Tauri updater plugin, desktop only) ───────────────────────
+// Checks the signed GitHub release endpoint (configured in tauri.conf.json).
+// Returns the Update object if a newer signed version is available, else null.
+// No-op in the browser/PWA (the server-version banner handles those). Never
+// throws — a flaky check must not block startup.
+export async function checkDesktopUpdate() {
+  if (!isTauri()) return null;
+  try {
+    const { check } = await import("@tauri-apps/plugin-updater");
+    const update = await check();
+    return update && update.available !== false ? update : null;
+  } catch (e) {
+    console.warn("[updater] check failed:", e?.message || e);
+    return null;
+  }
+}
+
+// Download + install the given update, then relaunch. Throws on failure (e.g. a
+// per-machine/Program Files install without admin rights) so the caller can
+// surface it to the user.
+export async function installDesktopUpdate(update) {
+  await update.downloadAndInstall();
+  const { relaunch } = await import("@tauri-apps/plugin-process");
+  await relaunch();
+}
