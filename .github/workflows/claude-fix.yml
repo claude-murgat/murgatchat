@@ -39,11 +39,29 @@ jobs:
       # Récupère le code à jour (checkout sur la branche par défaut au SHA courant).
       - uses: actions/checkout@v4
 
+      # Le checkout tourne avec `clean: true` (défaut) → `git clean -ffdx` efface
+      # tous les fichiers untracked ET gitignorés du workspace, dont le .env. On
+      # garde donc le .env de référence HORS du workspace, sur la machine du
+      # runner, et on le copie ici avant de démarrer le chat. Crée-le une fois :
+      #   mkdir -p ~/murgatchat-secrets && cp .env.example ~/murgatchat-secrets/.env
+      #   # édite les vraies valeurs, puis : chmod 600 ~/murgatchat-secrets/.env
+      # Surcharge l'emplacement via la variable de dépôt RUNNER_ENV_FILE si besoin.
+      - name: Injecter le .env (persistant hors workspace)
+        run: |
+          ENV_SRC="${{ vars.RUNNER_ENV_FILE || '~/murgatchat-secrets/.env' }}"
+          ENV_SRC="${ENV_SRC/#\~/$HOME}"
+          if [ ! -f "$ENV_SRC" ]; then
+            echo "::error::.env introuvable à '$ENV_SRC'. Crée-le sur le runner (voir commentaire ci-dessus)."
+            exit 1
+          fi
+          cp "$ENV_SRC" .env
+          echo "✓ .env injecté depuis $ENV_SRC"
+
       # Le serveur n'est pas forcément déjà démarré sur la machine du runner. On
       # (re)démarre le chat avec le code à jour AVANT de coder, pour que Claude
       # puisse reproduire/tester contre l'app et que l'étape de notification finale
       # joigne le serveur sur http://localhost:4000.
-      # Prérequis machine : Docker + docker compose + un .env (gitignoré) présent.
+      # Prérequis machine : Docker + docker compose. Le .env est injecté juste au-dessus.
       - name: Démarrer le chat en local
         run: docker compose up -d --build
 
