@@ -22,7 +22,10 @@ export default function QuickSwitcher({
   const [busyId, setBusyId] = useState(null);
 
   const q = query.trim();
-  const ql = q.toLowerCase();
+  // Accent- and case-insensitive so "general" finds "Général", "reunion" → "Réunion".
+  const norm = (s) =>
+    (s || "").normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+  const ql = norm(q);
 
   // Server-side discovery (public salons + users), debounced. Joined/self
   // filtering happens at render so it reacts to `channels` without re-querying.
@@ -52,7 +55,7 @@ export default function QuickSwitcher({
 
   const joinedIds = new Set(channels.map((c) => c.id));
   const existing = channels.filter((c) =>
-    ((c.isDirect ? c.displayName : c.name) || "").toLowerCase().includes(ql)
+    norm(c.isDirect ? c.displayName : c.name).includes(ql)
   );
   const publicChannels = publicRaw.filter((c) => !joinedIds.has(c.id));
   const people = peopleRaw.filter((u) => u.id !== user.id);
