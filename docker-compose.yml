@@ -55,6 +55,21 @@ services:
       # filtre de contenu (g / pg / pg-13 / r). Voir .env.example.
       GIPHY_API_KEY: ${GIPHY_API_KEY:-}
       GIF_RATING: ${GIF_RATING:-pg-13}
+      # Pont signalements → issue GitHub (déclenche les workflows Claude). Token vide
+      # = pont off (le signalement reste en base, aucune issue créée). Voir .env.example.
+      GITHUB_BUG_TOKEN: ${GITHUB_BUG_TOKEN:-}
+      GITHUB_REPO_OWNER: ${GITHUB_REPO_OWNER:-claude-murgat}
+      GITHUB_REPO_NAME: ${GITHUB_REPO_NAME:-murgatchat}
+      # Conversation de support in-app (Claude raffine le ticket avant l'issue).
+      # Clé vide = chat off (le bouton « Signaler » retombe sur l'envoi direct).
+      # Voir .env.example.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      SUPPORT_MODEL: ${SUPPORT_MODEL:-claude-opus-4-8}
+      # Notification in-app du pipeline : le workflow claude-fix appelle
+      # POST /support/notify avec ce secret partagé pour poster un message dans
+      # le salon d'équipe à l'ouverture d'une PR. Vide = endpoint désactivé.
+      SUPPORT_NOTIFY_TOKEN: ${SUPPORT_NOTIFY_TOKEN:-}
+      SUPPORT_NOTIFY_CHANNEL: ${SUPPORT_NOTIFY_CHANNEL:-support-dev}
     ports:
       - "4000:4000"
     volumes:

@@ -1,0 +1,56 @@
+# Étape finale du pipeline : revue IA de la PR.
+# Déclenché quand un humain pose le label « revue-ia » sur une Pull Request —
+# c.-à-d. APRÈS sa propre première relecture. Cela matérialise le « revue par un
+# humain au début, puis par une IA » : la revue humaine reste la porte d'entrée,
+# Claude apporte une seconde paire d'yeux automatique. Claude poste une revue
+# (commentaire) mais NE merge JAMAIS et N'APPROUVE PAS : le merge en prod reste
+# une décision humaine.
+#
+# Auth : claude_code_oauth_token (accès modèle) + github_token = PAT (GH_BOT_TOKEN)
+# ayant l'écriture sur le dépôt, pour pouvoir commenter la PR.
+name: claude-review
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    # Ne réagit qu'au label de demande de revue IA, posé par un humain.
+    if: github.event.label.name == 'revue-ia'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GH_BOT_TOKEN }}
+          prompt: |
+            Tu effectues une revue de code de la Pull Request #${{ github.event.pull_request.number }}
+            de MurgaChat (dépôt ${{ github.repository }}). Travaille et rédige en français.
+
+            1. Récupère le diff de la PR (`gh pr diff ${{ github.event.pull_request.number }}`) et
+               lis le code concerné dans le dépôt pour le contexte.
+            2. Concentre-toi sur : bugs de correction, régressions, cas limites non gérés, problèmes
+               de sécurité, et cohérence avec le style du dépôt (JavaScript ESM, pas de TypeScript ;
+               conventions existantes ; tests Vitest dans server/ et Playwright dans e2e/).
+            3. Poste UNE revue synthétique en commentaire (`gh pr comment ${{ github.event.pull_request.number }}`)
+               structurée ainsi : « Bilan » (1-2 phrases), « Points bloquants » (le cas échéant),
+               « Suggestions » (améliorations non bloquantes). Pour chaque point, cite le fichier et
+               la ligne. Si rien de bloquant, dis-le clairement.
+            4. N'APPROUVE PAS et NE MERGE PAS la PR, n'effectue aucune action destructrice : ta sortie
+               est une revue consultative. La validation finale et le merge restent humains.
+          claude_args: |
+            --max-turns 20
+            --model claude-sonnet-4-6

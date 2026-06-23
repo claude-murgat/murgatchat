@@ -10,6 +10,7 @@ import channelsRouter, { ensureDefaultChannel } from "./routes/channels.js";
 import uploadsRouter from "./routes/uploads.js";
 import searchRouter, { ensureSearchIndex } from "./routes/search.js";
 import bugReportsRouter from "./routes/bugReports.js";
+import supportRouter from "./routes/support.js";
 import gifsRouter from "./routes/gifs.js";
 import { setupSocket, dispatchScheduledMessages } from "./socket.js";
 import { prisma } from "./db.js";
@@ -79,6 +80,7 @@ export function createServer() {
   app.use("/uploads", uploadsRouter);
   app.use("/search", searchRouter);
   app.use("/bug-reports", bugReportsRouter);
+  app.use("/support", supportRouter);
   app.use("/gifs", gifsRouter);
 
   return { app, server, io };

@@ -32,6 +32,7 @@ model User {
   invitations Invitation[]
   passwordResets PasswordReset[]
   bugReports  BugReport[]
+  supportConversations SupportConversation[]
 }
 
 model Channel {
@@ -195,9 +196,45 @@ model BugReport {
   appVersion  String?
   platform    String?  // "web" | "pwa" | "desktop" | "android" | "ios"
   status      String   @default("open") // "open" | "closed"
+  // Set once the report has been mirrored to a GitHub issue (best-effort, async).
+  // Nullable: the GitHub bridge is optional (no token = no issue) and never blocks
+  // submission. githubIssueNumber doubles as the idempotency guard.
+  githubIssueNumber Int?
+  githubIssueUrl    String?
   createdAt   DateTime @default(now())
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([status, createdAt])
+}
+
+// In-app support conversation. When a user opens a ticket, instead of filing a
+// raw report they chat with Claude (server-side, see src/anthropic.js) to refine
+// the request; once the demand is clear Claude finalizes it, which creates a
+// BugReport + GitHub issue (the existing signalement → claude-triage pipeline).
+// The transcript is kept so the conversation can be resumed and audited.
+model SupportConversation {
+  id          String   @id @default(cuid())
+  // Nullable + SetNull, same rationale as BugReport: outlives its author.
+  userId      String?
+  status      String   @default("open") // "open" | "submitted" | "abandoned"
+  // Plain user/assistant text turns: [{ role: "user" | "assistant", content }].
+  // The system prompt is server-only and never stored here.
+  messages    Json
+  // Diagnostics snapshot captured client-side when the ticket was opened — carried
+  // through to the BugReport / issue on finalization (same shape as BugReport).
+  appVersion  String?
+  platform    String?
+  diagnostics Json?
+  logs        String?
+  // Set on finalization: the BugReport row and the mirrored GitHub issue.
+  bugReportId String?
+  githubIssueNumber Int?
+  githubIssueUrl    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
 }

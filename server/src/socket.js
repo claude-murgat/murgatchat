@@ -65,7 +65,7 @@ function webDesktopInactive(userId) {
 // event, plus a push (Expo for native, Web Push for browser PWAs) for those
 // whose web/desktop has been idle >= 10 min. Web push is the iOS distribution
 // channel since the PWA pivot (no TestFlight build).
-async function notifyMembers(io, channelId, authorId, serialized) {
+export async function notifyMembers(io, channelId, authorId, serialized) {
   const members = await prisma.membership.findMany({
     where: { channelId },
     include: { user: true },

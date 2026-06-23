@@ -1,0 +1,75 @@
+# Étape 1 du pipeline de signalement.
+# Le serveur crée une issue (label "signalement", cf. server/src/github.js) à
+# partir du ticket précisé par l'utilisateur en conversation avec Claude (chat
+# in-app, cf. server/src/anthropic.js) : cela déclenche ce workflow. Claude
+# analyse l'issue, la réécrit en rapport structuré, puis — si le problème est
+# actionnable — pose le tag "à-valider" et s'ARRÊTE. Il NE lance PAS le codage
+# automatique : un développeur de l'équipe doit relire le rapport et poser
+# lui-même le tag "claude:fix" (ce qui déclenche claude-fix.yml). C'est le gate
+# de validation humaine du pipeline.
+#
+# Auth : claude_code_oauth_token (accès modèle Anthropic) + github_token = un PAT
+# (secret GH_BOT_TOKEN) appartenant à un compte ayant l'écriture sur le dépôt.
+# Le PAT agit comme un utilisateur réel : le label « claude:fix » qu'il pose DÉCLENCHE
+# bien claude-fix.yml, et les PR ouvertes ensuite déclenchent la CI tests.yml — ce que
+# le token github-actions par défaut ne ferait PAS. Aucune App GitHub à installer.
+name: claude-triage
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: read
+  issues: write
+  id-token: write
+
+concurrency:
+  group: claude-triage-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    # Ne réagit qu'au label d'intake posé par le serveur.
+    if: github.event.label.name == 'signalement'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GH_BOT_TOKEN }}
+          prompt: |
+            Tu tries le signalement de bug #${{ github.event.issue.number }} de MurgaChat
+            (dépôt ${{ github.repository }}). Travaille et rédige en français.
+
+            1. Lis le corps de l'issue : description utilisateur, table de diagnostic, et le
+               bloc « Logs » (replié dans <details>).
+            2. Explore le code du dépôt (server/, web/, mobile/) pour localiser la cause probable.
+            3. Réécris l'issue avec `gh issue edit ${{ github.event.issue.number }}` : un titre
+               clair, puis un corps structuré avec ces sections — « Résumé », « Étapes de
+               reproduction probables », « Cause racine suspectée », « Fichiers concernés »
+               (chemins relatifs), « Sévérité » (faible / moyenne / élevée). Conserve le bloc
+               Logs d'origine, replié, en bas.
+            4. Classe l'issue avec des labels (`gh issue edit … --add-label`) :
+               - domaine : un seul parmi « domaine:server », « domaine:web », « domaine:mobile »,
+                 « domaine:desktop » selon les fichiers concernés ;
+               - sévérité : un seul parmi « sévérité:faible », « sévérité:moyenne », « sévérité:élevée »,
+                 cohérent avec la section « Sévérité ».
+            5. Décision :
+               - Actionnable et de risque raisonnable → ajoute le label « à-valider »
+                 (`gh issue edit ${{ github.event.issue.number }} --add-label "à-valider"`)
+                 puis poste un commentaire (`gh issue comment`) résumant le diagnostic et
+                 invitant un développeur à valider en posant le label « claude:fix » pour
+                 lancer le correctif automatique. N'AJOUTE PAS « claude:fix » toi-même :
+                 la décision de coder revient à un humain.
+               - Sinon → ajoute « besoin-info » (infos manquantes) ou « wontfix », et poste un
+                 commentaire (`gh issue comment`) expliquant pourquoi, SANS poser « à-valider »
+                 ni « claude:fix ».
+            6. Dans tous les cas, retire le label « signalement »
+               (`gh issue edit ${{ github.event.issue.number }} --remove-label "signalement"`).
+          claude_args: |
+            --max-turns 15
+            --model claude-sonnet-4-6

@@ -306,6 +306,78 @@ copier, le télécharger (`.txt`, web) ou le joindre au rapport. Les rapports so
 **stockés en base** (`BugReport`) — pas d'e-mail — et consultés par les admins dans
 **Administration → Rapports de bug** (filtre ouverts/tous, marquer résolu, supprimer).
 
+#### Conversation de support in-app (Claude raffine le ticket)
+
+Optionnel. Si `ANTHROPIC_API_KEY` est configuré, « Signaler un bug » lance une
+**conversation avec Claude côté serveur** (`server/src/anthropic.js`,
+`server/src/routes/support.js`, modèle `SupportConversation`) : Claude pose quelques
+questions de clarification puis, une fois la demande précise, **finalise** le ticket
+via un outil `submit_ticket`. La finalisation crée le `BugReport` (avec la description
+raffinée) et l'issue GitHub — c.-à-d. l'entrée du pipeline ci-dessous. La clé API
+n'est **jamais** exposée au client. Clé absente ⇒ le bouton retombe automatiquement
+sur l'**envoi direct** d'un signalement brut (comportement historique).
+
+#### Pipeline automatisé signalement → issue → PR (Claude)
+
+Optionnel. Si `GITHUB_BUG_TOKEN` est configuré, le ticket finalisé est **miroité**
+vers une **issue GitHub** (label `signalement`) — best-effort, sans jamais bloquer la
+soumission (cf. `server/src/github.js`). Le lien de l'issue est stocké sur le rapport
+et affiché dans le panneau admin. Cette issue déclenche les workflows GitHub Actions
+(`.github/workflows/`) :
+
+1. **`claude-triage.yml`** — Claude lit la description + les logs, explore le code,
+   réécrit l'issue en rapport structuré, la **classe** (labels `domaine:*` et
+   `sévérité:*`), puis — si actionnable — pose le tag **`à-valider`** et **s'arrête**
+   (sinon `besoin-info` / `wontfix`). Il ne lance pas le codage tout seul.
+2. **Validation humaine** — un développeur de l'équipe relit le rapport et, pour
+   autoriser le correctif automatique, pose lui-même le tag **`claude:fix`**. C'est le
+   gate de validation du pipeline.
+3. **`claude-fix.yml`** (**runner LOCAL**) — déclenché par `claude:fix`, Claude
+   implémente un correctif sur une branche et ouvre une **PR** (`Fixes #N`) laissée en
+   **attente de revue**. Ce workflow tourne sur un **runner self-hosted** étiqueté
+   `[self-hosted, murgatchat]` (cf. setup ci-dessous) — sur ta machine de dev, ce qui
+   lui permet de joindre le chat sur `localhost`. Dès la PR ouverte, une étape appelle
+   `POST /support/notify` du serveur, qui **poste un message dans le salon d'équipe**
+   (défaut `support-dev`) pour notifier directement dans MurgaChat.
+4. **Revue** — un humain relit la PR ; il peut ensuite demander une **seconde passe
+   IA** en posant le tag **`revue-ia`**, qui déclenche **`claude-review.yml`** : Claude
+   poste une revue consultative (sans jamais approuver ni merger). Le merge en prod
+   reste une décision humaine. (`claude.yml` permet aussi d'itérer via `@claude`.)
+
+Mise en service (une fois, **en tant que propriétaire du dépôt** — droits admin requis
+pour les secrets) :
+
+- **PAT GitHub** (`GH_BOT_TOKEN`) : un *personal access token* d'un compte ayant
+  l'écriture sur le dépôt. Fine-grained avec, sur ce dépôt, *Contents*, *Issues* et
+  *Pull requests* en **Read & write** (ou un PAT classique scope `repo`). Le PAT agit
+  comme un utilisateur réel : c'est lui qui fait que le label `claude:fix` déclenche
+  `claude-fix.yml` et que la PR déclenche la CI `tests.yml` (le token `github-actions`
+  par défaut ne le ferait pas). **Aucune App GitHub à installer.**
+- **Secrets repo** (Settings → Secrets and variables → Actions) :
+  `CLAUDE_CODE_OAUTH_TOKEN` (accès modèle, généré par `claude setup-token`),
+  `GH_BOT_TOKEN` (le PAT ci-dessus) et `SUPPORT_NOTIFY_TOKEN` (le **même** secret que
+  côté serveur, pour la notif chat — voir ci-dessous). Optionnel : variable
+  `CHAT_NOTIFY_URL` (défaut `http://localhost:4000`, joignable car le fix tourne en local).
+- **Variables serveur** (`.env`, voir `.env.example`) : `GITHUB_BUG_TOKEN` (peut être
+  le même PAT ; *Issues: write* suffit pour le pont), `GITHUB_REPO_OWNER`,
+  `GITHUB_REPO_NAME`. Token vide ⇒ pont désactivé (comportement historique).
+  `ANTHROPIC_API_KEY` (+ `SUPPORT_MODEL`, défaut `claude-opus-4-8`) pour la
+  conversation de support ; clé vide ⇒ envoi direct (chat désactivé).
+  `SUPPORT_NOTIFY_TOKEN` (+ `SUPPORT_NOTIFY_CHANNEL`, défaut `support-dev`) pour la
+  notification in-app ; vide ⇒ endpoint `/support/notify` désactivé.
+- **Runner local** (pour `claude-fix.yml`) : enregistre un *self-hosted runner* sur ta
+  machine de dev (Settings → Actions → Runners → New self-hosted runner) avec le label
+  **`murgatchat`** (en plus du `self-hosted` implicite). La machine doit avoir `git`,
+  Node/Bun, `gh`, `jq`, `curl`, et un accès au chat sur `http://localhost:4000` (l'app
+  via `docker compose up`). ⚠️ Un runner self-hosted exécute du code — il n'agit qu'après
+  le gate humain `claude:fix`, garde-le sur une machine de confiance.
+- **Labels** à créer : `signalement`, `à-valider`, `claude:fix`, `revue-ia`,
+  `besoin-info` (+ `domaine:server|web|mobile|desktop`, `sévérité:faible|moyenne|élevée`
+  pour la classification ; `wontfix`/`duplicate`/`bug` existent déjà). Ex. :
+  `gh label create "claude:fix" -c "#0e8a16" -d "Autorise le développement par Claude"`,
+  `gh label create "à-valider" -c "#fbca04" -d "Triage fait, en attente de validation dev"`,
+  `gh label create "revue-ia" -c "#5319e7" -d "Demande une revue IA de la PR"`.
+
 ## Événements Socket.IO
 
 Côté client → serveur : `channel:join`, `channel:read`, `message:send` (`{ channelId, body?, attachmentIds?, scheduledAt? }`).

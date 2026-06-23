@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../db.js";
 import { requireAuth } from "../auth.js";
+import { githubEnabled, createIssueFromBugReport } from "../github.js";
 
 const router = Router();
 
@@ -36,6 +37,8 @@ function serialize(r) {
     appVersion: r.appVersion ?? null,
     platform: r.platform ?? null,
     status: r.status,
+    githubIssueNumber: r.githubIssueNumber ?? null,
+    githubIssueUrl: r.githubIssueUrl ?? null,
     createdAt: r.createdAt,
     user: r.user
       ? {
@@ -79,6 +82,25 @@ router.post("/", requireAuth, async (req, res) => {
 
   const report = await prisma.bugReport.create({ data });
   res.status(201).json({ id: report.id });
+
+  // Mirror to GitHub out-of-band: respond fast and never let GitHub's
+  // availability affect submission. The issue triggers the claude-triage
+  // workflow; the link is stored back on the report for admin traceability.
+  if (githubEnabled()) {
+    createIssueFromBugReport({
+      ...report,
+      user: req.user ? { username: req.user.username } : null,
+    })
+      .then((issue) =>
+        issue
+          ? prisma.bugReport.update({
+              where: { id: report.id },
+              data: { githubIssueNumber: issue.number, githubIssueUrl: issue.url },
+            })
+          : null
+      )
+      .catch((e) => console.error("[github] link update failed:", e.message));
+  }
 });
 
 // Admin: paginated backlog, newest first, optional status filter.

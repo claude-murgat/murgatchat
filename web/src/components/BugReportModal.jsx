@@ -1,23 +1,35 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { api } from "../api.js";
 import { getDiagnostics, getLogLines, dumpText, entryCount } from "../logbuffer.js";
 
-// "Signaler un bug" — universal (web / PWA / desktop). Lets the user describe
-// the problem and (optionally) attach the captured diagnostic logs, which are
-// stored server-side for admins to triage. App version + platform always go
-// along (harmless, and the first thing an admin needs); detailed logs only when
-// the box is ticked. The user can preview exactly what's sent.
+// "Signaler un bug" — universal (web / PWA / desktop). The user describes the
+// problem and then refines it in a short conversation with Claude (server-side);
+// once the demand is clear, Claude finalizes it, which creates the ticket + the
+// GitHub issue that drives the triage → fix pipeline. App version + platform
+// always go along; detailed logs only when the box is ticked.
+//
+// Graceful fallback: if the support chat is disabled (no API key) or errors, the
+// first message is sent as a plain one-shot report instead — the historical
+// behavior — so reporting a bug never depends on the chat being available.
 export default function BugReportModal({ user, onClose }) {
+  // "compose" → first message form · "chat" → conversation · "done" → success.
+  const [phase, setPhase] = useState("compose");
   const [message, setMessage] = useState("");
   const [attachLogs, setAttachLogs] = useState(true);
   const [showPreview, setShowPreview] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-  const [done, setDone] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Snapshot the diagnostics + logs once when the modal opens, so the preview
-  // and the submitted payload are consistent.
+  // Conversation state (chat phase).
+  const [conversationId, setConversationId] = useState(null);
+  const [thread, setThread] = useState([]); // [{ role, content }]
+  const [input, setInput] = useState("");
+
+  const scrollRef = useRef(null);
+
+  // Snapshot diagnostics + logs once when the modal opens, so the preview and
+  // the submitted payload stay consistent across turns.
   const snapshot = useMemo(
     () => ({
       diagnostics: getDiagnostics(),
@@ -28,13 +40,23 @@ export default function BugReportModal({ user, onClose }) {
     []
   );
 
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [thread, phase]);
+
+  // Logs/diagnostics payload — only attached when the user agrees.
+  function logsPayload() {
+    return attachLogs
+      ? { logs: snapshot.logs, diagnostics: snapshot.diagnostics }
+      : {};
+  }
+
   async function copyLogs() {
     setError(null);
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(snapshot.text);
       } else {
-        // Fallback for older/iOS webviews without the async clipboard API.
         const ta = document.createElement("textarea");
         ta.value = snapshot.text;
         ta.style.position = "fixed";
@@ -70,7 +92,19 @@ export default function BugReportModal({ user, onClose }) {
     }
   }
 
-  async function submit() {
+  // Last resort when the chat is unavailable: file a plain one-shot report.
+  async function oneShotFallback(text) {
+    await api.reportBug({
+      message: text,
+      appVersion: snapshot.diagnostics.appVersion,
+      platform: snapshot.diagnostics.platform,
+      ...logsPayload(),
+    });
+    setPhase("done");
+  }
+
+  // Start: try the conversation; fall back to a one-shot report on 503/502/network.
+  async function start() {
     const text = message.trim();
     if (!text) {
       setError("Décrivez le problème avant d'envoyer.");
@@ -79,17 +113,45 @@ export default function BugReportModal({ user, onClose }) {
     setBusy(true);
     setError(null);
     try {
-      await api.reportBug({
+      const res = await api.startSupport({
         message: text,
-        // Version + platform are always useful and harmless to share.
         appVersion: snapshot.diagnostics.appVersion,
         platform: snapshot.diagnostics.platform,
-        // Detailed logs + full diagnostics only when the user agrees.
-        ...(attachLogs
-          ? { logs: snapshot.logs, diagnostics: snapshot.diagnostics }
-          : {}),
+        ...logsPayload(),
       });
-      setDone(true);
+      setConversationId(res.id);
+      setThread(res.messages || []);
+      setPhase(res.status === "submitted" ? "done" : "chat");
+    } catch (e) {
+      const code = e?.data?.error;
+      if (code === "support_chat_unavailable" || code === "support_chat_error") {
+        try {
+          await oneShotFallback(text);
+          return;
+        } catch (e2) {
+          setError(e2?.data?.error || e2?.message || "Échec de l'envoi — réessayez.");
+        }
+      } else {
+        setError(e?.data?.error || e?.message || "Échec de l'envoi — réessayez.");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Continue the conversation.
+  async function send() {
+    const text = input.trim();
+    if (!text || busy) return;
+    setBusy(true);
+    setError(null);
+    // Optimistic echo so the user sees their message immediately.
+    setThread((t) => [...t, { role: "user", content: text }]);
+    setInput("");
+    try {
+      const res = await api.sendSupport(conversationId, { message: text });
+      setThread(res.messages || []);
+      if (res.status === "submitted") setPhase("done");
     } catch (e) {
       setError(e?.data?.error || e?.message || "Échec de l'envoi — réessayez.");
     } finally {
@@ -109,16 +171,18 @@ export default function BugReportModal({ user, onClose }) {
         <div className="p-5 border-b border-slate-200">
           <h2 className="text-lg font-bold">🐞 Signaler un bug</h2>
           <p className="text-sm text-slate-500">
-            Décrivez ce qui s'est passé. Les logs aident à diagnostiquer plus vite.
+            {phase === "chat"
+              ? "Précisez votre demande avec l'assistant. Le ticket sera transmis à l'équipe."
+              : "Décrivez ce qui s'est passé. Les logs aident à diagnostiquer plus vite."}
           </p>
         </div>
 
-        {done ? (
+        {phase === "done" ? (
           <div className="p-6 flex-1 flex flex-col items-center justify-center text-center gap-3">
             <div className="text-4xl">✅</div>
-            <div className="font-semibold">Merci, votre rapport a été envoyé.</div>
+            <div className="font-semibold">Merci, votre ticket a été transmis.</div>
             <p className="text-sm text-slate-500">
-              Un administrateur pourra le consulter. Vous pouvez fermer cette fenêtre.
+              L'équipe va l'examiner. Vous pouvez fermer cette fenêtre.
             </p>
             <button
               onClick={onClose}
@@ -127,6 +191,60 @@ export default function BugReportModal({ user, onClose }) {
               Fermer
             </button>
           </div>
+        ) : phase === "chat" ? (
+          <>
+            <div ref={scrollRef} className="p-5 space-y-3 overflow-y-auto flex-1">
+              {thread.map((m, i) => (
+                <div
+                  key={i}
+                  className={m.role === "user" ? "flex justify-end" : "flex justify-start"}
+                >
+                  <div
+                    className={
+                      "max-w-[85%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap break-words " +
+                      (m.role === "user"
+                        ? "bg-aubergine-700 text-white rounded-br-sm"
+                        : "bg-slate-100 text-slate-800 rounded-bl-sm")
+                    }
+                  >
+                    {m.content}
+                  </div>
+                </div>
+              ))}
+              {busy && (
+                <div className="flex justify-start">
+                  <div className="bg-slate-100 text-slate-500 rounded-2xl rounded-bl-sm px-3 py-2 text-sm">
+                    L'assistant réfléchit…
+                  </div>
+                </div>
+              )}
+              {error && <p className="text-sm text-red-600">{error}</p>}
+            </div>
+
+            <div className="p-3 border-t border-slate-200 flex items-end gap-2">
+              <textarea
+                autoFocus
+                rows={2}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    send();
+                  }
+                }}
+                placeholder="Votre réponse… (Entrée pour envoyer)"
+                className="flex-1 border border-slate-300 rounded-md px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-aubergine-400"
+              />
+              <button
+                onClick={send}
+                disabled={busy || !input.trim()}
+                className="px-4 py-2 rounded-md bg-aubergine-700 text-white text-sm disabled:opacity-50"
+              >
+                Envoyer
+              </button>
+            </div>
+          </>
         ) : (
           <>
             <div className="p-5 space-y-4 overflow-y-auto">
@@ -206,11 +324,11 @@ export default function BugReportModal({ user, onClose }) {
                 Annuler
               </button>
               <button
-                onClick={submit}
+                onClick={start}
                 disabled={busy || !message.trim()}
                 className="px-4 py-1.5 rounded-md bg-aubergine-700 text-white text-sm disabled:opacity-50"
               >
-                {busy ? "Envoi…" : "Envoyer"}
+                {busy ? "Envoi…" : "Démarrer"}
               </button>
             </div>
           </>
