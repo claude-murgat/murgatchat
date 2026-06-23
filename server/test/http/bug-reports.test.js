@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import request from "supertest";
 import { createServer } from "../../src/index.js";
 import { registerUser, authed } from "../helpers/api.js";
@@ -11,6 +11,17 @@ beforeAll(() => {
 afterAll(() => {
   io.close();
 });
+
+// Poll until `fn` returns a truthy value (the GitHub mirror runs out-of-band,
+// after the 201 response).
+async function waitFor(fn, { tries = 50, delay = 10 } = {}) {
+  for (let i = 0; i < tries; i++) {
+    const v = await fn();
+    if (v) return v;
+    await new Promise((r) => setTimeout(r, delay));
+  }
+  return null;
+}
 
 describe("POST /bug-reports", () => {
   it("any authenticated user can file a report; it is stored", async () => {
@@ -67,6 +78,72 @@ describe("POST /bug-reports", () => {
     expect(res.status).toBe(201);
     const row = await prisma.bugReport.findUnique({ where: { id: res.body.id } });
     expect(row.diagnostics).toEqual({ truncated: true });
+  });
+});
+
+describe("POST /bug-reports → GitHub bridge", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    delete process.env.GITHUB_BUG_TOKEN;
+  });
+
+  it("mirrors a new report to a GitHub issue and stores the link", async () => {
+    process.env.GITHUB_BUG_TOKEN = "tok";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ number: 7, html_url: "https://github.com/x/y/issues/7" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const owner = await registerUser(app); // owner = admin
+    const res = await authed(app, owner.token)
+      .post("/bug-reports")
+      .send({ message: "boom", logs: "ligne de log" });
+    expect(res.status).toBe(201);
+
+    const linked = await waitFor(async () => {
+      const row = await prisma.bugReport.findUnique({ where: { id: res.body.id } });
+      return row?.githubIssueNumber ? row : null;
+    });
+    expect(linked).not.toBeNull();
+    expect(linked.githubIssueNumber).toBe(7);
+    expect(linked.githubIssueUrl).toBe("https://github.com/x/y/issues/7");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // The link surfaces through the admin serializer.
+    const list = await authed(app, owner.token).get("/bug-reports");
+    const found = list.body.reports.find((r) => r.id === res.body.id);
+    expect(found.githubIssueUrl).toBe("https://github.com/x/y/issues/7");
+  });
+
+  it("still returns 201 when the GitHub bridge fails (best-effort)", async () => {
+    process.env.GITHUB_BUG_TOKEN = "tok";
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("down")));
+
+    const owner = await registerUser(app);
+    const res = await authed(app, owner.token)
+      .post("/bug-reports")
+      .send({ message: "still ok" });
+    expect(res.status).toBe(201);
+
+    const row = await prisma.bugReport.findUnique({ where: { id: res.body.id } });
+    expect(row.message).toBe("still ok");
+    expect(row.githubIssueNumber).toBeNull();
+  });
+
+  it("does not call GitHub when the bridge is disabled (no token)", async () => {
+    delete process.env.GITHUB_BUG_TOKEN;
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const owner = await registerUser(app);
+    const res = await authed(app, owner.token)
+      .post("/bug-reports")
+      .send({ message: "no bridge" });
+    expect(res.status).toBe(201);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

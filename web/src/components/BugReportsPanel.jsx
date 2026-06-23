@@ -246,31 +246,45 @@ export default function BugReportsPanel() {
                 {expanded && (
                   <>
                     <ReportDetail report={r} />
-                    <div className="flex flex-wrap gap-1 justify-end mt-2">
-                      {r.status === "open" ? (
-                        <button
-                          disabled={busyId === r.id}
-                          onClick={() => changeStatus(r, "closed")}
-                          className="text-xs px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    <div className="flex flex-wrap items-center gap-1 justify-between mt-2">
+                      {r.githubIssueUrl ? (
+                        <a
+                          href={r.githubIssueUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs text-aubergine-700 hover:underline"
                         >
-                          Marquer résolu
-                        </button>
+                          Issue GitHub #{r.githubIssueNumber}
+                        </a>
                       ) : (
+                        <span />
+                      )}
+                      <div className="flex flex-wrap gap-1">
+                        {r.status === "open" ? (
+                          <button
+                            disabled={busyId === r.id}
+                            onClick={() => changeStatus(r, "closed")}
+                            className="text-xs px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                          >
+                            Marquer résolu
+                          </button>
+                        ) : (
+                          <button
+                            disabled={busyId === r.id}
+                            onClick={() => changeStatus(r, "open")}
+                            className="text-xs px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                          >
+                            Rouvrir
+                          </button>
+                        )}
                         <button
                           disabled={busyId === r.id}
-                          onClick={() => changeStatus(r, "open")}
-                          className="text-xs px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                          onClick={() => setConfirmDelete(r)}
+                          className="text-xs px-2 py-1 rounded border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50"
                         >
-                          Rouvrir
+                          Supprimer
                         </button>
-                      )}
-                      <button
-                        disabled={busyId === r.id}
-                        onClick={() => setConfirmDelete(r)}
-                        className="text-xs px-2 py-1 rounded border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50"
-                      >
-                        Supprimer
-                      </button>
+                      </div>
                     </div>
                   </>
                 )}

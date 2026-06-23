@@ -1,0 +1,54 @@
+# Étape 2 du pipeline de signalement.
+# Déclenché quand claude-triage (ou un humain) pose le tag « claude:fix » sur une
+# issue. Claude implémente un correctif sur une branche et OUVRE une vraie PR.
+#
+# NB : l'action ne crée PAS de PR toute seule (elle pousse une branche et fournit
+# un lien). On demande donc explicitement `gh pr create`. La PR, ouverte via le PAT
+# (secret GH_BOT_TOKEN), déclenche la CI tests.yml. Laisser la PR en attente de revue
+# humaine — c'est la seule porte de validation du pipeline.
+name: claude-fix
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+concurrency:
+  group: claude-fix-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  fix:
+    if: github.event.label.name == 'claude:fix'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GH_BOT_TOKEN }}
+          prompt: |
+            Implémente un correctif pour l'issue #${{ github.event.issue.number }} de MurgaChat
+            (dépôt ${{ github.repository }}). Travaille et rédige en français.
+
+            1. Lis l'issue (rapport structuré produit au triage) et le code concerné.
+            2. Crée une branche `claude/fix-issue-${{ github.event.issue.number }}`.
+            3. Applique le correctif MINIMAL et cohérent avec le style du dépôt
+               (JavaScript ESM, pas de TypeScript ; conventions existantes).
+            4. Ajoute ou ajuste un test si pertinent (Vitest dans server/ ; Playwright dans e2e/).
+            5. Commit, puis pousse la branche.
+            6. OUVRE une Pull Request vers `main` avec `gh pr create` : titre explicite, et corps
+               en français décrivant le diagnostic et le correctif, terminé par une ligne
+               « Fixes #${{ github.event.issue.number }} » pour lier et clore l'issue au merge.
+            7. N'effectue AUCUNE action destructrice et ne fusionne pas : la PR doit rester en
+               attente de revue humaine.
+          claude_args: |
+            --max-turns 30
+            --model claude-sonnet-4-6

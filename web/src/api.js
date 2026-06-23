@@ -190,6 +190,15 @@ export const api = {
     request("/auth/web-push/subscribe", { method: "DELETE", body: { endpoint } }),
   // Bug reports: any user can file one; admins consult/triage them.
   reportBug: (body) => request("/bug-reports", { method: "POST", body }),
+  // Support conversation: chat with Claude to refine a ticket. startSupport may
+  // throw a 503 (support_chat_unavailable) when no ANTHROPIC_API_KEY is set —
+  // callers fall back to reportBug.
+  startSupport: (body) => request("/support/conversations", { method: "POST", body }),
+  sendSupport: (id, body) =>
+    request(`/support/conversations/${encodeURIComponent(id)}/messages`, {
+      method: "POST",
+      body,
+    }),
   listBugReports: ({ page = 1, pageSize = 30, status = "" } = {}) => {
     const params = new URLSearchParams();
     if (page > 1) params.set("page", String(page));
