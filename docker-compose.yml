@@ -65,6 +65,11 @@ services:
       # Voir .env.example.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       SUPPORT_MODEL: ${SUPPORT_MODEL:-claude-opus-4-8}
+      # Notification in-app du pipeline : le workflow claude-fix appelle
+      # POST /support/notify avec ce secret partagé pour poster un message dans
+      # le salon d'équipe à l'ouverture d'une PR. Vide = endpoint désactivé.
+      SUPPORT_NOTIFY_TOKEN: ${SUPPORT_NOTIFY_TOKEN:-}
+      SUPPORT_NOTIFY_CHANNEL: ${SUPPORT_NOTIFY_CHANNEL:-support-dev}
     ports:
       - "4000:4000"
     volumes:

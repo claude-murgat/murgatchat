@@ -53,7 +53,12 @@ jobs:
                reproduction probables », « Cause racine suspectée », « Fichiers concernés »
                (chemins relatifs), « Sévérité » (faible / moyenne / élevée). Conserve le bloc
                Logs d'origine, replié, en bas.
-            4. Décision :
+            4. Classe l'issue avec des labels (`gh issue edit … --add-label`) :
+               - domaine : un seul parmi « domaine:server », « domaine:web », « domaine:mobile »,
+                 « domaine:desktop » selon les fichiers concernés ;
+               - sévérité : un seul parmi « sévérité:faible », « sévérité:moyenne », « sévérité:élevée »,
+                 cohérent avec la section « Sévérité ».
+            5. Décision :
                - Actionnable et de risque raisonnable → ajoute le label « à-valider »
                  (`gh issue edit ${{ github.event.issue.number }} --add-label "à-valider"`)
                  puis poste un commentaire (`gh issue comment`) résumant le diagnostic et
@@ -63,7 +68,7 @@ jobs:
                - Sinon → ajoute « besoin-info » (infos manquantes) ou « wontfix », et poste un
                  commentaire (`gh issue comment`) expliquant pourquoi, SANS poser « à-valider »
                  ni « claude:fix ».
-            5. Dans tous les cas, retire le label « signalement »
+            6. Dans tous les cas, retire le label « signalement »
                (`gh issue edit ${{ github.event.issue.number }} --remove-label "signalement"`).
           claude_args: |
             --max-turns 15

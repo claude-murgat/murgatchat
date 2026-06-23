@@ -4,6 +4,8 @@ import { prisma } from "../db.js";
 import { requireAuth } from "../auth.js";
 import { anthropicEnabled, runSupportTurn, MAX_TURNS } from "../anthropic.js";
 import { githubEnabled, createIssueFromBugReport } from "../github.js";
+import { notifyEnabled, tokenMatches, postPipelineMessage } from "../notify.js";
+import { notifyMembers } from "../socket.js";
 
 const router = Router();
 
@@ -194,6 +196,43 @@ router.post("/conversations/:id/messages", requireAuth, async (req, res) => {
     data: { messages },
   });
   res.json({ ...serialize(updated), reply: turn.reply });
+});
+
+// Pipeline → chat notification. Called by the claude-fix workflow (machine to
+// machine) when a PR is opened, so the team is pinged in-app. Auth is a shared
+// secret (SUPPORT_NOTIFY_TOKEN), NOT a user JWT — hence no requireAuth.
+const notifySchema = z.object({
+  issueNumber: z.number().int().positive().optional(),
+  prUrl: z.string().url().max(500),
+  title: z.string().max(300).optional(),
+});
+
+router.post("/notify", async (req, res) => {
+  if (!notifyEnabled()) return res.status(503).json({ error: "notify_disabled" });
+  const auth = req.headers.authorization || "";
+  const provided = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (!tokenMatches(provided)) return res.status(401).json({ error: "unauthorized" });
+
+  const parsed = notifySchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: "invalid_payload" });
+  const { issueNumber, prUrl, title } = parsed.data;
+
+  const head = issueNumber ? `🤖 PR ouverte pour l'issue #${issueNumber}` : "🤖 PR ouverte";
+  const text =
+    `${head}${title ? ` — ${title}` : ""}\n${prUrl}\n\n` +
+    `À relire, puis poser le label « revue-ia » sur la PR pour une revue IA automatique.`;
+
+  try {
+    const { channelId, authorId, serialized } = await postPipelineMessage(text);
+    if (req.io) {
+      req.io.to(`channel:${channelId}`).emit("message:new", serialized);
+      await notifyMembers(req.io, channelId, authorId, serialized);
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("[notify] failed:", e.message);
+    res.status(500).json({ error: "notify_failed" });
+  }
 });
 
 export default router;

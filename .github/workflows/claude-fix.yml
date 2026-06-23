@@ -1,6 +1,14 @@
-# Étape 2 du pipeline de signalement.
-# Déclenché quand claude-triage (ou un humain) pose le tag « claude:fix » sur une
-# issue. Claude implémente un correctif sur une branche et OUVRE une vraie PR.
+# Étape 2 du pipeline de signalement (DÉVELOPPEMENT, sur runner LOCAL).
+# Déclenché quand un humain pose le tag « claude:fix » sur une issue (gate de
+# validation, cf. claude-triage.yml). Claude implémente un correctif sur une
+# branche et OUVRE une vraie PR, puis notifie l'équipe directement dans le chat
+# MurgaChat.
+#
+# Pourquoi un runner LOCAL (self-hosted) : le développement tourne sur ta
+# machine de dev (là où l'app + le chat tournent), ce qui permet à l'étape de
+# notification de joindre le serveur sur http://localhost:4000. Enregistre un
+# runner self-hosted avec le label « murgatchat » (Settings → Actions → Runners),
+# avec git, Node/Bun, gh, jq et curl disponibles. Voir README.
 #
 # NB : l'action ne crée PAS de PR toute seule (elle pousse une branche et fournit
 # un lien). On demande donc explicitement `gh pr create`. La PR, ouverte via le PAT
@@ -25,7 +33,7 @@ concurrency:
 jobs:
   fix:
     if: github.event.label.name == 'claude:fix'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, murgatchat]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -52,3 +60,29 @@ jobs:
           claude_args: |
             --max-turns 30
             --model claude-sonnet-4-6
+
+      # Notifie l'équipe dans le chat MurgaChat dès que la PR est ouverte. Best-effort :
+      # n'échoue jamais le job (la PR existe déjà). Requiert le secret SUPPORT_NOTIFY_TOKEN
+      # (partagé avec le serveur) et, optionnellement, la variable CHAT_NOTIFY_URL
+      # (défaut http://localhost:4000, joignable car runner local).
+      - name: Notifier MurgaChat
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GH_BOT_TOKEN }}
+          NOTIFY_TOKEN: ${{ secrets.SUPPORT_NOTIFY_TOKEN }}
+          CHAT_NOTIFY_URL: ${{ vars.CHAT_NOTIFY_URL || 'http://localhost:4000' }}
+          ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ -z "$NOTIFY_TOKEN" ]; then echo "SUPPORT_NOTIFY_TOKEN absent → pas de notif"; exit 0; fi
+          PR_URL=$(gh pr list --repo "$REPO" --head "claude/fix-issue-$ISSUE" --state open --json url --jq '.[0].url // ""')
+          if [ -z "$PR_URL" ]; then echo "Aucune PR ouverte trouvée → pas de notif"; exit 0; fi
+          TITLE=$(gh issue view "$ISSUE" --repo "$REPO" --json title --jq '.title')
+          PAYLOAD=$(jq -n --argjson n "$ISSUE" --arg u "$PR_URL" --arg t "$TITLE" \
+            '{issueNumber:$n, prUrl:$u, title:$t}')
+          curl -fsS -X POST "$CHAT_NOTIFY_URL/support/notify" \
+            -H "Authorization: Bearer $NOTIFY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            && echo "Chat notifié : $PR_URL" \
+            || echo "Notif chat échouée (non bloquant)"

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
+import request from "supertest";
 import { createServer } from "../../src/index.js";
 import { registerUser, authed } from "../helpers/api.js";
 import { prisma } from "../helpers/db.js";
@@ -147,5 +148,62 @@ describe("POST /support/conversations", () => {
       .send({ message: "encore" });
     expect(again.status).toBe(409);
     expect(again.body.error).toBe("conversation_closed");
+  });
+});
+
+describe("POST /support/notify", () => {
+  const PR = "https://github.com/claude-murgat/murgatchat/pull/42";
+
+  afterEach(() => {
+    delete process.env.SUPPORT_NOTIFY_TOKEN;
+    delete process.env.SUPPORT_NOTIFY_CHANNEL;
+  });
+
+  it("503 when the notifier is disabled (no token)", async () => {
+    delete process.env.SUPPORT_NOTIFY_TOKEN;
+    const res = await request(app).post("/support/notify").send({ prUrl: PR });
+    expect(res.status).toBe(503);
+    expect(res.body.error).toBe("notify_disabled");
+  });
+
+  it("401 on a wrong shared secret", async () => {
+    process.env.SUPPORT_NOTIFY_TOKEN = "s3cret";
+    const res = await request(app)
+      .post("/support/notify")
+      .set("Authorization", "Bearer nope")
+      .send({ prUrl: PR });
+    expect(res.status).toBe(401);
+  });
+
+  it("400 on an invalid payload (missing/!url prUrl)", async () => {
+    process.env.SUPPORT_NOTIFY_TOKEN = "s3cret";
+    const res = await request(app)
+      .post("/support/notify")
+      .set("Authorization", "Bearer s3cret")
+      .send({ issueNumber: 1, prUrl: "not-a-url" });
+    expect(res.status).toBe(400);
+  });
+
+  it("posts a bot message into the team channel on a valid call", async () => {
+    process.env.SUPPORT_NOTIFY_TOKEN = "s3cret";
+    process.env.SUPPORT_NOTIFY_CHANNEL = "support-dev";
+    const res = await request(app)
+      .post("/support/notify")
+      .set("Authorization", "Bearer s3cret")
+      .send({ issueNumber: 42, prUrl: PR, title: "Salon bloqué" });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+
+    const bot = await prisma.user.findUnique({ where: { username: "claude" } });
+    expect(bot).not.toBeNull();
+    const channel = await prisma.channel.findFirst({ where: { name: "support-dev" } });
+    expect(channel).not.toBeNull();
+    const msg = await prisma.message.findFirst({
+      where: { channelId: channel.id, authorId: bot.id },
+    });
+    expect(msg).not.toBeNull();
+    // searchableBody is the plaintext mirror — assert the PR link + issue made it in.
+    expect(msg.searchableBody).toContain(PR);
+    expect(msg.searchableBody).toContain("#42");
   });
 });
