@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-06-10** (PWA + responsive web).
+Dernière mise à jour : **2026-06-23** (auto-updater desktop signé + installation tous-utilisateurs/TSE, recherche unifiée dans la sidebar, fix notifs PWA/desktop, réouverture sur la dernière conversation).
 
 ---
 
@@ -342,7 +342,9 @@ rebuildés en **0.5.1** (versionCode 7).
 
 - Client → serveur : `channel:join`, `channel:read`, `message:send`
   (`{channelId, body?, attachmentIds?, scheduledAt?, parentId?}`), `typing {channelId}`,
-  `activity` (heartbeat web/desktop). Handshake : `auth.platform` (`web`/`desktop`/`mobile`).
+  `activity` (heartbeat web/desktop ~60s) + `away` (fenêtre masquée / onglet en arrière-plan →
+  relance le push ; sur desktop Tauri, piloté par l'état natif réel de la fenêtre, cf #78).
+  Handshake : `auth.platform` (`web`/`desktop`/`mobile`).
 - Serveur → client : `message:new` (les réponses incluses, avec `parent` pour la
   citation inline — plus de `thread:reply` depuis v0.5.0), `message:updated`,
   `message:deleted`, `reaction:update`, `channel:created`, `channel:removed`,
@@ -549,3 +551,102 @@ globalSetup crée automatiquement la nouvelle table.
     navigateur, iOS A2HS) inchangés. `injectRegister: false` côté vite-plugin-pwa →
     gater ce seul point suffit. Transition : sur la 1ʳᵉ build avec ce fix, un dernier
     Ctrl+F5 charge le code de purge, puis le SW disparaît définitivement.
+
+## Itération 2026-06-17 — correctifs 0.6.1 (GIF, bannière de MAJ)
+
+47. **GIF « server_error » à l'envoi** — envoyer un GIF renvoyait `server_error`. Cause :
+    le client lisait `att.id` (undefined) au lieu de `att.attachment.id` dans la réponse
+    `importGif`, et Prisma plantait sur un `where id in [undefined]`. Fix : les Composer web +
+    mobile destructurent `{ attachment }` et utilisent `attachment.id` ; + garde serveur dans
+    `message:send` (sanitisation des `attachmentIds` → ne garde que des ids string non vides).
+    Découvert via un test de repro (qui passait, car il utilisait le bon chemin).
+48. **Bannière de MAJ en bas sur mobile** — sur web/PWA mobile, la bannière « Nouvelle
+    version » masquait le header ; repositionnée en bas (`order-last md:order-none` + safe-area).
+    Le bouton « Rafraîchir » fait un **hardReload** (purge des Cache Storage + `SKIP_WAITING`
+    du SW) pour ne pas re-servir l'app shell précachée (sinon la bannière revenait en boucle).
+
+## Itération 2026-06-22 — fiabilité push PWA, badge tray, install PWA, CI allégée (0.6.2)
+
+49. **iOS web push — `VAPID_SUBJECT` réel** — un compte sur iOS + Android ne recevait le push
+    que sur Android. Cause : `VAPID_SUBJECT` au défaut `mailto:admin@murgat-chat.local` ;
+    Apple (`web.push.apple.com`) **valide le claim `sub` du JWT VAPID et rejette** un sujet
+    non routable (FCM l'ignore → Android marchait). Fix : `VAPID_SUBJECT` = vraie adresse
+    (`mailto:lesfontaines@charlesmurgat.com`) + restart serveur. **Pas de re-souscription** —
+    le sujet est signé à l'**envoi**, pas à la souscription ; ne pas toucher aux clés VAPID.
+50. **Fiabilité du push PWA (#72)** — le push pouvait mettre jusqu'à 10 min à reprendre après
+    mise en arrière-plan du téléphone. La fenêtre « away » de `webDesktopInactive` passe de
+    **10 min à ~150s** (`AWAY_AFTER_MS`) : c'est ce fallback qui relance vraiment le push pour
+    un téléphone fraîchement backgroundé (le signal « away » du PWA n'est pas fiable, l'OS
+    suspend le JS avant le flush). Côté client, **re-souscription au retour au premier plan**
+    (`resubscribeIfNeeded` dans `pwa.js`) si l'abonnement a expiré/été élagué.
+51. **Badge non-lu sur l'icône du tray — desktop (#74)** — un point rouge est peint sur
+    l'icône du tray Tauri à la réception d'un message (fenêtre non focus), effacé au retour du
+    focus. Pur Rust (disque RGBA peint sur l'icône par défaut, pas de second asset), via une
+    commande `set_tray_badge` invoquée depuis le front (no-op web/PWA).
+52. **Bannière « Installer la PWA » — mobile web (#73)** — sur navigateur mobile (hors Tauri,
+    hors PWA déjà installée), une bannière dismissible en bas invite à installer la PWA
+    (Android : bouton via `beforeinstallprompt` ; iOS Safari : instructions Partager → Ajouter
+    à l'écran d'accueil). Dismiss persisté en `localStorage`.
+53. **CI de release allégée — plus d'APK (#75)** — le job `android` est retiré de
+    `release.yml` (mobile = PWA-only depuis le pivot) → release plus rapide. La release ne
+    build plus que l'installeur desktop ; la validation de version ne vérifie plus que les **3
+    fichiers web/desktop** (`web/package.json`, `tauri.conf.json`, `Cargo.toml`).
+
+## Itération 2026-06-23 — notifs desktop, dernière conversation, recherche unifiée, install & auto-update (0.6.3 + 0.6.4)
+
+54. **Fix présence desktop « tray » — notifs (0.6.3, #78)** — diagnostiqué via un log serveur
+    (`[push] notifying 0 native + 1 web for 1 away user(s)` sur une conv à 3 membres tous
+    masqués dans le tray). **Cause racine commune** : une fenêtre Tauri masquée dans le tray
+    garde `document.visibilityState='visible'` ET `document.hasFocus()=true`. Deux symptômes :
+    (1) le heartbeat `activity` continuait d'annoncer le desktop « actif » → la passerelle away
+    (par utilisateur) **coupait le push vers le téléphone du même compte** ; (2)
+    `isWindowFocused()` renvoyait `true` → `onNotif` supprimait **toast ET point rouge**
+    (« rien du tout, même pas le point rouge »). Fix : suivi de l'état natif réel
+    (`isVisible`/`isMinimized`/`isFocused` + `onFocusChanged`, poll 20s de secours) dans
+    `desktop.js`, exposé via `isAppHidden()` (pilote le heartbeat) et un `isWindowFocused()`
+    **Tauri-aware** ; capabilities `core:window:allow-is-visible/-is-minimized/-is-focused`.
+    Navigateur/PWA inchangés (Page Visibility API). **Bug latent**, pas une régression. En
+    prime : init notifs Windows plus robuste (ne capitule plus si la permission se lit « non
+    accordée » — faux négatif fréquent sous Windows). Validé en live (build DevTools).
+55. **Réouverture sur la dernière conversation (0.6.3, #77)** — tous les clients rouvrent sur
+    la dernière conversation **vue** au lieu du premier salon. `activeChannelId` persisté en
+    `localStorage` par utilisateur (`murgat:lastChannel:<userId>`), restauré au chargement s'il
+    existe encore (sinon premier salon). Un deep-link de notif (`?channel=`) reste prioritaire.
+56. **Recherche unifiée (« quick switcher ») + retrait de la recherche de messages (0.6.4, #80)**
+    — un **seul champ** en haut de la sidebar remplace les boutons parcourir-salons +
+    nouveau-salon + nouveau-DM. Vide → listes normales ; en tapant → résultats groupés : vos
+    conversations (switch), salons publics à rejoindre, personnes (→ DM direct), et actions
+    « Créer le salon … » (ouvre le formulaire **pré-rempli**) / « Nouveau groupe ». **Insensible
+    aux accents** (« gen » trouve « Général »). Nouveau `QuickSwitcher.jsx`. La **recherche de
+    messages est retirée** (bouton 🔍 + raccourci Ctrl/Cmd+K + `SearchModal` supprimés ;
+    `BrowseChannelsModal` aussi, fondu dans la recherche) — la route backend `/search` est
+    laissée en place (inoffensive). E2E ajusté (création de salon via la recherche). Validé en
+    live contre le stack.
+57. **Bouton retour du téléphone → liste (0.6.4, #80)** — sur mobile/PWA, le bouton retour
+    système quand on est sur une conversation la **ferme** (réaffiche la liste) au lieu de
+    quitter l'app, via un sentinel History (push à l'ouverture d'une conversation, `popstate` →
+    désélection). No-op en layout desktop/tablette (2 volets). Le bouton retour in-app passe
+    par le même `history.back()` pour rester synchro.
+58. **Installation tous-utilisateurs / TSE (0.6.4, #83)** — NSIS `installMode: "both"` dans
+    `tauri.conf.json` : l'installeur laisse choisir « Moi seul » (per-user, sans admin) ou
+    « Tous les utilisateurs » (perMachine, élévation) — pour un usage Terminal Server (RDS).
+59. **Auto-updater desktop signé (0.6.4, #83)** — plugin **updater Tauri** : au lancement,
+    l'app interroge `latest.json` (GitHub Releases, endpoint `/releases/latest/download/latest.json`),
+    télécharge la version **signée**, l'installe et relance. Config : `bundle.createUpdaterArtifacts`
+    + `plugins.updater` (endpoint + `pubkey`) ; plugins Rust `tauri-plugin-updater` +
+    `tauri-plugin-process` ; capabilities `updater:default` + `process:allow-restart` ; deps JS
+    `@tauri-apps/plugin-updater` + `plugin-process`. La bannière de MAJ **desktop installe** en
+    place (download → install → relaunch) au lieu d'ouvrir un lien ; le web/PWA garde
+    « Rafraîchir ». `release.yml` + `desktop-installer.yml` signent via le secret
+    **`TAURI_SIGNING_PRIVATE_KEY`** (clé privée **hors repo** : `~/.tauri/murgatchat_updater.key`,
+    **à sauvegarder** — la perdre casse l'auto-update des installs existantes ; clé publique
+    committée dans `tauri.conf.json`). ⚠️ `createUpdaterArtifacts` ⇒ **tout** build desktop
+    (y compris le test) exige le secret. MAJ auto **fluide pour les installs per-user** ;
+    **perMachine/TSE** (Program Files) demande l'admin → MAJ gérées centralement par l'admin.
+    **Vers l'avant uniquement** : 0.6.4 = dernière install manuelle, puis 0.6.4 → 0.6.5+
+    automatique. `latest.json` de la release vérifié valide + signé.
+
+> **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
+> GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
+> **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
+> installeur **signé** + `latest.json` → point de départ de l'auto-update).
