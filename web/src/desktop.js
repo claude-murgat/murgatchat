@@ -5,6 +5,57 @@ export function isTauri() {
   return typeof window !== "undefined" && !!window.__TAURI_INTERNALS__;
 }
 
+// ── Native window presence (Tauri only) ────────────────────────────────────
+// The webview reports document.visibilityState = "visible" even when the OS
+// window is hidden to the tray or minimised, so the activity heartbeat would
+// keep telling the server "I'm here" — and because the push away-gate is
+// per-user, an idle desktop sitting in the tray then SUPPRESSES push to the
+// user's phone. Track the REAL native window state via the Tauri API instead.
+let desktopForeground = true;
+
+async function refreshDesktopForeground(win) {
+  try {
+    const visible = await win.isVisible().catch(() => true);
+    const minimized = await win.isMinimized().catch(() => false);
+    const fg = !!visible && !minimized;
+    if (fg !== desktopForeground) {
+      desktopForeground = fg;
+      window.dispatchEvent(
+        new CustomEvent("desktop:presence", { detail: { foreground: fg } })
+      );
+    }
+  } catch {
+    // Keep the last known state on any transient API error.
+  }
+}
+
+async function initDesktopPresence() {
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const win = getCurrentWindow();
+    await refreshDesktopForeground(win); // initial state (covers autostart --hidden)
+    // Focus changes bracket every tray show/hide and minimise/restore.
+    try {
+      await win.onFocusChanged(() => refreshDesktopForeground(win));
+    } catch {
+      // Event listening unavailable — the poll below still keeps us in sync.
+    }
+    // Backstop for transitions that don't flip focus (e.g. hiding an already
+    // unfocused window): re-check on a slow interval.
+    setInterval(() => refreshDesktopForeground(win), 20_000);
+  } catch (e) {
+    console.warn("[desktop] presence tracking init failed:", e?.message || e);
+  }
+}
+
+// True when the app is NOT in the foreground (so an away/push is warranted).
+// Tauri: reflects the real native window (tray-hidden / minimised = away). In
+// the browser/PWA the Page Visibility API is reliable, so use it directly.
+export function isAppHidden() {
+  if (isTauri()) return !desktopForeground;
+  return typeof document !== "undefined" && document.visibilityState === "hidden";
+}
+
 // Open an external URL in the OS default browser via the opener plugin.
 // Exported so buttons (not just <a> links) can reach the browser under Tauri —
 // window.open is swallowed by the webview (same root cause as #43).
@@ -45,14 +96,33 @@ async function init() {
     // Bind the external-link handler first, independent of the notification
     // permission flow below (which can early-return).
     initExternalLinks();
+    // Track real native-window visibility (tray hide / minimise) so the away
+    // heartbeat is accurate — see isAppHidden(). Independent of notifications.
+    initDesktopPresence();
     try {
       const mod = await import("@tauri-apps/plugin-notification");
-      const granted = await mod.isPermissionGranted();
+      let granted = await mod.isPermissionGranted();
       if (!granted) {
-        const perm = await mod.requestPermission();
-        if (perm !== "granted") return null;
+        try {
+          granted = (await mod.requestPermission()) === "granted";
+        } catch {
+          // Windows has no runtime prompt; treat a throw as "unknown", try anyway.
+        }
       }
       tauriNotify = mod;
+      // Keep tauri mode even if `granted` reads false: on Windows the permission
+      // is frequently reported false while the OS still delivers toasts, and a
+      // genuine denial just makes sendNotification a caught no-op below. Falling
+      // back to the webview Notification API instead would show NOTHING on
+      // Windows — strictly worse than trying. Warn (not log) when ungranted so a
+      // desktop bug report captures it (the ring only keeps warn/error).
+      if (granted) {
+        console.log("[desktop] notifications ready (tauri, permission granted)");
+      } else {
+        console.warn(
+          "[desktop] notifications: permission reads NOT granted — trying tauri toasts anyway (check Windows notification settings if none appear)"
+        );
+      }
       return "tauri";
     } catch (e) {
       console.error("[desktop] tauri notification init failed:", e);

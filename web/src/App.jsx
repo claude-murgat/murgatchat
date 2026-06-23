@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { api, getToken, setToken } from "./api.js";
 import { getSocket, closeSocket } from "./socket.js";
-import { notify, isWindowFocused, ensureReady, setTrayBadge } from "./desktop.js";
+import { notify, isWindowFocused, ensureReady, setTrayBadge, isAppHidden } from "./desktop.js";
 import { ensurePwaReady, isPwaInstalled, unsubscribePush, resubscribeIfNeeded } from "./pwa.js";
 import Login from "./components/Login.jsx";
 import Sidebar from "./components/Sidebar.jsx";
@@ -281,32 +281,35 @@ export default function App() {
   }, [user]);
 
   // Tell the server whether the user can actually SEE the app: "activity" while
-  // the page is visible (no push needed — they'll see the in-app toast), "away"
-  // the instant it's hidden (PWA backgrounded, window/tab minimised). The server
-  // then pushes immediately instead of waiting out a 10-min idle window. Also
-  // re-reported on every (re)connect so a background reconnect isn't seen "active".
+  // it's in the foreground (no push needed — they'll see the in-app toast),
+  // "away" the instant it's hidden (PWA backgrounded, tab/window minimised, or —
+  // on desktop — the Tauri window hidden to the tray, which document visibility
+  // misses; isAppHidden() covers all three). The server then pushes to the
+  // user's other devices instead of waiting out the idle window. Re-reported on
+  // every (re)connect so a background reconnect isn't seen "active".
   useEffect(() => {
     if (!socket) return;
     const report = () => {
-      const hidden =
-        typeof document !== "undefined" && document.visibilityState === "hidden";
-      socket.emit(hidden ? "away" : "activity");
+      socket.emit(isAppHidden() ? "away" : "activity");
     };
     report();
     socket.on("connect", report);
     const onVisibility = () => report();
     const onFocus = () => socket.emit("activity");
+    // Desktop (Tauri): the native window was hidden to / restored from the tray.
+    // document.visibilitychange doesn't fire for that, so desktop.js emits this.
+    const onDesktopPresence = () => report();
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onFocus);
+    window.addEventListener("desktop:presence", onDesktopPresence);
     const iv = setInterval(() => {
-      if (typeof document === "undefined" || document.visibilityState !== "hidden") {
-        socket.emit("activity");
-      }
+      if (!isAppHidden()) socket.emit("activity");
     }, 60_000);
     return () => {
       socket.off("connect", report);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener("desktop:presence", onDesktopPresence);
       clearInterval(iv);
     };
   }, [socket]);
