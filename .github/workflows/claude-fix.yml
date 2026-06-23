@@ -36,7 +36,16 @@ jobs:
     runs-on: [self-hosted, murgatchat]
     timeout-minutes: 30
     steps:
+      # Récupère le code à jour (checkout sur la branche par défaut au SHA courant).
       - uses: actions/checkout@v4
+
+      # Le serveur n'est pas forcément déjà démarré sur la machine du runner. On
+      # (re)démarre le chat avec le code à jour AVANT de coder, pour que Claude
+      # puisse reproduire/tester contre l'app et que l'étape de notification finale
+      # joigne le serveur sur http://localhost:4000.
+      # Prérequis machine : Docker + docker compose + un .env (gitignoré) présent.
+      - name: Démarrer le chat en local
+        run: docker compose up -d --build
 
       - uses: anthropics/claude-code-action@v1
         with:
@@ -45,6 +54,9 @@ jobs:
           prompt: |
             Implémente un correctif pour l'issue #${{ github.event.issue.number }} de MurgaChat
             (dépôt ${{ github.repository }}). Travaille et rédige en français.
+
+            L'application tourne en local (API http://localhost:4000, web http://localhost:5173) :
+            utilise-la pour reproduire le bug et valider ton correctif quand c'est pertinent.
 
             1. Lis l'issue (rapport structuré produit au triage) et le code concerné.
             2. Crée une branche `claude/fix-issue-${{ github.event.issue.number }}`.
