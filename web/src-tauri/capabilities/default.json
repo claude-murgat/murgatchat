@@ -10,6 +10,7 @@
     "core:window:allow-set-focus",
     "core:window:allow-is-visible",
     "core:window:allow-is-minimized",
+    "core:window:allow-is-focused",
     "notification:default",
     "opener:default",
     "autostart:allow-enable",

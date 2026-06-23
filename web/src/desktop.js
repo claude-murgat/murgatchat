@@ -6,22 +6,31 @@ export function isTauri() {
 }
 
 // ── Native window presence (Tauri only) ────────────────────────────────────
-// The webview reports document.visibilityState = "visible" even when the OS
-// window is hidden to the tray or minimised, so the activity heartbeat would
-// keep telling the server "I'm here" — and because the push away-gate is
-// per-user, an idle desktop sitting in the tray then SUPPRESSES push to the
-// user's phone. Track the REAL native window state via the Tauri API instead.
-let desktopForeground = true;
+// The webview keeps document.visibilityState = "visible" AND document.hasFocus()
+// = true even when the OS window is hidden to the tray or minimised. That breaks
+// TWO things at once:
+//   • the activity heartbeat keeps telling the server "I'm here", so an idle
+//     desktop in the tray suppresses push to the user's phone; and
+//   • isWindowFocused() wrongly reports the user is looking at the app, so
+//     onNotif skips BOTH the toast and the tray badge ("not even a red dot").
+// Track the REAL native window state via the Tauri API and drive both off it.
+let desktopVisible = true;
+let desktopFocused = true;
 
-async function refreshDesktopForeground(win) {
+async function refreshDesktopState(win, focusedHint) {
   try {
     const visible = await win.isVisible().catch(() => true);
     const minimized = await win.isMinimized().catch(() => false);
-    const fg = !!visible && !minimized;
-    if (fg !== desktopForeground) {
-      desktopForeground = fg;
+    const vis = !!visible && !minimized;
+    const foc =
+      typeof focusedHint === "boolean"
+        ? focusedHint
+        : await win.isFocused().catch(() => desktopFocused);
+    if (vis !== desktopVisible || foc !== desktopFocused) {
+      desktopVisible = vis;
+      desktopFocused = foc;
       window.dispatchEvent(
-        new CustomEvent("desktop:presence", { detail: { foreground: fg } })
+        new CustomEvent("desktop:presence", { detail: { visible: vis, focused: foc } })
       );
     }
   } catch {
@@ -33,16 +42,17 @@ async function initDesktopPresence() {
   try {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     const win = getCurrentWindow();
-    await refreshDesktopForeground(win); // initial state (covers autostart --hidden)
-    // Focus changes bracket every tray show/hide and minimise/restore.
+    await refreshDesktopState(win); // initial state (covers autostart --hidden)
+    // onFocusChanged brackets every tray show/hide and minimise/restore, and
+    // carries the new focus state directly.
     try {
-      await win.onFocusChanged(() => refreshDesktopForeground(win));
+      await win.onFocusChanged(({ payload: focused }) => refreshDesktopState(win, focused));
     } catch {
       // Event listening unavailable — the poll below still keeps us in sync.
     }
     // Backstop for transitions that don't flip focus (e.g. hiding an already
     // unfocused window): re-check on a slow interval.
-    setInterval(() => refreshDesktopForeground(win), 20_000);
+    setInterval(() => refreshDesktopState(win), 20_000);
   } catch (e) {
     console.warn("[desktop] presence tracking init failed:", e?.message || e);
   }
@@ -52,7 +62,7 @@ async function initDesktopPresence() {
 // Tauri: reflects the real native window (tray-hidden / minimised = away). In
 // the browser/PWA the Page Visibility API is reliable, so use it directly.
 export function isAppHidden() {
-  if (isTauri()) return !desktopForeground;
+  if (isTauri()) return !desktopVisible;
   return typeof document !== "undefined" && document.visibilityState === "hidden";
 }
 
@@ -177,7 +187,13 @@ export function setTrayBadge(unread) {
     .catch((e) => console.error("[desktop] set_tray_badge failed:", e));
 }
 
+// True when the user is actively looking at the app, so onNotif can skip the OS
+// notification + tray badge. Under Tauri, document focus/visibility are stuck at
+// "focused/visible" for a tray-hidden window (see presence tracking above), so
+// use the real native state — otherwise hidden-to-tray gets NO notification at
+// all. Browser/PWA keep the reliable DOM signals.
 export function isWindowFocused() {
+  if (isTauri()) return desktopVisible && desktopFocused;
   if (typeof document === "undefined") return true;
   try {
     return document.hasFocus() && document.visibilityState !== "hidden";
