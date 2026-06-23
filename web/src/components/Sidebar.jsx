@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import Avatar from "./Avatar.jsx";
+import QuickSwitcher from "./QuickSwitcher.jsx";
 import { isTauri } from "../desktop.js";
 import { pwaSupported, requestNotificationPermission, isPwaInstalled } from "../pwa.js";
 
@@ -20,6 +21,8 @@ export default function Sidebar({
   onSelectChannel,
   onNewChannel,
   onNewDm,
+  onChannelJoined,
+  onDmOpened,
   onToggleDnd,
   onLogout,
   onInvite,
@@ -27,12 +30,13 @@ export default function Sidebar({
   onPreferences,
   onReportBug,
   onAdminPanel,
-  onSearch,
-  onBrowseChannels,
   onlineUserIds,
   typingByChannel,
 }) {
   const [showMenu, setShowMenu] = useState(false);
+  // Unified search ("quick switcher"): while non-empty, replaces the channel/DM
+  // lists with grouped results (your convos + public salons + people + create).
+  const [query, setQuery] = useState("");
   // Statut PWA / notifications web. Calculé au montage et après chaque action
   // pour piloter le libellé du menu ("Activer les notifications" vs "Activées").
   const [notifPerm, setNotifPerm] = useState(
@@ -105,15 +109,6 @@ export default function Sidebar({
           </button>
           {dnd && <div className="text-[11px] text-yellow-300 mt-0.5">{dnd}</div>}
         </div>
-        <button
-          type="button"
-          onClick={onSearch}
-          title="Rechercher (Ctrl+K)"
-          className="text-aubergine-400 hover:text-white text-xl w-11 h-11 grid place-items-center rounded hover:bg-aubergine-600"
-          aria-label="Rechercher"
-        >
-          🔍
-        </button>
         {showMenu && (
           <div className="absolute right-3 top-14 bg-white text-slate-800 rounded-md shadow-lg overflow-hidden z-30 w-56">
             <button
@@ -218,8 +213,62 @@ export default function Sidebar({
         )}
       </div>
 
+      {/* Unified search — replaces the browse/create channel + DM buttons. */}
+      <div className="px-2 pt-3 pb-1 shrink-0">
+        <div className="relative">
+          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-aubergine-400 text-sm pointer-events-none">
+            🔍
+          </span>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Rechercher ou créer…"
+            className="w-full bg-aubergine-800 text-white placeholder-aubergine-400 rounded-md pl-8 pr-8 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-slackblue"
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-aubergine-400 hover:text-white"
+              aria-label="Effacer la recherche"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      </div>
+
       <div className="flex-1 overflow-y-auto scroll-thin px-2 py-3 space-y-4">
-        <SidebarSection title="Salons" onAdd={onNewChannel} onBrowse={onBrowseChannels}>
+        {query.trim() ? (
+          <QuickSwitcher
+            query={query}
+            user={user}
+            channels={channels}
+            onSelectChannel={(c) => {
+              onSelectChannel(c);
+              setQuery("");
+            }}
+            onJoined={(c) => {
+              onChannelJoined(c);
+              setQuery("");
+            }}
+            onOpened={(c) => {
+              onDmOpened(c);
+              setQuery("");
+            }}
+            onCreateChannel={(name) => {
+              onNewChannel(name);
+              setQuery("");
+            }}
+            onNewGroup={() => {
+              onNewDm();
+              setQuery("");
+            }}
+            onlineUserIds={onlineUserIds}
+          />
+        ) : (
+          <>
+        <SidebarSection title="Salons">
           {groups.map((c) => (
             <SidebarItem
               key={c.id}
@@ -235,7 +284,7 @@ export default function Sidebar({
           )}
         </SidebarSection>
 
-        <SidebarSection title="Messages directs" onAdd={onNewDm}>
+        <SidebarSection title="Messages directs">
           {dms.map((c) => {
             const other = c.members.find((m) => m.id !== user.id) || c.members[0];
             const isGroup = c.members.length > 2;
@@ -297,34 +346,18 @@ export default function Sidebar({
             <div className="text-xs text-aubergine-400 px-2 py-1">Aucun DM</div>
           )}
         </SidebarSection>
+          </>
+        )}
       </div>
     </aside>
   );
 }
 
-function SidebarSection({ title, onAdd, onBrowse, children }) {
+function SidebarSection({ title, children }) {
   return (
     <div>
-      <div className="flex items-center justify-between px-2 mb-1 text-xs uppercase tracking-wide text-aubergine-400">
-        <span>{title}</span>
-        <div className="flex items-center gap-1.5">
-          {onBrowse && (
-            <button
-              onClick={onBrowse}
-              className="hover:text-white text-[11px]"
-              title="Parcourir les salons publics"
-            >
-              🔍
-            </button>
-          )}
-          <button
-            onClick={onAdd}
-            className="hover:text-white"
-            title={`Ajouter — ${title}`}
-          >
-            +
-          </button>
-        </div>
+      <div className="px-2 mb-1 text-xs uppercase tracking-wide text-aubergine-400">
+        {title}
       </div>
       <div className="space-y-0.5">{children}</div>
     </div>

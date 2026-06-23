@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import Avatar from "./Avatar.jsx";
 
-export default function NewChannelModal({ onClose, onCreated, currentUserId }) {
-  const [name, setName] = useState("");
+export default function NewChannelModal({ onClose, onCreated, currentUserId, initialName = "" }) {
+  const [name, setName] = useState(initialName);
   const [description, setDescription] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
   const [users, setUsers] = useState([]);
