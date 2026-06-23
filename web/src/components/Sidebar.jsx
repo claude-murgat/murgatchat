@@ -109,6 +109,15 @@ export default function Sidebar({
           </button>
           {dnd && <div className="text-[11px] text-yellow-300 mt-0.5">{dnd}</div>}
         </div>
+        {/* Click-outside backdrop: dismisses the user menu (invisible, below the
+            menu's z-30 but above everything else). Same idea as the modals. */}
+        {showMenu && (
+          <div
+            className="fixed inset-0 z-20"
+            onClick={() => setShowMenu(false)}
+            aria-hidden="true"
+          />
+        )}
         {showMenu && (
           <div className="absolute right-3 top-14 bg-white text-slate-800 rounded-md shadow-lg overflow-hidden z-30 w-56">
             <button
