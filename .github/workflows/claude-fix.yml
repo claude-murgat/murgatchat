@@ -37,6 +37,27 @@ jobs:
     runs-on: [self-hosted, murgatchat]
     timeout-minutes: 30
     steps:
+      # claude-code-action installe Bun via setup-bun, qui télécharge un .zip et exige
+      # la commande `unzip` ; sans elle → « bun: command not found » / exit 127. On
+      # garantit donc sa présence ici (best-effort, non destructif : on n'installe que
+      # si elle manque). À défaut de sudo sans mot de passe / apt-get, on échoue avec
+      # un message clair — installe alors `unzip` toi-même sur le runner.
+      - name: Prérequis runner (unzip pour setup-bun)
+        run: |
+          if command -v unzip >/dev/null 2>&1; then
+            echo "✓ unzip déjà présent"; exit 0
+          fi
+          echo "unzip absent — tentative d'installation…"
+          if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+            sudo apt-get update && sudo apt-get install -y unzip
+          elif command -v apt-get >/dev/null 2>&1; then
+            apt-get update && apt-get install -y unzip
+          else
+            echo "::error::unzip introuvable et installation auto impossible (sudo sans mot de passe ou apt-get requis). Installe-le sur le runner : sudo apt-get install -y unzip"
+            exit 1
+          fi
+          command -v unzip >/dev/null 2>&1 && echo "✓ unzip installé"
+
       # C'est l'action — pas Claude — qui récupère le dernier code avant de remonter
       # les conteneurs. Par défaut actions/checkout fige le SHA de l'événement
       # (« labeled »), qui peut être en retard si main a avancé entre-temps. On force
