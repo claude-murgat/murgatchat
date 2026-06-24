@@ -37,8 +37,13 @@ jobs:
     runs-on: [self-hosted, murgatchat]
     timeout-minutes: 30
     steps:
-      # Récupère le code à jour (checkout sur la branche par défaut au SHA courant).
+      # C'est l'action — pas Claude — qui récupère le dernier code avant de remonter
+      # les conteneurs. Par défaut actions/checkout fige le SHA de l'événement
+      # (« labeled »), qui peut être en retard si main a avancé entre-temps. On force
+      # donc la POINTE de main pour bâtir le chat (et brancher le fix) sur le code à jour.
       - uses: actions/checkout@v4
+        with:
+          ref: main
 
       # Le checkout tourne avec `clean: true` (défaut) → `git clean -ffdx` efface
       # tous les fichiers untracked ET gitignorés du workspace, dont le .env. On

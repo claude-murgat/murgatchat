@@ -369,8 +369,10 @@ pour les secrets) :
 - **Runner local** (pour `claude-fix.yml`) : enregistre un *self-hosted runner* sur ta
   machine de dev (Settings → Actions → Runners → New self-hosted runner) avec le label
   **`murgatchat`** (en plus du `self-hosted` implicite). La machine doit avoir `git`,
-  Node/Bun, `gh`, `jq`, `curl`, et un accès au chat sur `http://localhost:4000` (l'app
-  via `docker compose up`). ⚠️ Un runner self-hosted exécute du code — il n'agit qu'après
+  Node/Bun, `gh`, `jq`, `curl`, **`unzip`** (requis par `setup-bun` dans
+  `claude-code-action`, sinon `bun: command not found` / exit 127), Docker + docker
+  compose, et un accès au chat sur `http://localhost:4000` (l'app via `docker compose
+  up`). ⚠️ Un runner self-hosted exécute du code — il n'agit qu'après
   le gate humain `claude:fix`, garde-le sur une machine de confiance.
 - **Labels** à créer : `à-valider`, `claude:fix`, `revue-ia`
   (+ `domaine:server|web|mobile|desktop`, `sévérité:faible|moyenne|élevée` posés à la
