@@ -119,6 +119,26 @@ test("invitation registration + full web journey", async ({ page }) => {
   await expect(attachBtn).toBeVisible();
   await expect(attachBtn.locator("svg")).toBeVisible();
 
+  // Issue #91 : glisser-déposer un fichier sur la zone de chat. Un dragenter
+  // porteur de fichiers affiche l'overlay « Déposez ici », et le drop ingère le
+  // fichier (chip visible dans le composer) tout en masquant l'overlay.
+  const chat = page
+    .locator("section")
+    .filter({ has: page.getByPlaceholder(`Message dans #${channel}`) });
+  const dataTransfer = await page.evaluateHandle(() => {
+    const dt = new DataTransfer();
+    dt.items.add(new File(["bonjour drop"], "drop-test.txt", { type: "text/plain" }));
+    return dt;
+  });
+  await chat.dispatchEvent("dragenter", { dataTransfer });
+  await expect(page.getByText("Déposez ici pour envoyer")).toBeVisible();
+  await chat.dispatchEvent("drop", { dataTransfer });
+  await expect(page.getByText("Déposez ici pour envoyer")).toBeHidden();
+  await expect(page.getByText("drop-test.txt")).toBeVisible();
+  // On retire la pièce jointe déposée pour ne pas polluer la suite du parcours.
+  await chat.getByRole("button", { name: "✕" }).click();
+  await expect(page.getByText("drop-test.txt")).toBeHidden();
+
   await composer.fill("hello e2e");
   await composer.press("Enter");
   await expect(page.getByText("hello e2e")).toBeVisible();

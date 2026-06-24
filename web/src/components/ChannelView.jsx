@@ -128,6 +128,45 @@ export default function ChannelView({
   const messageRefs = useRef({});
   const typingTimers = useRef({});
   const lastTypingSent = useRef(0);
+  // Glisser-déposer de fichiers sur la zone de chat. Le compteur gère les
+  // événements dragenter/dragleave qui se déclenchent aussi sur les enfants :
+  // on n'éteint l'overlay que lorsqu'il revient à zéro (on a vraiment quitté
+  // la zone). L'upload lui-même est délégué au Composer via cette ref.
+  const composerRef = useRef(null);
+  const dragDepth = useRef(0);
+  const [dragging, setDragging] = useState(false);
+
+  function isFileDrag(e) {
+    return Array.from(e.dataTransfer?.types || []).includes("Files");
+  }
+
+  function onDragEnter(e) {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    dragDepth.current += 1;
+    setDragging(true);
+  }
+
+  function onDragOver(e) {
+    if (!isFileDrag(e)) return;
+    // Indispensable pour autoriser le drop (sinon le navigateur ouvre le fichier).
+    e.preventDefault();
+  }
+
+  function onDragLeave(e) {
+    if (!isFileDrag(e)) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragging(false);
+  }
+
+  function onDrop(e) {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragging(false);
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (files.length) composerRef.current?.ingestFiles(files);
+  }
 
   // Scroll to a message (clicked from a quote bubble) and flash it for 1.5 s.
   function jumpToMessage(id) {
@@ -308,7 +347,25 @@ export default function ChannelView({
   let lastDay = null;
 
   return (
-    <section className="flex-1 flex flex-col bg-white text-slate-900 min-w-0 h-full">
+    <section
+      className="relative flex-1 flex flex-col bg-white text-slate-900 min-w-0 h-full"
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {dragging && (
+        <div className="absolute inset-0 z-40 grid place-items-center bg-aubergine-700/10 backdrop-blur-sm pointer-events-none">
+          <div className="flex flex-col items-center gap-3 rounded-xl border-2 border-dashed border-aubergine-700 bg-white/90 px-8 py-6 shadow-lg">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-aubergine-700" aria-hidden="true">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
+            <div className="text-lg font-semibold text-aubergine-700">Déposez ici pour envoyer</div>
+          </div>
+        </div>
+      )}
       <header
         className="border-b border-slate-200 px-3 sm:px-4 py-2.5 flex items-center gap-2 sm:gap-3"
         style={{ paddingTop: "max(0.625rem, env(safe-area-inset-top))" }}
@@ -484,6 +541,7 @@ export default function ChannelView({
           </div>
         )}
         <Composer
+          ref={composerRef}
           onSend={send}
           onTyping={notifyTyping}
           placeholder={
