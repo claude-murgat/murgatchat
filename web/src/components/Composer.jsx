@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from "react";
 import EmojiPicker from "emoji-picker-react";
 import GifPicker from "./GifPicker.jsx";
 import { uploadFile, api } from "../api.js";
@@ -14,7 +14,7 @@ function fmtBytes(n) {
   return `${(n / 1024 / 1024).toFixed(1)} Mo`;
 }
 
-export default function Composer({ onSend, placeholder, allowSchedule = true, onTyping }) {
+function Composer({ onSend, placeholder, allowSchedule = true, onTyping }, ref) {
   const [text, setText] = useState("");
   const [showSchedule, setShowSchedule] = useState(false);
   const defaultSched = new Date(Date.now() + 60 * 60_000);
@@ -91,6 +91,10 @@ export default function Composer({ onSend, placeholder, allowSchedule = true, on
       setUploading(false);
     }
   }
+
+  // La zone de chat (ChannelView) gère le glisser-déposer et nous transmet les
+  // fichiers déposés via cette ref, afin que tout l'upload reste centralisé ici.
+  useImperativeHandle(ref, () => ({ ingestFiles }));
 
   async function onFilesPicked(e) {
     const files = Array.from(e.target.files || []);
@@ -289,3 +293,5 @@ export default function Composer({ onSend, placeholder, allowSchedule = true, on
     </div>
   );
 }
+
+export default forwardRef(Composer);
