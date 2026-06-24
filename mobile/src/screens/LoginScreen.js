@@ -23,6 +23,7 @@ export default function LoginScreen() {
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [serverUrl, setServerUrl] = useState(() => getApiBaseUrl());
   const [serverStatus, setServerStatus] = useState(null);
@@ -357,7 +358,7 @@ export default function LoginScreen() {
               )}
               <TextInput
                 style={[styles.input, inviteOk && styles.inputReadOnly]}
-                placeholder="Email"
+                placeholder="Email (ex. claude.murgat@exemple.fr)"
                 autoCapitalize="none"
                 keyboardType="email-address"
                 value={inviteOk ? invite.email : email}
@@ -366,13 +367,13 @@ export default function LoginScreen() {
               />
               <TextInput
                 style={styles.input}
-                placeholder="Nom affiché"
+                placeholder="Nom affiché (ex. Claude Murgat)"
                 value={displayName}
                 onChangeText={setDisplayName}
               />
               <TextInput
                 style={styles.input}
-                placeholder="Nom d'utilisateur"
+                placeholder="Nom d'utilisateur (ex. claudem)"
                 autoCapitalize="none"
                 value={username}
                 onChangeText={setUsername}
@@ -414,13 +415,27 @@ export default function LoginScreen() {
           )}
 
           {mode !== "forgot" && (
-            <TextInput
-              style={styles.input}
-              placeholder={mode === "reset" ? "Nouveau mot de passe" : "Mot de passe"}
-              secureTextEntry
-              value={password}
-              onChangeText={setPassword}
-            />
+            <View style={styles.passwordRow}>
+              <TextInput
+                style={[styles.input, styles.passwordInput]}
+                placeholder={mode === "reset" ? "Nouveau mot de passe" : "Mot de passe"}
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
+                value={password}
+                onChangeText={setPassword}
+              />
+              <TouchableOpacity
+                style={styles.pwToggle}
+                onPress={() => setShowPassword((s) => !s)}
+                accessibilityLabel={
+                  showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"
+                }
+              >
+                <Text style={styles.pwToggleText}>
+                  {showPassword ? "Masquer" : "Afficher"}
+                </Text>
+              </TouchableOpacity>
+            </View>
           )}
 
           {info && <Text style={styles.infoLine}>{info}</Text>}
@@ -500,6 +515,28 @@ const styles = StyleSheet.create({
   inputReadOnly: {
     backgroundColor: colors.bg,
     color: colors.textMuted,
+  },
+  passwordRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  passwordInput: {
+    flex: 1,
+    borderWidth: 0,
+    marginBottom: 0,
+  },
+  pwToggle: {
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  pwToggleText: {
+    color: colors.aubergine,
+    fontWeight: "600",
+    fontSize: 13,
   },
   label: {
     fontSize: 12,
