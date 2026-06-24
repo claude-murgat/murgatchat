@@ -116,12 +116,17 @@ jobs:
                attente de revue humaine.
           # claude-code-action n'autorise par défaut que les outils natifs
           # (Read/Grep/Glob/Edit/Write) — PAS les commandes Bash. Or coder ici exige
-          # git, gh (pr create), npm/npx (tests) et curl. Sans cet --allowedTools,
-          # ces commandes sont refusées et le run meurt en « error_max_turns ».
+          # un shell complet : git, gh, npm/npx, mais aussi inspecter (ls/cat/grep/find),
+          # consulter les conteneurs (docker compose logs), etc. Une allowlist granulaire
+          # faisait du whack-a-mole : chaque commande oubliée = un refus qui gâche un tour
+          # et finit en « error_max_turns ». Ce workflow étant derrière le gate humain
+          # « claude:fix » et tournant sur un runner de confiance, on autorise Bash
+          # largement. On monte aussi le plafond de tours (reproduire + corriger + tester
+          # + ouvrir la PR demande de la marge).
           claude_args: |
-            --max-turns 30
+            --max-turns 40
             --model claude-opus-4-8
-            --allowedTools "Read,Grep,Glob,Edit,Write,Bash(git:*),Bash(gh:*),Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(curl:*),Bash(jq:*)"
+            --allowedTools "Read,Grep,Glob,Edit,Write,Bash"
 
       # Notifie l'équipe dans le chat MurgaChat dès que la PR est ouverte. Best-effort :
       # n'échoue jamais le job (la PR existe déjà). Requiert le secret SUPPORT_NOTIFY_TOKEN
