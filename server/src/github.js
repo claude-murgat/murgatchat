@@ -1,6 +1,10 @@
-// GitHub bridge: mirror an in-app bug report to a GitHub issue so the
-// claude-triage / claude-fix workflows can pick it up and turn the report into
-// a structured issue and, eventually, a reviewed PR.
+// GitHub bridge: mirror an in-app bug report to a GitHub issue, already triaged.
+//
+// The in-app support conversation (server/src/anthropic.js) does the triage
+// itself — structured body, severity and domain — so the issue is created ready
+// for the human gate (label "à-valider"). A developer reviews it and applies
+// "claude:fix" to kick off claude-fix.yml. There is no longer a separate triage
+// workflow.
 //
 // Best-effort and optional by design:
 //   - When GITHUB_BUG_TOKEN is unset the bridge is a no-op (dev / tests).
@@ -13,8 +17,29 @@ const API = "https://api.github.com";
 // diagnostics + Markdown scaffolding always fit alongside the (≤100 KB) logs.
 const MAX_BODY = 60_000;
 
-// Applied on creation; the claude-triage workflow keys off this label.
-const INTAKE_LABEL = "signalement";
+// Applied on every created issue: marks it triaged and pending the human gate.
+const GATE_LABEL = "à-valider";
+
+// Map the conversation's classification onto the repo's existing labels. Unknown
+// or missing values are simply skipped (one-shot reports carry no triage).
+const DOMAIN_LABELS = {
+  server: "domaine:server",
+  web: "domaine:web",
+  mobile: "domaine:mobile",
+  desktop: "domaine:desktop",
+};
+const SEVERITY_LABELS = {
+  faible: "sévérité:faible",
+  moyenne: "sévérité:moyenne",
+  élevée: "sévérité:élevée",
+};
+
+function issueLabels({ domain, severity } = {}) {
+  const labels = [GATE_LABEL];
+  if (domain && DOMAIN_LABELS[domain]) labels.push(DOMAIN_LABELS[domain]);
+  if (severity && SEVERITY_LABELS[severity]) labels.push(SEVERITY_LABELS[severity]);
+  return labels;
+}
 
 // Read env lazily (inside helpers, not at module load) so tests can toggle the
 // bridge per-case and the values track docker-compose overrides.
@@ -95,7 +120,7 @@ export async function createIssueFromBugReport(report) {
       body: JSON.stringify({
         title,
         body: buildIssueBody(report),
-        labels: [INTAKE_LABEL],
+        labels: issueLabels({ domain: report.domain, severity: report.severity }),
       }),
     });
     if (!res.ok) {

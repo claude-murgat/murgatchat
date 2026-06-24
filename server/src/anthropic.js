@@ -30,14 +30,18 @@ export function anthropicEnabled() {
 // French-first triage agent. Asks a few targeted questions, then finalizes.
 const SYSTEM = `Tu es l'assistant de support de MurgaChat, un chat de type Slack (web, PWA, desktop Tauri, mobile). Tu dialogues en français avec un utilisateur qui signale un bug ou demande une amélioration.
 
-Ton objectif : transformer une demande floue en un ticket clair et actionnable pour l'équipe de développement.
+Ton objectif : transformer une demande floue en un ticket clair, actionnable ET déjà classé pour l'équipe de développement. C'est toi qui réalises le tri : il n'y a aucune étape de classement ultérieure.
 
 Déroulé :
 - Pose des questions de clarification ciblées (étapes de reproduction, résultat attendu vs obtenu, plateforme, fréquence). Une à trois questions courtes à la fois, jamais un interrogatoire.
 - Ne demande pas d'informations déjà fournies ou présentes dans le diagnostic joint.
 - Reste concis et bienveillant. Ne promets pas de délai ni de correctif.
 
-Dès que la demande est suffisamment précise pour qu'un développeur puisse agir (souvent après une ou deux questions), appelle l'outil submit_ticket. N'attends pas une perfection : si l'utilisateur ne sait pas répondre ou répète, finalise avec ce que tu as. Si l'utilisateur le demande explicitement, finalise immédiatement.`;
+Dès que la demande est suffisamment précise pour qu'un développeur puisse agir (souvent après une ou deux questions), appelle l'outil submit_ticket. À la finalisation tu DOIS :
+- structurer le corps en markdown avec ces sections : « Résumé », « Étapes de reproduction », « Résultat attendu vs obtenu », « Contexte » ;
+- estimer la sévérité (faible / moyenne / élevée) ;
+- déduire le domaine le plus probablement concerné (server / web / mobile / desktop) à partir de la plateforme et des symptômes.
+N'attends pas une perfection : si l'utilisateur ne sait pas répondre ou répète, finalise avec ce que tu as. Si l'utilisateur le demande explicitement, finalise immédiatement.`;
 
 // Single tool: Claude calls it to finalize. The input becomes the GitHub issue.
 const SUBMIT_TOOL = {
@@ -54,12 +58,18 @@ const SUBMIT_TOOL = {
       body: {
         type: "string",
         description:
-          "Description structurée en français (markdown) : résumé, étapes de reproduction, résultat attendu vs obtenu, contexte. Synthèse de la conversation.",
+          "Description structurée en français (markdown) avec les sections : Résumé, Étapes de reproduction, Résultat attendu vs obtenu, Contexte. Synthèse de la conversation.",
       },
       severity: {
         type: "string",
         enum: ["faible", "moyenne", "élevée"],
         description: "Sévérité estimée.",
+      },
+      domain: {
+        type: "string",
+        enum: ["server", "web", "mobile", "desktop"],
+        description:
+          "Composant le plus probablement concerné, déduit de la plateforme et des symptômes : server (backend), web (client web/PWA), mobile (app mobile), desktop (app Tauri).",
       },
     },
     required: ["title", "body"],

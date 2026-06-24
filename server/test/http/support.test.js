@@ -41,6 +41,7 @@ function stubFetch() {
                 title: "Salon bloqué au chargement",
                 body: "L'app reste bloquée en ouvrant un salon sur web.",
                 severity: "moyenne",
+                domain: "web",
               },
             },
           ],
@@ -81,7 +82,7 @@ describe("POST /support/conversations", () => {
   it("clarifies, then finalizes into a BugReport + GitHub issue", async () => {
     process.env.ANTHROPIC_API_KEY = "k";
     process.env.GITHUB_BUG_TOKEN = "t";
-    stubFetch();
+    const fetchMock = stubFetch();
 
     const owner = await registerUser(app);
 
@@ -112,6 +113,13 @@ describe("POST /support/conversations", () => {
     expect(report.githubIssueNumber).toBe(99);
     expect(report.message).toContain("bloquée");
     expect(report.message).toContain("moyenne"); // severity prefixed
+
+    // The issue is created already triaged: gate label + domain + severity.
+    const ghCall = fetchMock.mock.calls.find(([u]) =>
+      String(u).includes("api.github.com")
+    );
+    const payload = JSON.parse(ghCall[1].body);
+    expect(payload.labels).toEqual(["à-valider", "domaine:web", "sévérité:moyenne"]);
   });
 
   it("rejects a turn on someone else's conversation (404)", async () => {

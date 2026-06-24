@@ -1,6 +1,6 @@
 # Mode interactif : permet à un relecteur humain d'itérer avec Claude pendant la
 # revue de la PR (ou sur une issue) en mentionnant « @claude » dans un commentaire
-# ou une review. Complète le pipeline automatique (claude-triage / claude-fix).
+# ou une review. Complète le pipeline automatique (claude-fix / claude-review).
 name: claude
 
 on:

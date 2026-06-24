@@ -50,8 +50,8 @@ function serialize(c) {
 }
 
 // Finalize a conversation: create the BugReport (refined body as message) and
-// mirror it to GitHub via the existing signalement pipeline. Returns the issue
-// link fields to store back on the conversation.
+// mirror it to GitHub as an already-triaged issue (labels carried from the
+// conversation). Returns the issue link fields to store back on the conversation.
 async function finalize(conv, finalizeInput, req) {
   const severity = finalizeInput.severity
     ? `**Sévérité estimée :** ${finalizeInput.severity}\n\n`
@@ -74,6 +74,11 @@ async function finalize(conv, finalizeInput, req) {
     issue = await createIssueFromBugReport({
       ...report,
       title: finalizeInput.title,
+      // The conversation already triaged the ticket: carry the classification
+      // through so the issue is created with the right labels (à-valider +
+      // domaine:* + sévérité:*) — there is no separate triage step.
+      domain: finalizeInput.domain,
+      severity: finalizeInput.severity,
       user: req.user ? { username: req.user.username } : null,
     });
     if (issue) {

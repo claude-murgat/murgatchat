@@ -1,8 +1,9 @@
-# Étape 2 du pipeline de signalement (DÉVELOPPEMENT, sur runner LOCAL).
-# Déclenché quand un humain pose le tag « claude:fix » sur une issue (gate de
-# validation, cf. claude-triage.yml). Claude implémente un correctif sur une
-# branche et OUVRE une vraie PR, puis notifie l'équipe directement dans le chat
-# MurgaChat.
+# Étape de DÉVELOPPEMENT du pipeline de signalement (sur runner LOCAL).
+# L'issue est créée déjà triée par le Claude in-app (server/src/anthropic.js +
+# github.js) avec le label « à-valider ». Ce workflow se déclenche quand un humain
+# valide en posant le tag « claude:fix » sur l'issue. Claude implémente alors un
+# correctif sur une branche et OUVRE une vraie PR, puis notifie l'équipe
+# directement dans le chat MurgaChat.
 #
 # Pourquoi un runner LOCAL (self-hosted) : le développement tourne sur ta
 # machine de dev (là où l'app + le chat tournent), ce qui permet à l'étape de
@@ -76,7 +77,7 @@ jobs:
             L'application tourne en local (API http://localhost:4000, web http://localhost:5173) :
             utilise-la pour reproduire le bug et valider ton correctif quand c'est pertinent.
 
-            1. Lis l'issue (rapport structuré produit au triage) et le code concerné.
+            1. Lis l'issue (rapport structuré + labels posés à la création par le Claude in-app) et le code concerné.
             2. Crée une branche `claude/fix-issue-${{ github.event.issue.number }}`.
             3. Applique le correctif MINIMAL et cohérent avec le style du dépôt
                (JavaScript ESM, pas de TypeScript ; conventions existantes).
@@ -87,9 +88,14 @@ jobs:
                « Fixes #${{ github.event.issue.number }} » pour lier et clore l'issue au merge.
             7. N'effectue AUCUNE action destructrice et ne fusionne pas : la PR doit rester en
                attente de revue humaine.
+          # claude-code-action n'autorise par défaut que les outils natifs
+          # (Read/Grep/Glob/Edit/Write) — PAS les commandes Bash. Or coder ici exige
+          # git, gh (pr create), npm/npx (tests) et curl. Sans cet --allowedTools,
+          # ces commandes sont refusées et le run meurt en « error_max_turns ».
           claude_args: |
             --max-turns 30
             --model claude-sonnet-4-6
+            --allowedTools "Read,Grep,Glob,Edit,Write,Bash(git:*),Bash(gh:*),Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(curl:*),Bash(jq:*)"
 
       # Notifie l'équipe dans le chat MurgaChat dès que la PR est ouverte. Best-effort :
       # n'échoue jamais le job (la PR existe déjà). Requiert le secret SUPPORT_NOTIFY_TOKEN

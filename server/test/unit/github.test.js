@@ -71,7 +71,7 @@ describe("createIssueFromBugReport", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("POSTs a 'signalement'-labelled issue and returns its number/url", async () => {
+  it("POSTs an 'à-valider'-labelled issue and returns its number/url", async () => {
     process.env.GITHUB_BUG_TOKEN = "tok";
     process.env.GITHUB_REPO_OWNER = "claude-murgat";
     process.env.GITHUB_REPO_NAME = "murgatchat";
@@ -96,9 +96,38 @@ describe("createIssueFromBugReport", () => {
     expect(opts.method).toBe("POST");
     expect(opts.headers.Authorization).toBe("Bearer tok");
     const payload = JSON.parse(opts.body);
-    expect(payload.labels).toEqual(["signalement"]);
+    // No triage classification on this report → just the human-gate label.
+    expect(payload.labels).toEqual(["à-valider"]);
     expect(payload.title.startsWith("[Signalement]")).toBe(true);
     expect(payload.body).toContain("Le bouton ne marche pas");
+  });
+
+  it("maps the conversation's domain + severity onto repo labels", async () => {
+    process.env.GITHUB_BUG_TOKEN = "tok";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ number: 7, html_url: "https://github.com/x/y/issues/7" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createIssueFromBugReport({ ...baseReport, domain: "web", severity: "élevée" });
+
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(payload.labels).toEqual(["à-valider", "domaine:web", "sévérité:élevée"]);
+  });
+
+  it("skips unknown domain/severity values, keeping just the gate label", async () => {
+    process.env.GITHUB_BUG_TOKEN = "tok";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ number: 8, html_url: "https://github.com/x/y/issues/8" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createIssueFromBugReport({ ...baseReport, domain: "wat", severity: "critique" });
+
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(payload.labels).toEqual(["à-valider"]);
   });
 
   it("returns null on a non-ok response", async () => {
