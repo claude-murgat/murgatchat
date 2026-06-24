@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-06-23** (auto-updater desktop signé + installation tous-utilisateurs/TSE, recherche unifiée dans la sidebar, fix notifs PWA/desktop, réouverture sur la dernière conversation).
+Dernière mise à jour : **2026-06-23** (0.6.5 : pipeline support « Claude in-app → issue → PR », force-kill installeur TSE, fixes UX login/menu/notes ; 0.6.4 : auto-updater desktop signé + install tous-utilisateurs).
 
 ---
 
@@ -646,7 +646,50 @@ globalSetup crée automatiquement la nouvelle table.
     **Vers l'avant uniquement** : 0.6.4 = dernière install manuelle, puis 0.6.4 → 0.6.5+
     automatique. `latest.json` de la release vérifié valide + signé.
 
+## Itération 2026-06-23 (suite) — installeur TSE, fixes UX, pipeline support Claude (0.6.5)
+
+60. **Installeur : force-kill toutes les sessions avant (ré)install (#85)** — sur Terminal
+    Server (RDS), l'app autostart + se cache dans le tray dans **chaque** session **et**
+    intercepte la fermeture (se cache au lieu de quitter), donc le « close » gracieux de
+    l'installeur était ignoré et les instances verrouillaient les fichiers → (ré)install
+    impossible. Hook NSIS (`web/src-tauri/installer-hooks.nsh` via
+    `bundle.windows.nsis.installerHooks`) qui `taskkill /F /IM chat-desktop.exe` en
+    `PREINSTALL` **et** `PREUNINSTALL`. Install perMachine = élevé → atteint **toutes les
+    sessions** ; `/F` passe outre le hide-to-tray ; **pas de `/T`** (ne pas tuer le setup
+    enfant d'une auto-MAJ per-user). ⚠️ Le process est **`chat-desktop.exe`** (nom du package
+    Cargo, **pas** le `productName` « Chat » — `taskkill /IM Chat.exe` ne matchait rien). Le
+    hook vivant dans l'installeur, il ferme **aussi les versions antérieures** déjà lancées.
+61. **Fixes UX — trim login, menu, notes perso (#87)** — (1) **trim** des identifiants
+    login/inscription côté client (`Login.jsx`) **et** serveur (`.trim()` Zod sur
+    register/login/profil → couvre web + mobile ; le **mot de passe n'est pas trimé**, espaces
+    significatifs) ; (2) le **menu utilisateur** (clic sur le nom) se ferme au **clic en
+    dehors** (backdrop invisible, comme les modales) ; (3) **« Mes notes »** (DM avec
+    soi-même) de nouveau accessible — perdu quand la recherche unifiée a remplacé la modale
+    DM, ré-ajouté comme action **📝 Mes notes** dans la section « Créer » de la recherche.
+62. **Pipeline support « Claude in-app → issue → dev → PR → revue » (#86)** — chaîne complète
+    signalement→correctif pilotée par Claude, avec **gates humains**. (1) **Conversation de
+    support in-app** : « 🐞 Signaler un bug » ouvre un chat avec Claude (côté serveur, clé
+    jamais exposée ; le diagnostic plateforme/version/logs est injecté dans le *system prompt*)
+    → à la finalisation (outil `submit_ticket`), crée le `BugReport` **+ une issue GitHub** ;
+    **repli** sur l'envoi direct si le chat est indispo. (2) **Triage/classification**
+    (`claude-triage.yml`) → labels `domaine:*`/`sévérité:*` + `à-valider`, puis **stop** (pas
+    de fix auto). (3) **Validation humaine** : le label `claude:fix` autorise le dev. (4)
+    **Dev sur runner self-hosted** (`claude-fix.yml`, `runs-on: [self-hosted, murgatchat]`) →
+    Claude code, pousse, ouvre la **PR** (`Fixes #N`) et **notifie le salon d'équipe** via
+    `POST /support/notify`. (5) **Revue** : humaine d'abord, label `revue-ia` →
+    `claude-review.yml` (consultatif, **jamais de merge**). Serveur : `anthropic.js`,
+    `routes/support.js`, `notify.js`, `github.js`, modèle Prisma `SupportConversation`.
+    Front : `BugReportModal` conversationnel. **Toutes les intégrations sont optionnelles**
+    (dégradation propre sans clés/tokens). 189/189 tests serveur. _C'est cette chaîne qui
+    avait transformé un signalement de **test** en issue #82 (refermée)._ + fix CI `claude-fix`
+    (#89 : injection du `.env` depuis un emplacement persistant hors workspace).
+
+Release **0.6.5** publiée (installeur signé + `latest.json` ; pipeline `release.yml` verte) —
+**première transition d'auto-update** : les installs per-user en 0.6.4 se mettent à jour seules.
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
-> installeur **signé** + `latest.json` → point de départ de l'auto-update).
+> installeur **signé** + `latest.json` → point de départ de l'auto-update),
+> **0.6.5** (#60–62 : force-kill installeur TSE, fixes UX login/menu/notes, pipeline support
+> Claude → issue → PR).
