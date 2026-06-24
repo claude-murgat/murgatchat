@@ -35,28 +35,31 @@ jobs:
   fix:
     if: github.event.label.name == 'claude:fix'
     runs-on: [self-hosted, murgatchat]
-    timeout-minutes: 30
+    # Pas de plafond de tours côté Claude (cf. plus bas) : le temps de job est la
+    # seule borne. On laisse de la marge pour les fix qui demandent de l'exploration.
+    timeout-minutes: 60
     steps:
-      # claude-code-action installe Bun via setup-bun, qui télécharge un .zip et exige
-      # la commande `unzip` ; sans elle → « bun: command not found » / exit 127. On
-      # garantit donc sa présence ici (best-effort, non destructif : on n'installe que
-      # si elle manque). À défaut de sudo sans mot de passe / apt-get, on échoue avec
-      # un message clair — installe alors `unzip` toi-même sur le runner.
-      - name: Prérequis runner (unzip pour setup-bun)
+      # Outils CLI requis par le job mais pas toujours présents sur le runner :
+      #   - unzip : setup-bun (dans claude-code-action) télécharge Bun en .zip ; sans
+      #     unzip → « bun: command not found » / exit 127.
+      #   - jq    : l'étape « Notifier MurgaChat » construit le payload JSON avec `jq -n`.
+      # Best-effort et non destructif : on n'installe que ce qui manque. À défaut de
+      # sudo sans mot de passe / apt-get, on échoue avec un message clair.
+      - name: Prérequis runner (unzip, jq)
         run: |
-          if command -v unzip >/dev/null 2>&1; then
-            echo "✓ unzip déjà présent"; exit 0
-          fi
-          echo "unzip absent — tentative d'installation…"
+          missing=""
+          for c in unzip jq; do command -v "$c" >/dev/null 2>&1 || missing="$missing $c"; done
+          if [ -z "$missing" ]; then echo "✓ unzip et jq présents"; exit 0; fi
+          echo "Manquant(s) :$missing — tentative d'installation…"
           if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
-            sudo apt-get update && sudo apt-get install -y unzip
+            sudo apt-get update && sudo apt-get install -y $missing
           elif command -v apt-get >/dev/null 2>&1; then
-            apt-get update && apt-get install -y unzip
+            apt-get update && apt-get install -y $missing
           else
-            echo "::error::unzip introuvable et installation auto impossible (sudo sans mot de passe ou apt-get requis). Installe-le sur le runner : sudo apt-get install -y unzip"
+            echo "::error::Manquant(s) :$missing — installation auto impossible (sudo sans mot de passe ou apt-get requis). Installe-les sur le runner : sudo apt-get install -y$missing"
             exit 1
           fi
-          command -v unzip >/dev/null 2>&1 && echo "✓ unzip installé"
+          for c in unzip jq; do command -v "$c" >/dev/null 2>&1 && echo "✓ $c ok"; done
 
       # C'est l'action — pas Claude — qui récupère le dernier code avant de remonter
       # les conteneurs. Par défaut actions/checkout fige le SHA de l'événement
@@ -96,6 +99,11 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GH_BOT_TOKEN }}
+          # Tient à jour un commentaire de progression sur l'issue (étapes / todos /
+          # actions en cours) sans déverser tout le transcript : on peut suivre la
+          # direction prise et annuler le run s'il part dans le mur. Le détail complet
+          # reste masqué dans les logs (show_full_output non activé).
+          track_progress: true
           prompt: |
             Implémente un correctif pour l'issue #${{ github.event.issue.number }} de MurgaChat
             (dépôt ${{ github.repository }}). Travaille et rédige en français.
@@ -121,10 +129,10 @@ jobs:
           # faisait du whack-a-mole : chaque commande oubliée = un refus qui gâche un tour
           # et finit en « error_max_turns ». Ce workflow étant derrière le gate humain
           # « claude:fix » et tournant sur un runner de confiance, on autorise Bash
-          # largement. On monte aussi le plafond de tours (reproduire + corriger + tester
-          # + ouvrir la PR demande de la marge).
+          # largement.
+          # Pas de --max-turns : l'effort dépend trop de la feature/du code ; on laisse
+          # Claude aller au bout, borné uniquement par le timeout-minutes du job.
           claude_args: |
-            --max-turns 40
             --model claude-opus-4-8
             --allowedTools "Read,Grep,Glob,Edit,Write,Bash"
 
