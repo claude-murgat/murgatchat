@@ -53,4 +53,4 @@ jobs:
                est une revue consultative. La validation finale et le merge restent humains.
           claude_args: |
             --max-turns 20
-            --model claude-sonnet-4-6
+            --model claude-opus-4-8
