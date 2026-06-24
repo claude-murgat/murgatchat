@@ -61,10 +61,22 @@ function firstLine(s) {
   return String(s || "").split("\n")[0].trim();
 }
 
+// Neutralize GitHub @mentions in user-controlled text. A chat username (or any
+// text a user typed) can collide with a real GitHub handle — rendered as markdown
+// it would ping/notify that account. A zero-width space right after the @ keeps
+// the text visually identical but breaks the mention link. (Logs already sit in a
+// fenced code block, where mentions never render, so they don't need this.)
+function noMentions(s) {
+  return String(s ?? "").replace(/@(?=[a-z0-9_-])/gi, "@​");
+}
+
 function diagnosticsBlock(diag) {
   if (!diag || typeof diag !== "object") return "";
   const rows = Object.entries(diag)
-    .map(([k, v]) => `| ${k} | ${String(v).replace(/\|/g, "\\|").slice(0, 300)} |`)
+    .map(
+      ([k, v]) =>
+        `| ${noMentions(k)} | ${noMentions(String(v).replace(/\|/g, "\\|").slice(0, 300))} |`
+    )
     .join("\n");
   if (!rows) return "";
   return `\n\n### Diagnostic\n\n| Clé | Valeur |\n| --- | --- |\n${rows}`;
@@ -73,13 +85,14 @@ function diagnosticsBlock(diag) {
 // Build the issue body, keeping the message + diagnostics intact and truncating
 // the (potentially 100 KB) logs so the whole thing stays under GitHub's limit.
 export function buildIssueBody(report) {
+  const reporter = report.user?.username
+    ? noMentions(report.user.username)
+    : "un utilisateur";
   const header =
-    `> Signalement remonté depuis l'application par ` +
-    (report.user?.username ? `@${report.user.username}` : "un utilisateur") +
-    `.\n` +
+    `> Signalement remonté depuis l'application par ${reporter}.\n` +
     `> Plateforme : ${report.platform || "?"} · Version : ${report.appVersion || "?"} · ` +
     `Report ID : \`${report.id}\`\n\n` +
-    `### Message\n\n${report.message}`;
+    `### Message\n\n${noMentions(report.message)}`;
 
   const fixed = header + diagnosticsBlock(report.diagnostics);
 
