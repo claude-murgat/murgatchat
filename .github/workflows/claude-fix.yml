@@ -120,7 +120,7 @@ jobs:
           # ces commandes sont refusées et le run meurt en « error_max_turns ».
           claude_args: |
             --max-turns 30
-            --model claude-sonnet-4-6
+            --model claude-opus-4-8
             --allowedTools "Read,Grep,Glob,Edit,Write,Bash(git:*),Bash(gh:*),Bash(npm:*),Bash(npx:*),Bash(node:*),Bash(curl:*),Bash(jq:*)"
 
       # Notifie l'équipe dans le chat MurgaChat dès que la PR est ouverte. Best-effort :
