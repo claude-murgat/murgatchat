@@ -235,7 +235,24 @@ export default function Composer({ onSend, placeholder, allowSchedule = true, on
             className="text-slate-500 hover:text-slate-800 px-2 py-1 text-sm flex items-center gap-1 disabled:opacity-50"
             title="Joindre un fichier"
           >
-            <span>📎</span>
+            {/* Trombone en SVG inline plutôt que l'emoji 📎 : l'emoji ne
+                s'affiche pas sur toutes les plateformes (Linux/Chrome sans
+                police emoji couleur le rend en « tofu »), rendant le bouton
+                invisible pour certains utilisateurs. Un SVG s'affiche partout,
+                à l'identique du bouton « Planifier » voisin. */}
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+            </svg>
             {uploading ? "Envoi..." : "Fichier"}
           </button>
           <button

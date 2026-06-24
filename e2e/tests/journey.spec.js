@@ -110,6 +110,15 @@ test("invitation registration + full web journey", async ({ page }) => {
   await createPrivateChannel(page, channel);
 
   const composer = page.getByPlaceholder(`Message dans #${channel}`);
+
+  // Régression #102 : le déclencheur de pièce jointe (« Clippy ») doit être
+  // visible pour tout le monde. Il s'appuie sur un SVG inline et non sur
+  // l'emoji 📎, qui ne s'affiche pas sur toutes les plateformes (Linux/Chrome
+  // sans police emoji couleur le rend en « tofu », d'où un bouton invisible).
+  const attachBtn = page.getByTitle("Joindre un fichier");
+  await expect(attachBtn).toBeVisible();
+  await expect(attachBtn.locator("svg")).toBeVisible();
+
   await composer.fill("hello e2e");
   await composer.press("Enter");
   await expect(page.getByText("hello e2e")).toBeVisible();
