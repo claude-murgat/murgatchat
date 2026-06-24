@@ -84,8 +84,9 @@ router.post("/", requireAuth, async (req, res) => {
   res.status(201).json({ id: report.id });
 
   // Mirror to GitHub out-of-band: respond fast and never let GitHub's
-  // availability affect submission. The issue triggers the claude-triage
-  // workflow; the link is stored back on the report for admin traceability.
+  // availability affect submission. One-shot reports carry no triage, so the
+  // issue is created with just the "à-valider" gate label for a human to
+  // classify; the link is stored back on the report for admin traceability.
   if (githubEnabled()) {
     createIssueFromBugReport({
       ...report,
