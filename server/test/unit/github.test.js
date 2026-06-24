@@ -22,9 +22,24 @@ describe("buildIssueBody", () => {
     expect(body).toContain("appVersion");
     expect(body).toContain("0.6.1");
     expect(body).toContain("socket disconnect");
-    expect(body).toContain("@alice");
+    expect(body).toContain("alice"); // author shown…
+    expect(body).not.toContain("@alice"); // …but never as a GitHub @mention
     expect(body).toContain("rep_123"); // report id breadcrumb
     expect(body).toContain("<details>"); // logs are collapsed
+  });
+
+  it("neutralizes @mentions in user-controlled text (username, message)", () => {
+    const body = buildIssueBody({
+      ...baseReport,
+      user: { username: "ghuser" },
+      message: "cassé, voir avec @maintainer stp",
+    });
+    // The handles still read normally but are no longer linkable mentions
+    // (a zero-width space sits right after the @).
+    expect(body).toContain("ghuser");
+    expect(body).toContain("maintainer");
+    expect(body).not.toContain("@ghuser");
+    expect(body).not.toContain("@maintainer");
   });
 
   it("truncates oversized logs to stay under GitHub's 65536 body limit", () => {
