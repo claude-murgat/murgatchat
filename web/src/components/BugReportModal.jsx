@@ -42,7 +42,7 @@ export default function BugReportModal({ user, onClose }) {
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [thread, phase]);
+  }, [thread, phase, busy]);
 
   // Logs/diagnostics payload — only attached when the user agrees.
   function logsPayload() {
@@ -112,6 +112,11 @@ export default function BugReportModal({ user, onClose }) {
     }
     setBusy(true);
     setError(null);
+    // Switch to the conversation view right away, echoing the user's first
+    // message, so the thinking indicator below makes the (possibly several
+    // seconds) wait for Claude's first reply read as "in progress", not frozen.
+    setThread([{ role: "user", content: text }]);
+    setPhase("chat");
     try {
       const res = await api.startSupport({
         message: text,
@@ -121,7 +126,7 @@ export default function BugReportModal({ user, onClose }) {
       });
       setConversationId(res.id);
       setThread(res.messages || []);
-      setPhase(res.status === "submitted" ? "done" : "chat");
+      if (res.status === "submitted") setPhase("done");
     } catch (e) {
       const code = e?.data?.error;
       if (code === "support_chat_unavailable" || code === "support_chat_error") {
@@ -130,9 +135,11 @@ export default function BugReportModal({ user, onClose }) {
           return;
         } catch (e2) {
           setError(e2?.data?.error || e2?.message || "Échec de l'envoi — réessayez.");
+          setPhase("compose");
         }
       } else {
         setError(e?.data?.error || e?.message || "Échec de l'envoi — réessayez.");
+        setPhase("compose");
       }
     } finally {
       setBusy(false);
@@ -213,8 +220,26 @@ export default function BugReportModal({ user, onClose }) {
               ))}
               {busy && (
                 <div className="flex justify-start">
-                  <div className="bg-slate-100 text-slate-500 rounded-2xl rounded-bl-sm px-3 py-2 text-sm">
-                    L'assistant réfléchit…
+                  <div
+                    role="status"
+                    aria-label="L'assistant réfléchit"
+                    className="bg-slate-100 rounded-2xl rounded-bl-sm px-3 py-2 flex items-center gap-2"
+                  >
+                    <span className="flex gap-1" aria-hidden="true">
+                      <span
+                        className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce"
+                        style={{ animationDelay: "0ms" }}
+                      />
+                      <span
+                        className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce"
+                        style={{ animationDelay: "150ms" }}
+                      />
+                      <span
+                        className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-bounce"
+                        style={{ animationDelay: "300ms" }}
+                      />
+                    </span>
+                    <span className="text-sm text-slate-500">L'assistant réfléchit…</span>
                   </div>
                 </div>
               )}
