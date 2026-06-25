@@ -28,7 +28,9 @@ jobs:
     # Ne réagit qu'au label de demande de revue IA, posé par un humain.
     if: github.event.label.name == 'revue-ia'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Marge large : une revue qui explore le code peut enchaîner beaucoup de tours
+    # (cf. plafond relevé plus bas). Le temps de job reste la borne de sécurité.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -51,6 +53,9 @@ jobs:
                la ligne. Si rien de bloquant, dis-le clairement.
             4. N'APPROUVE PAS et NE MERGE PAS la PR, n'effectue aucune action destructrice : ta sortie
                est une revue consultative. La validation finale et le merge restent humains.
+          # Plafond de tours relevé drastiquement : la revue échouait en
+          # « error_max_turns » avant d'avoir fini d'explorer le diff + le code.
+          # On laisse beaucoup de marge ; la vraie borne est le timeout du job.
           claude_args: |
-            --max-turns 20
+            --max-turns 200
             --model claude-opus-4-8
