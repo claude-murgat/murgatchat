@@ -114,12 +114,16 @@ describe("POST /support/conversations", () => {
     expect(report.message).toContain("bloquée");
     expect(report.message).toContain("moyenne"); // severity prefixed
 
-    // The issue is created already triaged: gate label + domain + severity.
+    // The issue is created already triaged: only the gate label, with domain +
+    // severity surfaced in the body (kept off labels so issue creation fires a
+    // single labeled event → a single claude-fix run).
     const ghCall = fetchMock.mock.calls.find(([u]) =>
       String(u).includes("api.github.com")
     );
     const payload = JSON.parse(ghCall[1].body);
-    expect(payload.labels).toEqual(["à-valider", "domaine:web", "sévérité:moyenne"]);
+    expect(payload.labels).toEqual(["à-valider"]);
+    expect(payload.body).toContain("Domaine : Web");
+    expect(payload.body).toContain("Sévérité : Moyenne");
   });
 
   it("rejects a turn on someone else's conversation (404)", async () => {

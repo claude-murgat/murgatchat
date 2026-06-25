@@ -75,8 +75,9 @@ async function finalize(conv, finalizeInput, req) {
       ...report,
       title: finalizeInput.title,
       // The conversation already triaged the ticket: carry the classification
-      // through so the issue is created with the right labels (à-valider +
-      // domaine:* + sévérité:*) — there is no separate triage step.
+      // through. The issue gets only the gate label (à-valider); domain +
+      // severity are written into the body (see github.js) — there is no
+      // separate triage step.
       domain: finalizeInput.domain,
       severity: finalizeInput.severity,
       user: req.user ? { username: req.user.username } : null,

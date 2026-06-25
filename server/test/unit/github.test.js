@@ -117,7 +117,7 @@ describe("createIssueFromBugReport", () => {
     expect(payload.body).toContain("Le bouton ne marche pas");
   });
 
-  it("maps the conversation's domain + severity onto repo labels", async () => {
+  it("records domain + severity in the body, not as labels (only the gate label)", async () => {
     process.env.GITHUB_BUG_TOKEN = "tok";
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -128,10 +128,14 @@ describe("createIssueFromBugReport", () => {
     await createIssueFromBugReport({ ...baseReport, domain: "web", severity: "élevée" });
 
     const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(payload.labels).toEqual(["à-valider", "domaine:web", "sévérité:élevée"]);
+    // Triage stays off the labels (one labeled event → one claude-fix run) …
+    expect(payload.labels).toEqual(["à-valider"]);
+    // … and is surfaced in the body instead.
+    expect(payload.body).toContain("Domaine : Web");
+    expect(payload.body).toContain("Sévérité : Élevée");
   });
 
-  it("skips unknown domain/severity values, keeping just the gate label", async () => {
+  it("omits unknown domain/severity from the body, keeping just the gate label", async () => {
     process.env.GITHUB_BUG_TOKEN = "tok";
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -143,6 +147,8 @@ describe("createIssueFromBugReport", () => {
 
     const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(payload.labels).toEqual(["à-valider"]);
+    expect(payload.body).not.toContain("Domaine :");
+    expect(payload.body).not.toContain("Sévérité :");
   });
 
   it("returns null on a non-ok response", async () => {
