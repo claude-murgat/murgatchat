@@ -54,8 +54,12 @@ async function ensureBot() {
   return bot;
 }
 
-// The team channel pipeline messages land in. Created on demand; every user is
-// kept a member so the channel is visible to the whole team.
+// The admin-only channel pipeline messages land in. Created on demand and kept
+// PRIVATE so non-admins can't browse/join it (a public channel is listed by
+// /channels/public and joinable via /channels/:id/join). Membership is
+// reconciled to admins only on every notify: missing admins are added, and any
+// non-admin is removed (covers demotions and rows from when this channel used to
+// mirror every user). So only admins ever see the support pipeline feed.
 async function ensureChannel() {
   const name = channelName();
   let channel = await prisma.channel.findFirst({
@@ -65,24 +69,46 @@ async function ensureChannel() {
     channel = await prisma.channel.create({
       data: {
         name,
-        isPrivate: false,
+        isPrivate: true,
         isDirect: false,
-        description: "Notifications du pipeline de support (Claude).",
+        description: "Notifications du pipeline de support (Claude). Réservé aux admins.",
       },
     });
+  } else if (!channel.isPrivate) {
+    // Existing channel from before this was admin-only: lock it down.
+    channel = await prisma.channel.update({
+      where: { id: channel.id },
+      data: { isPrivate: true },
+    });
   }
-  const users = await prisma.user.findMany({ select: { id: true } });
+
+  const admins = await prisma.user.findMany({
+    where: { isAdmin: true },
+    select: { id: true },
+  });
+  const adminIds = new Set(admins.map((u) => u.id));
   const existing = await prisma.membership.findMany({
     where: { channelId: channel.id },
     select: { userId: true },
   });
   const have = new Set(existing.map((m) => m.userId));
-  const toAdd = users
+
+  const toAdd = admins
     .filter((u) => !have.has(u.id))
     .map((u) => ({ userId: u.id, channelId: channel.id }));
   if (toAdd.length) {
     await prisma.membership.createMany({ data: toAdd, skipDuplicates: true });
   }
+
+  const toRemove = existing
+    .filter((m) => !adminIds.has(m.userId))
+    .map((m) => m.userId);
+  if (toRemove.length) {
+    await prisma.membership.deleteMany({
+      where: { channelId: channel.id, userId: { in: toRemove } },
+    });
+  }
+
   return channel;
 }
 
