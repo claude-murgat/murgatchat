@@ -103,7 +103,7 @@ test("invitation registration + full web journey", async ({ page }) => {
   await logout(page);
 
   // The invited user registers with the code (email prefilled).
-  await registerWithCode(page, code, inviteeEmail);
+  const userTag = await registerWithCode(page, code, inviteeEmail);
 
   // Channel + message lifecycle as the invited user.
   const channel = `e2e-${Date.now().toString(36)}`;
@@ -184,4 +184,13 @@ test("invitation registration + full web journey", async ({ page }) => {
   await expect(page.getByText("hello edited").first()).toBeVisible();
   // Markdown survives a reload (re-parsed from the stored source).
   await expect(messageRow(page, "gras").locator("strong")).toBeVisible();
+
+  // Issue #118 : la popup « Signaler un bug » doit expliquer son fonctionnement
+  // — un agent IA traite d'abord la demande, puis le support la valide — pour
+  // que l'utilisateur ne soit pas laissé sans repère après « Démarrer ».
+  await page.getByRole("button", { name: `E2E ${userTag} ▾` }).click();
+  await page.getByRole("button", { name: "🐞 Signaler un bug" }).click();
+  await expect(page.getByText("🐞 Signaler un bug")).toBeVisible();
+  await expect(page.getByText(/assistant IA échange avec vous/)).toBeVisible();
+  await expect(page.getByText(/équipe de support, qui le valide/)).toBeVisible();
 });
