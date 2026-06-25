@@ -118,9 +118,11 @@ test("invitation registration + full web journey", async ({ page }) => {
   const attachBtn = page.getByTitle("Joindre un fichier");
   await expect(attachBtn).toBeVisible();
   await expect(attachBtn.locator("svg")).toBeVisible();
-  // Issue #98 : l'icône doit être la mascotte « Clippy » (trombone + yeux),
-  // pas un trombone générique. Les yeux sont matérialisés par des <circle>.
+  // Issues #98 et #113 : l'icône doit être la mascotte « Clippy » (trombone +
+  // visage), pas un trombone générique. Le visage comporte deux yeux globuleux
+  // (contour + pupille → 4 <circle>) que l'on vérifie ici comme garde-fou.
   await expect(attachBtn.locator("svg circle").first()).toBeVisible();
+  expect(await attachBtn.locator("svg circle").count()).toBeGreaterThanOrEqual(4);
 
   // Issue #91 : glisser-déposer un fichier sur la zone de chat. Un dragenter
   // porteur de fichiers affiche l'overlay « Déposez ici », et le drop ingère le
