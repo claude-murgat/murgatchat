@@ -244,26 +244,38 @@ function Composer({ onSend, placeholder, allowSchedule = true, onTyping }, ref) 
                 sans police emoji couleur le rend en « tofu »), rendant le bouton
                 invisible pour certains utilisateurs (cf. #102). Le SVG s'affiche
                 partout, à l'identique du bouton « Planifier » voisin.
-                Issue #98 : on dessine bien la mascotte Clippy (trombone + yeux),
-                et non un trombone générique. Les <circle> forment les yeux. */}
+                Issue #98 puis #113 : on dessine une vraie mascotte Clippy et non
+                un trombone générique. Pour être reconnaissable, on reprend les
+                traits emblématiques du personnage Microsoft (sans réutiliser
+                l'asset officiel, soumis à droits) :
+                  - la silhouette iconique du trombone (fil extérieur replié +
+                    fil intérieur imbriqué), pas un simple fil unique « feather » ;
+                  - de gros yeux globuleux (contour + pupille) ;
+                  - les sourcils expressifs, signature qui le distingue d'un
+                    trombone ordinaire.
+                Les <circle> forment les yeux (attendus par le test e2e). */}
             <svg
               width="16"
               height="16"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="2"
+              strokeWidth="1.6"
               strokeLinecap="round"
               strokeLinejoin="round"
               aria-hidden="true"
             >
-              {/* Corps du trombone debout */}
-              <path d="M8.5 21V8a3.5 3.5 0 0 1 7 0v9.5a2 2 0 0 1-4 0V9" />
-              {/* Yeux de Clippy (contour + pupille) */}
-              <circle cx="10.5" cy="6.3" r="1.4" strokeWidth="1.2" />
-              <circle cx="13.5" cy="6.3" r="1.4" strokeWidth="1.2" />
-              <circle cx="10.7" cy="6.5" r="0.5" fill="currentColor" stroke="none" />
-              <circle cx="13.7" cy="6.5" r="0.5" fill="currentColor" stroke="none" />
+              {/* Corps : fil extérieur replié (boucle haute + boucle basse) puis
+                  fil intérieur redescendant, soit la forme classique d'un trombone. */}
+              <path d="M14.5 9 v8 a3 3 0 0 1 -6 0 V8.5 a3 3 0 0 1 6 0 v7" />
+              {/* Yeux globuleux de Clippy (contour + pupille). */}
+              <circle cx="10.4" cy="7.2" r="1.7" strokeWidth="1.3" />
+              <circle cx="13.6" cy="7.2" r="1.7" strokeWidth="1.3" />
+              <circle cx="10.7" cy="7.5" r="0.6" fill="currentColor" stroke="none" />
+              <circle cx="13.3" cy="7.5" r="0.6" fill="currentColor" stroke="none" />
+              {/* Sourcils expressifs, la marque de fabrique de Clippy. */}
+              <path d="M8.6 4.3 11 5" strokeWidth="1.4" />
+              <path d="M15.4 4.3 13 5" strokeWidth="1.4" />
             </svg>
             {uploading ? "Envoi..." : "Fichier"}
           </button>
