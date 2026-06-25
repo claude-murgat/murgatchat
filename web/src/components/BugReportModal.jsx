@@ -273,6 +273,16 @@ export default function BugReportModal({ user, onClose }) {
         ) : (
           <>
             <div className="p-5 space-y-4 overflow-y-auto">
+              {/* Issue #118 : expliciter le fonctionnement de l'outil pour que
+                  l'utilisateur sache, avant d'envoyer, qu'un agent IA traite
+                  d'abord sa demande puis la remonte au support pour validation. */}
+              <p className="text-[12px] leading-relaxed text-slate-600 bg-slate-50 border border-slate-200 rounded-md p-3">
+                <span aria-hidden="true">💡 </span>
+                Après «&nbsp;Démarrer&nbsp;», un assistant IA échange avec vous pour
+                préciser votre demande puis crée le ticket. Celui-ci est ensuite
+                transmis à l'équipe de support, qui le valide avant traitement.
+              </p>
+
               <div>
                 <label className="block text-sm font-medium mb-1">
                   Que s'est-il passé&nbsp;?
