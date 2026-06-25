@@ -76,6 +76,27 @@ function noMentions(s) {
   return String(s ?? "").replace(/@(?=[a-z0-9_-])/gi, "@​");
 }
 
+function humanSize(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} o`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)} Ko`;
+  return `${(n / (1024 * 1024)).toFixed(1)} Mo`;
+}
+
+// List the report's attachments. They live behind the authenticated /uploads
+// route (encrypted at rest), so they can't be embedded as images in the issue —
+// the body just inventories them and points to where the team can open them.
+function attachmentsBlock(attachments) {
+  if (!Array.isArray(attachments) || attachments.length === 0) return "";
+  const rows = attachments
+    .map((a) => `- ${noMentions(a.filename || "fichier")} (${noMentions(a.mimeType || "?")} · ${humanSize(a.size)})`)
+    .join("\n");
+  return (
+    `\n\n### Pièces jointes (${attachments.length})\n\n${rows}` +
+    `\n\n_Consultables dans le panneau d'administration de l'application._`
+  );
+}
+
 function diagnosticsBlock(diag) {
   if (!diag || typeof diag !== "object") return "";
   const rows = Object.entries(diag)
@@ -101,7 +122,8 @@ export function buildIssueBody(report) {
     `Report ID : \`${report.id}\`\n\n` +
     `### Message\n\n${noMentions(report.message)}`;
 
-  const fixed = header + diagnosticsBlock(report.diagnostics);
+  const fixed =
+    header + attachmentsBlock(report.attachments) + diagnosticsBlock(report.diagnostics);
 
   if (!report.logs) return fixed.slice(0, MAX_BODY);
 

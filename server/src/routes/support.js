@@ -4,6 +4,7 @@ import { prisma } from "../db.js";
 import { requireAuth } from "../auth.js";
 import { anthropicEnabled, runSupportTurn, MAX_TURNS } from "../anthropic.js";
 import { githubEnabled, createIssueFromBugReport } from "../github.js";
+import { ownedUnlinkedAttachments, MAX_ATTACHMENTS } from "./uploads.js";
 import { notifyEnabled, tokenMatches, postPipelineMessage } from "../notify.js";
 import { notifyMembers } from "../socket.js";
 
@@ -21,6 +22,9 @@ const startSchema = z.object({
   diagnostics: z.any().optional(),
   appVersion: z.string().max(40).optional(),
   platform: z.string().max(40).optional(),
+  // Files attached when opening the ticket (issue #96). Carried on the
+  // conversation and re-pointed to the BugReport on finalization.
+  attachmentIds: z.array(z.string().max(60)).max(MAX_ATTACHMENTS).optional(),
 });
 
 const turnSchema = z.object({
@@ -67,12 +71,27 @@ async function finalize(conv, finalizeInput, req) {
   };
   if (conv.diagnostics != null) data.diagnostics = conv.diagnostics;
 
+  // Files attached while composing were tied to the conversation; carry them over
+  // to the finalized report (issue #96) so admins and the issue body see them.
+  const attachments = await prisma.attachment.findMany({
+    where: { supportConversationId: conv.id },
+    select: { id: true, filename: true, mimeType: true, size: true },
+  });
+
   const report = await prisma.bugReport.create({ data });
+
+  if (attachments.length) {
+    await prisma.attachment.updateMany({
+      where: { supportConversationId: conv.id },
+      data: { bugReportId: report.id },
+    });
+  }
 
   let issue = null;
   if (githubEnabled()) {
     issue = await createIssueFromBugReport({
       ...report,
+      attachments,
       title: finalizeInput.title,
       // The conversation already triaged the ticket: carry the classification
       // through. The issue gets only the gate label (à-valider); domain +
@@ -101,7 +120,7 @@ router.post("/conversations", requireAuth, async (req, res) => {
   }
   const parsed = startSchema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: "invalid_message" });
-  const { message, logs, diagnostics, appVersion, platform } = parsed.data;
+  const { message, logs, diagnostics, appVersion, platform, attachmentIds } = parsed.data;
 
   // Bound the diagnostics up front so the very first model turn already gets the
   // environment (and Claude doesn't re-ask for it).
@@ -129,6 +148,16 @@ router.post("/conversations", requireAuth, async (req, res) => {
   const conv = await prisma.supportConversation.create({
     data: { ...base, status: "open", messages },
   });
+
+  // Tie the uploaded files to the conversation now (ownership-checked); finalize()
+  // re-points them to the BugReport once the ticket is submitted (issue #96).
+  const attachments = await ownedUnlinkedAttachments(attachmentIds, req.userId);
+  if (attachments.length) {
+    await prisma.attachment.updateMany({
+      where: { id: { in: attachments.map((a) => a.id) } },
+      data: { supportConversationId: conv.id },
+    });
+  }
 
   if (turn.finalize) {
     const { bugReportId, issue } = await finalize(conv, turn.finalize, req);

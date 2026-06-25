@@ -54,6 +54,26 @@ describe("buildIssueBody", () => {
     expect(body).toContain("Le bouton ne marche pas");
     expect(body).not.toContain("<details>");
   });
+
+  it("inventories attachments and points to the admin panel (issue #96)", () => {
+    const body = buildIssueBody({
+      ...baseReport,
+      attachments: [
+        { id: "a1", filename: "capture.png", mimeType: "image/png", size: 2048 },
+      ],
+    });
+    expect(body).toContain("### Pièces jointes (1)");
+    expect(body).toContain("capture.png");
+    expect(body).toContain("2 Ko");
+    expect(body).toContain("panneau d'administration");
+  });
+
+  it("omits the attachments section when there are none", () => {
+    expect(buildIssueBody(baseReport)).not.toContain("Pièces jointes");
+    expect(buildIssueBody({ ...baseReport, attachments: [] })).not.toContain(
+      "Pièces jointes"
+    );
+  });
 });
 
 describe("githubEnabled", () => {

@@ -126,6 +126,50 @@ describe("POST /support/conversations", () => {
     expect(payload.body).toContain("Sévérité : Moyenne");
   });
 
+  it("carries attachments from the conversation to the finalized report (issue #96)", async () => {
+    process.env.ANTHROPIC_API_KEY = "k";
+    process.env.GITHUB_BUG_TOKEN = "t";
+    const fetchMock = stubFetch();
+    const owner = await registerUser(app);
+
+    const up = await request(app)
+      .post("/uploads")
+      .set("Authorization", `Bearer ${owner.token}`)
+      .attach("file", Buffer.from("fake-png"), "capture.png");
+    const attId = up.body.attachment.id;
+
+    const start = await authed(app, owner.token)
+      .post("/support/conversations")
+      .send({ message: "l'app plante", attachmentIds: [attId] });
+    expect(start.status).toBe(201);
+
+    // While the ticket is being composed the file hangs off the conversation.
+    let att = await prisma.attachment.findUnique({ where: { id: attId } });
+    expect(att.supportConversationId).toBe(start.body.id);
+    expect(att.bugReportId).toBeNull();
+
+    const finish = await authed(app, owner.token)
+      .post(`/support/conversations/${start.body.id}/messages`)
+      .send({ message: "sur le web" });
+    expect(finish.status).toBe(200);
+    expect(finish.body.status).toBe("submitted");
+
+    // On finalization it is re-pointed to the created BugReport.
+    const conv = await prisma.supportConversation.findUnique({
+      where: { id: start.body.id },
+    });
+    att = await prisma.attachment.findUnique({ where: { id: attId } });
+    expect(att.bugReportId).toBe(conv.bugReportId);
+
+    // …and is inventoried in the mirrored GitHub issue.
+    const ghCall = fetchMock.mock.calls.find(([u]) =>
+      String(u).includes("api.github.com")
+    );
+    const payload = JSON.parse(ghCall[1].body);
+    expect(payload.body).toContain("Pièces jointes");
+    expect(payload.body).toContain("capture.png");
+  });
+
   it("rejects a turn on someone else's conversation (404)", async () => {
     process.env.ANTHROPIC_API_KEY = "k";
     stubFetch();
