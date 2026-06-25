@@ -214,4 +214,38 @@ describe("POST /support/notify", () => {
     expect(msg.searchableBody).toContain(PR);
     expect(msg.searchableBody).toContain("#42");
   });
+
+  it("réserve le salon aux admins : le rend privé et purge les non-admins", async () => {
+    process.env.SUPPORT_NOTIFY_TOKEN = "s3cret";
+    process.env.SUPPORT_NOTIFY_CHANNEL = "support-dev";
+
+    const admin = await registerUser(app); // bootstrap = admin
+    const member = await registerUser(app); // invité = non-admin
+
+    // État hérité : un salon support-dev public où un non-admin est déjà membre.
+    const created = (
+      await authed(app, admin.token)
+        .post("/channels")
+        .send({ name: "support-dev", memberIds: [member.user.id] })
+    ).body.channel;
+    expect(created.isPrivate).toBe(false);
+
+    const res = await request(app)
+      .post("/support/notify")
+      .set("Authorization", "Bearer s3cret")
+      .send({ issueNumber: 7, prUrl: PR });
+    expect(res.status).toBe(200);
+
+    const channel = await prisma.channel.findFirst({ where: { name: "support-dev" } });
+    expect(channel.isPrivate).toBe(true); // verrouillé pour les non-admins
+
+    const memberIds = (
+      await prisma.membership.findMany({
+        where: { channelId: channel.id },
+        select: { userId: true },
+      })
+    ).map((m) => m.userId);
+    expect(memberIds).toContain(admin.user.id); // l'admin reste membre
+    expect(memberIds).not.toContain(member.user.id); // le non-admin est purgé
+  });
 });
