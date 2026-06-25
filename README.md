@@ -323,10 +323,11 @@ sur l'**envoi direct** d'un signalement brut (comportement historique).
 Optionnel. Si `GITHUB_BUG_TOKEN` est configuré, le ticket finalisé est **miroité**
 vers une **issue GitHub déjà triée** — best-effort, sans jamais bloquer la
 soumission (cf. `server/src/github.js`). Le classement étant fait par le Claude in-app
-au moment de la création, l'issue naît directement avec les labels **`à-valider`**
-(gate humain) + **`domaine:*`** + **`sévérité:*`** ; **il n'y a plus de workflow de
-triage**. Un signalement one-shot (sans conversation) reçoit seulement `à-valider`, à
-classer par un humain. Le lien de l'issue est stocké sur le rapport et affiché dans le
+au moment de la création, l'issue naît directement avec le label **`à-valider`**
+(gate humain) ; le **domaine** et la **sévérité** sont écrits **dans le corps** de
+l'issue (et non en labels, pour que la création ne déclenche qu'un seul événement
+`labeled` → un seul run `claude-fix`). **Il n'y a plus de workflow de triage**. Un
+signalement one-shot (sans conversation) reçoit aussi seulement `à-valider`. Le lien de l'issue est stocké sur le rapport et affiché dans le
 panneau admin. Cette issue alimente ensuite les workflows GitHub Actions
 (`.github/workflows/`) :
 
@@ -375,8 +376,8 @@ pour les secrets) :
   up`). ⚠️ Un runner self-hosted exécute du code — il n'agit qu'après
   le gate humain `claude:fix`, garde-le sur une machine de confiance.
 - **Labels** à créer : `à-valider`, `claude:fix`, `revue-ia`
-  (+ `domaine:server|web|mobile|desktop`, `sévérité:faible|moyenne|élevée` posés à la
-  création par le Claude in-app ; `wontfix`/`duplicate`/`bug` existent déjà). Ex. :
+  (le domaine et la sévérité ne sont plus des labels — ils figurent dans le corps de
+  l'issue ; `wontfix`/`duplicate`/`bug` existent déjà). Ex. :
   `gh label create "claude:fix" -c "#0e8a16" -d "Autorise le développement par Claude"`,
   `gh label create "à-valider" -c "#fbca04" -d "Triage fait, en attente de validation dev"`,
   `gh label create "revue-ia" -c "#5319e7" -d "Demande une revue IA de la PR"`.

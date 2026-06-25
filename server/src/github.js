@@ -1,8 +1,11 @@
 // GitHub bridge: mirror an in-app bug report to a GitHub issue, already triaged.
 //
 // The in-app support conversation (server/src/anthropic.js) does the triage
-// itself — structured body, severity and domain — so the issue is created ready
-// for the human gate (label "à-valider"). A developer reviews it and applies
+// itself — structured body, severity and domain. Triage (domain + severity) is
+// written INTO the issue body, not as labels: GitHub fires one `labeled` event
+// per label set at creation, and each one spins up (then skips) a claude-fix run
+// — so extra triage labels meant extra skipped Actions runs. The issue carries
+// only the single gate label "à-valider". A developer reviews it and applies
 // "claude:fix" to kick off claude-fix.yml. There is no longer a separate triage
 // workflow.
 //
@@ -17,28 +20,31 @@ const API = "https://api.github.com";
 // diagnostics + Markdown scaffolding always fit alongside the (≤100 KB) logs.
 const MAX_BODY = 60_000;
 
-// Applied on every created issue: marks it triaged and pending the human gate.
+// The ONLY label applied at creation: marks the issue triaged and pending the
+// human gate. Kept to a single label on purpose (see header comment) so issue
+// creation fires just one `labeled` event.
 const GATE_LABEL = "à-valider";
 
-// Map the conversation's classification onto the repo's existing labels. Unknown
-// or missing values are simply skipped (one-shot reports carry no triage).
-const DOMAIN_LABELS = {
-  server: "domaine:server",
-  web: "domaine:web",
-  mobile: "domaine:mobile",
-  desktop: "domaine:desktop",
+// Human-readable triage, rendered in the body instead of as labels. Unknown or
+// missing values are simply skipped (one-shot reports carry no triage).
+const DOMAIN_NAMES = {
+  server: "Serveur",
+  web: "Web",
+  mobile: "Mobile",
+  desktop: "Desktop",
 };
-const SEVERITY_LABELS = {
-  faible: "sévérité:faible",
-  moyenne: "sévérité:moyenne",
-  élevée: "sévérité:élevée",
+const SEVERITY_NAMES = {
+  faible: "Faible",
+  moyenne: "Moyenne",
+  élevée: "Élevée",
 };
 
-function issueLabels({ domain, severity } = {}) {
-  const labels = [GATE_LABEL];
-  if (domain && DOMAIN_LABELS[domain]) labels.push(DOMAIN_LABELS[domain]);
-  if (severity && SEVERITY_LABELS[severity]) labels.push(SEVERITY_LABELS[severity]);
-  return labels;
+// A `> Domaine : … · Sévérité : …` blockquote line for the body header, or "".
+function triageLine({ domain, severity } = {}) {
+  const parts = [];
+  if (domain && DOMAIN_NAMES[domain]) parts.push(`Domaine : ${DOMAIN_NAMES[domain]}`);
+  if (severity && SEVERITY_NAMES[severity]) parts.push(`Sévérité : ${SEVERITY_NAMES[severity]}`);
+  return parts.length ? `> ${parts.join(" · ")}\n` : "";
 }
 
 // Read env lazily (inside helpers, not at module load) so tests can toggle the
@@ -90,6 +96,7 @@ export function buildIssueBody(report) {
     : "un utilisateur";
   const header =
     `> Signalement remonté depuis l'application par ${reporter}.\n` +
+    triageLine(report) +
     `> Plateforme : ${report.platform || "?"} · Version : ${report.appVersion || "?"} · ` +
     `Report ID : \`${report.id}\`\n\n` +
     `### Message\n\n${noMentions(report.message)}`;
@@ -133,7 +140,7 @@ export async function createIssueFromBugReport(report) {
       body: JSON.stringify({
         title,
         body: buildIssueBody(report),
-        labels: issueLabels({ domain: report.domain, severity: report.severity }),
+        labels: [GATE_LABEL],
       }),
     });
     if (!res.ok) {
