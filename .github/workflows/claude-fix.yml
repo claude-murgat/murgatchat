@@ -101,13 +101,15 @@ jobs:
           github_token: ${{ secrets.GH_BOT_TOKEN }}
           # Suivi de progression SANS polluer l'issue : on n'active PAS track_progress
           # (qui posterait un commentaire de tracking sur l'issue et salit l'historique).
-          # À la place, display_report écrit le rapport Claude (résumé / todos / actions)
-          # dans le « Step Summary » de l'exécution, lisible directement sur la page de
-          # l'action. Pour suivre en direct et couper le run s'il part dans le mur, on
-          # regarde les logs du job (qui streament les tours). On n'active pas
-          # show_full_output : il déverse tout le transcript JSON (et alerte sur une
-          # possible fuite de secrets).
+          # À la place :
+          #   - display_report : rapport final (résumé / todos / actions) dans le
+          #     « Step Summary » de l'exécution.
+          #   - show_full_output : détail complet de CHAQUE étape (tours, appels d'outils)
+          #     dans les logs du job, pour suivre précisément ce que fait Claude et couper
+          #     le run s'il part dans le mur. Runner self-hosted privé derrière le gate
+          #     humain : l'avertissement « fuite de secrets » de cette option est acceptable.
           display_report: true
+          show_full_output: true
           prompt: |
             Implémente un correctif pour l'issue #${{ github.event.issue.number }} de MurgaChat
             (dépôt ${{ github.repository }}). Travaille et rédige en français.
@@ -126,6 +128,12 @@ jobs:
                « Fixes #${{ github.event.issue.number }} » pour lier et clore l'issue au merge.
             7. N'effectue AUCUNE action destructrice et ne fusionne pas : la PR doit rester en
                attente de revue humaine.
+
+            RÈGLE IMPORTANTE — pas de @mention. N'écris JAMAIS « @ » suivi d'un identifiant
+            (PR, commits, commentaires). Le rapport d'issue contient le pseudo CHAT de
+            l'auteur (ex. « par toto ») : ce pseudo peut coïncider avec un vrai compte
+            GitHub HORS de l'équipe, et un « @toto » le notifierait à tort. Référence
+            l'auteur ou tout pseudo en texte brut, sans « @ ». Ne « tag » personne.
           # claude-code-action n'autorise par défaut que les outils natifs
           # (Read/Grep/Glob/Edit/Write) — PAS les commandes Bash. Or coder ici exige
           # un shell complet : git, gh, npm/npx, mais aussi inspecter (ls/cat/grep/find),

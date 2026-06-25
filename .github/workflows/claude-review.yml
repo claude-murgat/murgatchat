@@ -53,6 +53,9 @@ jobs:
                la ligne. Si rien de bloquant, dis-le clairement.
             4. N'APPROUVE PAS et NE MERGE PAS la PR, n'effectue aucune action destructrice : ta sortie
                est une revue consultative. La validation finale et le merge restent humains.
+            5. RÈGLE IMPORTANTE — pas de @mention : n'écris JAMAIS « @ » suivi d'un identifiant dans
+               ton commentaire. Un pseudo (issue/PR/code) peut coïncider avec un vrai compte GitHub
+               hors équipe et le notifier à tort. Cite les pseudos en texte brut, sans « @ ».
           # Plafond de tours relevé drastiquement : la revue échouait en
           # « error_max_turns » avant d'avoir fini d'explorer le diff + le code.
           # On laisse beaucoup de marge ; la vraie borne est le timeout du job.
