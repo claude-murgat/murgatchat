@@ -438,6 +438,26 @@ router.delete("/:id/members/:userId", requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// Niveau de notification de l'appelant pour ce channel : "all" | "mentions" | "none".
+// Stocké sur sa propre Membership ; n'affecte que lui (pas les autres membres).
+const notifyLevelSchema = z.object({
+  level: z.enum(["all", "mentions", "none"]),
+});
+
+router.patch("/:id/notifications", requireAuth, async (req, res) => {
+  const parsed = notifyLevelSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const membership = await prisma.membership.findUnique({
+    where: { userId_channelId: { userId: req.userId, channelId: req.params.id } },
+  });
+  if (!membership) return res.status(404).json({ error: "not_a_member" });
+  await prisma.membership.update({
+    where: { id: membership.id },
+    data: { notifyLevel: parsed.data.level },
+  });
+  res.json({ ok: true, notifyLevel: parsed.data.level });
+});
+
 export function serializeChannel(channel, viewerId) {
   const members = (channel.memberships || []).map((m) => publicUser(m.user));
   let displayName = channel.name;
@@ -471,6 +491,9 @@ export function serializeChannel(channel, viewerId) {
     isPrivate: channel.isPrivate,
     isDefault: channel.isDefault,
     description: channel.description,
+    // Niveau de notification de l'appelant pour ce channel (défaut "all" si la
+    // membership n'est pas hydratée, p. ex. juste après une création).
+    notifyLevel: viewerMembership?.notifyLevel || "all",
     members,
     lastMessage: last
       ? {

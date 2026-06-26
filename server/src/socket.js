@@ -61,10 +61,26 @@ function webDesktopInactive(userId) {
   return true;
 }
 
+// Le membre est-il mentionné dans `body` ? Faute de système d'autocomplétion de
+// mentions, on reconnaît un simple "@pseudo" (username ou displayName), insensible
+// à la casse. Sert au niveau de notification "mentions" par channel.
+export function isMentioned(user, body) {
+  if (!body) return false;
+  const text = String(body).toLowerCase();
+  return [user.username, user.displayName]
+    .filter(Boolean)
+    .some((handle) => text.includes("@" + String(handle).toLowerCase()));
+}
+
 // Notify channel members (except author) who aren't in DnD: in-app "notification"
 // event, plus a push (Expo for native, Web Push for browser PWAs) for those
 // whose web/desktop has been idle >= 10 min. Web push is the iOS distribution
 // channel since the PWA pivot (no TestFlight build).
+//
+// Chaque membre choisit son niveau par channel (Membership.notifyLevel) : "none"
+// coupe toute notification (le badge non-lu reste, façon Slack/Discord), "mentions"
+// ne notifie que s'il est cité, "all" notifie tout. DnD reste prioritaire et
+// suppressif par-dessus.
 export async function notifyMembers(io, channelId, authorId, serialized) {
   const members = await prisma.membership.findMany({
     where: { channelId },
@@ -73,6 +89,8 @@ export async function notifyMembers(io, channelId, authorId, serialized) {
   const awayUserIds = [];
   for (const cm of members) {
     if (cm.userId === authorId) continue;
+    if (cm.notifyLevel === "none") continue;
+    if (cm.notifyLevel === "mentions" && !isMentioned(cm.user, serialized.body)) continue;
     if (isUserDnd(cm.user)) continue;
     io.to(`user:${cm.userId}`).emit("notification", { channelId, message: serialized });
     if (webDesktopInactive(cm.userId)) awayUserIds.push(cm.userId);
