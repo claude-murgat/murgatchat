@@ -98,6 +98,7 @@ jobs:
         run: docker compose up -d --build
 
       - uses: anthropics/claude-code-action@v1
+        id: claude
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GH_BOT_TOKEN }}
@@ -106,12 +107,11 @@ jobs:
           # À la place :
           #   - display_report : rapport final (résumé / todos / actions) dans le
           #     « Step Summary » de l'exécution.
-          #   - show_full_output : détail complet de CHAQUE étape (tours, appels d'outils)
-          #     dans les logs du job, pour suivre précisément ce que fait Claude et couper
-          #     le run s'il part dans le mur. Runner self-hosted privé derrière le gate
-          #     humain : l'avertissement « fuite de secrets » de cette option est acceptable.
+          #   - le détail étape par étape va dans les logs du job via l'étape
+          #     « Transcription lisible de Claude » ci-dessous, qui formate
+          #     l'execution_file. On N'active PAS show_full_output : il déversait le
+          #     transcript en JSON brut illisible (issue #126) ET exposait des secrets.
           display_report: true
-          show_full_output: true
           prompt: |
             Implémente un correctif pour l'issue #${{ github.event.issue.number }} de MurgaChat
             (dépôt ${{ github.repository }}). Travaille et rédige en français.
@@ -149,6 +149,14 @@ jobs:
           claude_args: |
             --model claude-opus-4-8
             --allowedTools "Read,Grep,Glob,Edit,Write,Bash"
+
+      # Rend lisible, dans les logs du job, le déroulé de Claude (messages + appels
+      # d'outils + résultats + résultat final), à partir de l'execution_file exposé
+      # par l'action. Remplace l'ancien show_full_output (JSON brut, issue #126).
+      # Best-effort : le script sort toujours 0, donc ne casse jamais le job.
+      - name: Transcription lisible de Claude
+        if: always()
+        run: .github/scripts/format-claude-log.sh "${{ steps.claude.outputs.execution_file }}"
 
       # Notifie l'équipe dans le chat MurgaChat dès que la PR est ouverte. Best-effort :
       # n'échoue jamais le job (la PR existe déjà). Requiert le secret SUPPORT_NOTIFY_TOKEN
