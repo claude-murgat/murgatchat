@@ -54,6 +54,10 @@ model Membership {
   channelId String
   joinedAt  DateTime @default(now())
   lastReadAt DateTime @default(now())
+  // Notifications par channel : "all" (tout), "mentions" (seulement quand le
+  // membre est mentionné) ou "none" (muet). Par défaut on notifie tout, ce qui
+  // reproduit le comportement historique pré-réglage.
+  notifyLevel String @default("all")
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)

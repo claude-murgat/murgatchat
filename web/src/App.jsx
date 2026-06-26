@@ -478,6 +478,12 @@ export default function App() {
     );
   }, []);
 
+  const onNotifyLevelChange = useCallback((channelId, notifyLevel) => {
+    setChannels((prev) =>
+      prev.map((c) => (c.id === channelId ? { ...c, notifyLevel } : c))
+    );
+  }, []);
+
   const toggleDnd = useCallback(() => {
     setShowDnd(true);
   }, []);
@@ -574,6 +580,7 @@ export default function App() {
             onlineUserIds={onlineUserIds}
             onAddMembers={() => setShowAddMembers(true)}
             onShowMembers={() => setShowMembers(true)}
+            onNotifyLevelChange={onNotifyLevelChange}
             onBackToList={() => {
               if (
                 backSentinelRef.current &&

@@ -166,6 +166,9 @@ export const api = {
   addMembers: (id, userIds) =>
     request(`/channels/${id}/members`, { method: "POST", body: { userIds } }),
   leaveChannel: (id) => request(`/channels/${id}/leave`, { method: "POST" }),
+  // Niveau de notification par channel : "all" | "mentions" | "none".
+  setChannelNotifyLevel: (id, level) =>
+    request(`/channels/${id}/notifications`, { method: "PATCH", body: { level } }),
   removeMember: (id, userId) =>
     request(`/channels/${id}/members/${userId}`, { method: "DELETE" }),
   openDm: (userIds) =>

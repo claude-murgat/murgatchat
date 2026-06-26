@@ -132,4 +132,40 @@ describe("push gating (notifyMembers)", () => {
     await send(aSock, { channelId, body: "pas de device" });
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("sends neither notification nor push when the recipient muted the channel (notifyLevel=none)", async () => {
+    const fetchMock = mockExpo();
+    const { author, recipient, channelId } = await setup();
+    await authed(srv.app, recipient.token)
+      .patch(`/channels/${channelId}/notifications`)
+      .send({ level: "none" });
+    // recipient connecté mais muet : ni in-app, ni push.
+    const rSock = await ready(recipient.token, channelId, "mobile");
+    const aSock = await ready(author.token, channelId);
+
+    const silent = expectNoEvent(rSock, "notification", 800);
+    await send(aSock, { channelId, body: "canal coupé" });
+    await silent;
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("with notifyLevel=mentions, notifies only when the recipient is mentioned", async () => {
+    const fetchMock = mockExpo();
+    const { author, recipient, channelId } = await setup();
+    await authed(srv.app, recipient.token)
+      .patch(`/channels/${channelId}/notifications`)
+      .send({ level: "mentions" });
+    const rSock = await ready(recipient.token, channelId, "web");
+    const aSock = await ready(author.token, channelId);
+
+    // Message sans mention : silence.
+    const silent = expectNoEvent(rSock, "notification", 600);
+    await send(aSock, { channelId, body: "coucou tout le monde" });
+    await silent;
+
+    // Message qui cite le destinataire : notification émise.
+    const inApp = waitForEvent(rSock, "notification", (n) => n.channelId === channelId);
+    await send(aSock, { channelId, body: `@${recipient.user.username} regarde ça` });
+    await inApp;
+  });
 });

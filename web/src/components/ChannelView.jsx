@@ -106,6 +106,13 @@ function previewSnippet(body, max = 60) {
   return flat.length > max ? flat.slice(0, max - 1) + "…" : flat;
 }
 
+// Niveaux de notification par channel exposés dans le menu du header.
+const NOTIFY_OPTIONS = [
+  { value: "all", icon: "🔔", label: "Tout", hint: "Notifier chaque message" },
+  { value: "mentions", icon: "💬", label: "Mentions", hint: "Seulement quand je suis cité" },
+  { value: "none", icon: "🔕", label: "Muet", hint: "Aucune notification" },
+];
+
 export default function ChannelView({
   channel,
   currentUser,
@@ -113,6 +120,8 @@ export default function ChannelView({
   onlineUserIds,
   onAddMembers,
   onShowMembers,
+  // Persiste le niveau de notification choisi pour ce channel (remonte à App.jsx).
+  onNotifyLevelChange,
   // Mobile-only : retour à la liste des canaux (annule activeChannelId dans App.jsx).
   // Sur desktop (md+), le bouton est masqué et la sidebar reste à gauche en permanence.
   onBackToList,
@@ -124,6 +133,8 @@ export default function ChannelView({
   // message gets `parentId` and clears it. No more side panel.
   const [replyingTo, setReplyingTo] = useState(null);
   const [typingUserIds, setTypingUserIds] = useState([]);
+  const [showNotifyMenu, setShowNotifyMenu] = useState(false);
+  const notifyMenuRef = useRef(null);
   const scrollRef = useRef(null);
   const messageRefs = useRef({});
   const typingTimers = useRef({});
@@ -260,6 +271,31 @@ export default function ChannelView({
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages.length, channel?.id]);
 
+  // Ferme le menu de notifications au clic en dehors / changement de channel.
+  useEffect(() => {
+    if (!showNotifyMenu) return;
+    function onDocMouseDown(e) {
+      if (!notifyMenuRef.current?.contains(e.target)) setShowNotifyMenu(false);
+    }
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [showNotifyMenu]);
+
+  useEffect(() => {
+    setShowNotifyMenu(false);
+  }, [channel?.id]);
+
+  async function changeNotifyLevel(level) {
+    setShowNotifyMenu(false);
+    if (!channel || level === (channel.notifyLevel || "all")) return;
+    try {
+      await api.setChannelNotifyLevel(channel.id, level);
+      onNotifyLevelChange?.(channel.id, level);
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+
   function send(payload) {
     if (!channel || !socket) return;
     const parentId = replyingTo?.id || null;
@@ -339,6 +375,9 @@ export default function ChannelView({
   }
 
   const headerTitle = channel.isDirect ? channel.displayName : `# ${channel.name}`;
+  const currentNotifyOption =
+    NOTIFY_OPTIONS.find((o) => o.value === (channel.notifyLevel || "all")) ||
+    NOTIFY_OPTIONS[0];
   const dmOther = channel.isDirect
     ? channel.members.find((m) => m.id !== currentUser?.id) || channel.members[0]
     : null;
@@ -445,6 +484,43 @@ export default function ChannelView({
             <span aria-hidden="true">⏰</span>
             <span className="ml-1">({scheduled.length})</span>
           </button>
+          <div className="relative" ref={notifyMenuRef}>
+            <button
+              onClick={() => setShowNotifyMenu((v) => !v)}
+              className="w-10 h-10 sm:w-auto sm:h-auto sm:px-2 sm:py-1.5 grid place-items-center sm:inline-block text-xs rounded text-slate-600 hover:bg-slate-100 sm:border sm:border-slate-300"
+              title={`Notifications : ${currentNotifyOption.label}`}
+              aria-label={`Notifications du salon : ${currentNotifyOption.label}`}
+            >
+              <span aria-hidden="true">{currentNotifyOption.icon}</span>
+            </button>
+            {showNotifyMenu && (
+              <div className="absolute right-0 top-full mt-1 z-50 w-60 rounded-lg border border-slate-200 bg-white shadow-xl py-1">
+                <div className="px-3 py-1.5 text-xs font-semibold text-slate-500">
+                  Notifications de ce salon
+                </div>
+                {NOTIFY_OPTIONS.map((opt) => {
+                  const active = (channel.notifyLevel || "all") === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => changeNotifyLevel(opt.value)}
+                      className={`w-full text-left px-3 py-2 flex items-start gap-2 hover:bg-slate-50 ${
+                        active ? "bg-aubergine-700/5" : ""
+                      }`}
+                    >
+                      <span aria-hidden="true" className="text-base leading-5">{opt.icon}</span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-sm text-slate-900">{opt.label}</span>
+                        <span className="block text-xs text-slate-500">{opt.hint}</span>
+                      </span>
+                      {active && <span className="text-aubergine-700" aria-hidden="true">✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
