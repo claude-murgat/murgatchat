@@ -2,10 +2,11 @@
 //
 // The in-app support conversation (server/src/anthropic.js) does the triage
 // itself — structured body, severity and domain. Triage (domain + severity) is
-// written INTO the issue body, not as labels: GitHub fires one `labeled` event
-// per label set at creation, and each one spins up (then skips) a claude-fix run
-// — so extra triage labels meant extra skipped Actions runs. The issue carries
-// only the single gate label "à-valider". A developer reviews it and applies
+// written INTO the issue body, not as labels, AND the issue is created with NO
+// label at all: GitHub fires one `labeled` event per label set at creation, and
+// each one spins up (then skips) a claude-fix run — so every creation label meant
+// a useless skipped Actions run. The human gate is now implicit: an open issue
+// without "claude:fix" is awaiting validation. A developer reviews it and applies
 // "claude:fix" to kick off claude-fix.yml. There is no longer a separate triage
 // workflow.
 //
@@ -19,11 +20,6 @@ const API = "https://api.github.com";
 // GitHub caps issue bodies at 65536 chars. Stay well under so the message +
 // diagnostics + Markdown scaffolding always fit alongside the (≤100 KB) logs.
 const MAX_BODY = 60_000;
-
-// The ONLY label applied at creation: marks the issue triaged and pending the
-// human gate. Kept to a single label on purpose (see header comment) so issue
-// creation fires just one `labeled` event.
-const GATE_LABEL = "à-valider";
 
 // Human-readable triage, rendered in the body instead of as labels. Unknown or
 // missing values are simply skipped (one-shot reports carry no triage).
@@ -140,7 +136,10 @@ export async function createIssueFromBugReport(report) {
       body: JSON.stringify({
         title,
         body: buildIssueBody(report),
-        labels: [GATE_LABEL],
+        // No label at creation: any creation label fires a `labeled` event that
+        // needlessly spins up (then skips) claude-fix. The gate is implicit —
+        // an open issue without "claude:fix" is awaiting human validation.
+        labels: [],
       }),
     });
     if (!res.ok) {

@@ -1,6 +1,13 @@
 # Mode interactif : permet à un relecteur humain d'itérer avec Claude pendant la
 # revue de la PR (ou sur une issue) en mentionnant « @claude » dans un commentaire
 # ou une review. Complète le pipeline automatique (claude-fix / claude-review).
+#
+# NB : pas de déclencheur `issues` ici. Il ne servait qu'à ouvrir une issue
+# contenant « @claude » pour invoquer l'agent — cas jamais utilisé dans le
+# pipeline de signalement (les issues sont créées par le bot in-app). Surtout,
+# `issues: opened` se déclenchait à CHAQUE création d'issue puis « skippait »
+# faute de « @claude » : un run inutile par ticket. Pour invoquer @claude sur une
+# issue, poste un COMMENTAIRE « @claude … » (déclencheur issue_comment ci-dessous).
 name: claude
 
 on:
@@ -10,16 +17,13 @@ on:
     types: [created]
   pull_request_review:
     types: [submitted]
-  issues:
-    types: [opened, assigned]
 
 jobs:
   claude:
     if: |
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
