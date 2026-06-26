@@ -572,6 +572,8 @@ export default function App() {
             currentUser={user}
             socket={socket}
             onlineUserIds={onlineUserIds}
+            channels={channels}
+            onSwitchChannel={onSelectChannel}
             onAddMembers={() => setShowAddMembers(true)}
             onShowMembers={() => setShowMembers(true)}
             onBackToList={() => {
