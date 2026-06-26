@@ -4,6 +4,7 @@ import Avatar from "./Avatar.jsx";
 import Composer from "./Composer.jsx";
 import MessageMarkdown from "./MessageMarkdown.jsx";
 import AttachmentModal from "./AttachmentModal.jsx";
+import ForwardMessageModal from "./ForwardMessageModal.jsx";
 import { api, attachmentUrl } from "../api.js";
 import { isWindowFocused } from "../desktop.js";
 
@@ -113,6 +114,19 @@ const NOTIFY_OPTIONS = [
   { value: "none", icon: "🔕", label: "Muet", hint: "Aucune notification" },
 ];
 
+// Corps d'un message transféré (#124) : une ligne d'attribution + le texte
+// d'origine cité en bloc markdown (chaque ligne préfixée par « > » pour rester
+// dans la citation). Les pièces jointes ne sont pas reportées (elles sont liées
+// au message d'origine côté serveur) — seul le texte est transféré.
+function buildForwardBody(message) {
+  const author = message.author?.displayName || "?";
+  const quoted = (message.body || "")
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+  return `**↪ Message transféré de ${author} :**\n${quoted}`;
+}
+
 export default function ChannelView({
   channel,
   currentUser,
@@ -122,6 +136,9 @@ export default function ChannelView({
   onShowMembers,
   // Persiste le niveau de notification choisi pour ce channel (remonte à App.jsx).
   onNotifyLevelChange,
+  // Liste complète des conversations + bascule, pour le transfert de message (#124).
+  channels = [],
+  onSwitchChannel,
   // Mobile-only : retour à la liste des canaux (annule activeChannelId dans App.jsx).
   // Sur desktop (md+), le bouton est masqué et la sidebar reste à gauche en permanence.
   onBackToList,
@@ -132,6 +149,9 @@ export default function ChannelView({
   // Discord-style: tapping "Répondre" sets the target here; the next outgoing
   // message gets `parentId` and clears it. No more side panel.
   const [replyingTo, setReplyingTo] = useState(null);
+  // Message en cours de transfert vers une autre conversation (#124). Ouvre la
+  // modale de sélection de destination ; null = modale fermée.
+  const [forwardingMessage, setForwardingMessage] = useState(null);
   const [typingUserIds, setTypingUserIds] = useState([]);
   const [showNotifyMenu, setShowNotifyMenu] = useState(false);
   const notifyMenuRef = useRef(null);
@@ -311,6 +331,23 @@ export default function ChannelView({
     );
     // Always release the reply target on send — Discord-style: one reply, one quote.
     setReplyingTo(null);
+  }
+
+  // Transfert (#124) : on renvoie le contenu du message dans la conversation
+  // cible via le même `message:send` que l'envoi normal, puis on bascule dessus
+  // pour que l'utilisateur voie le résultat.
+  function forwardMessage(targetChannel) {
+    if (!socket || !targetChannel || !forwardingMessage) return;
+    const body = buildForwardBody(forwardingMessage);
+    socket.emit(
+      "message:send",
+      { channelId: targetChannel.id, body },
+      (resp) => {
+        if (resp?.error) return alert(resp.error);
+        setForwardingMessage(null);
+        onSwitchChannel?.(targetChannel);
+      }
+    );
   }
 
   function notifyTyping() {
@@ -576,6 +613,7 @@ export default function ChannelView({
                 onEdit={editMessage}
                 onDelete={deleteMessage}
                 onReply={() => setReplyingTo(m)}
+                onForward={() => setForwardingMessage(m)}
                 onReact={reactToMessage}
                 onJumpToParent={jumpToMessage}
               />
@@ -627,6 +665,15 @@ export default function ChannelView({
           }
         />
       </div>
+
+      {forwardingMessage && (
+        <ForwardMessageModal
+          message={forwardingMessage}
+          channels={channels}
+          onClose={() => setForwardingMessage(null)}
+          onPick={forwardMessage}
+        />
+      )}
     </section>
   );
 }
@@ -752,6 +799,7 @@ function MessageRow({
   onEdit,
   onDelete,
   onReply,
+  onForward,
   onReact,
   onJumpToParent,
 }) {
@@ -837,7 +885,10 @@ function MessageRow({
     )
   );
 
-  const actions = !editing && (onReact || onReply || isOwn) && (
+  // Le transfert ne reporte que le texte ; on masque l'action pour un message
+  // sans corps (pièce jointe / GIF seul) qui n'aurait rien à transférer (#124).
+  const canForward = onForward && !!message.body;
+  const actions = !editing && (onReact || onReply || canForward || isOwn) && (
     <div className="absolute right-2 top-1 hidden group-hover:flex items-center gap-1 bg-white border border-slate-200 rounded shadow-sm">
       {onReact && (
         <button
@@ -856,6 +907,15 @@ function MessageRow({
           title="Répondre"
         >
           Répondre
+        </button>
+      )}
+      {canForward && (
+        <button
+          onClick={onForward}
+          className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
+          title="Transférer vers une autre conversation"
+        >
+          Transférer
         </button>
       )}
       {isOwn && (
