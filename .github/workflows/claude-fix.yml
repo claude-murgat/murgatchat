@@ -1,6 +1,8 @@
 # Étape de DÉVELOPPEMENT du pipeline de signalement (sur runner LOCAL).
 # L'issue est créée déjà triée par le Claude in-app (server/src/anthropic.js +
-# github.js) avec le label « à-valider ». Ce workflow se déclenche quand un humain
+# github.js), SANS aucun label (le gate est implicite : une issue ouverte sans
+# « claude:fix » attend une validation ; aucun label à la création = aucun run
+# claude-fix « skipped » parasite). Ce workflow se déclenche quand un humain
 # valide en posant le tag « claude:fix » sur l'issue. Claude implémente alors un
 # correctif sur une branche et OUVRE une vraie PR, puis notifie l'équipe
 # directement dans le chat MurgaChat.

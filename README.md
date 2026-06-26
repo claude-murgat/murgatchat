@@ -323,13 +323,14 @@ sur l'**envoi direct** d'un signalement brut (comportement historique).
 Optionnel. Si `GITHUB_BUG_TOKEN` est configuré, le ticket finalisé est **miroité**
 vers une **issue GitHub déjà triée** — best-effort, sans jamais bloquer la
 soumission (cf. `server/src/github.js`). Le classement étant fait par le Claude in-app
-au moment de la création, l'issue naît directement avec le label **`à-valider`**
-(gate humain) ; le **domaine** et la **sévérité** sont écrits **dans le corps** de
-l'issue (et non en labels, pour que la création ne déclenche qu'un seul événement
-`labeled` → un seul run `claude-fix`). **Il n'y a plus de workflow de triage**. Un
-signalement one-shot (sans conversation) reçoit aussi seulement `à-valider`. Le lien de l'issue est stocké sur le rapport et affiché dans le
-panneau admin. Cette issue alimente ensuite les workflows GitHub Actions
-(`.github/workflows/`) :
+au moment de la création, l'issue naît **sans aucun label** ; le **domaine** et la
+**sévérité** sont écrits **dans le corps** de l'issue (et non en labels). On ne pose
+**aucun** label à la création parce que GitHub émet un événement `labeled` par label
+et chacun démarre (puis « skip ») un run `claude-fix` inutile. Le **gate humain est
+donc implicite** : une issue ouverte **sans** `claude:fix` est en attente de
+validation. **Il n'y a plus de workflow de triage.** Le lien de l'issue est stocké
+sur le rapport et affiché dans le panneau admin. Cette issue alimente ensuite les
+workflows GitHub Actions (`.github/workflows/`) :
 
 1. **Validation humaine** — un développeur de l'équipe relit le rapport déjà classé et,
    pour autoriser le correctif automatique, pose lui-même le tag **`claude:fix`**. C'est
@@ -375,11 +376,10 @@ pour les secrets) :
   compose, et un accès au chat sur `http://localhost:4000` (l'app via `docker compose
   up`). ⚠️ Un runner self-hosted exécute du code — il n'agit qu'après
   le gate humain `claude:fix`, garde-le sur une machine de confiance.
-- **Labels** à créer : `à-valider`, `claude:fix`, `revue-ia`
-  (le domaine et la sévérité ne sont plus des labels — ils figurent dans le corps de
-  l'issue ; `wontfix`/`duplicate`/`bug` existent déjà). Ex. :
+- **Labels** à créer : `claude:fix`, `revue-ia` (le domaine et la sévérité ne sont
+  pas des labels — ils figurent dans le corps de l'issue ; aucun label n'est posé à
+  la création, le gate est implicite ; `wontfix`/`duplicate`/`bug` existent déjà). Ex. :
   `gh label create "claude:fix" -c "#0e8a16" -d "Autorise le développement par Claude"`,
-  `gh label create "à-valider" -c "#fbca04" -d "Triage fait, en attente de validation dev"`,
   `gh label create "revue-ia" -c "#5319e7" -d "Demande une revue IA de la PR"`.
 
 ## Événements Socket.IO
