@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "../db.js";
 import { requireAuth } from "../auth.js";
 import { githubEnabled, createIssueFromBugReport } from "../github.js";
+import { ownedUnlinkedAttachments, MAX_ATTACHMENTS } from "./uploads.js";
 
 const router = Router();
 
@@ -26,6 +27,9 @@ const createSchema = z.object({
   diagnostics: z.any().optional(),
   appVersion: z.string().max(40).optional(),
   platform: z.string().max(40).optional(),
+  // Ids of attachments the client already uploaded via POST /uploads (issue #96).
+  // Only the ids are trusted; ownership + metadata are re-checked server-side.
+  attachmentIds: z.array(z.string().max(60)).max(MAX_ATTACHMENTS).optional(),
 });
 
 function serialize(r) {
@@ -39,6 +43,14 @@ function serialize(r) {
     status: r.status,
     githubIssueNumber: r.githubIssueNumber ?? null,
     githubIssueUrl: r.githubIssueUrl ?? null,
+    attachments: Array.isArray(r.attachments)
+      ? r.attachments.map((a) => ({
+          id: a.id,
+          filename: a.filename,
+          mimeType: a.mimeType,
+          size: a.size,
+        }))
+      : [],
     createdAt: r.createdAt,
     user: r.user
       ? {
@@ -55,11 +67,21 @@ const userSelect = {
   select: { id: true, username: true, displayName: true, avatarColor: true },
 };
 
+// What the admin backlog needs to render a report fully (author + attachments).
+const reportInclude = {
+  user: userSelect,
+  attachments: { select: { id: true, filename: true, mimeType: true, size: true } },
+};
+
 // Any authenticated user can file a report.
 router.post("/", requireAuth, async (req, res) => {
   const parsed = createSchema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: "invalid_report" });
-  const { message, logs, diagnostics, appVersion, platform } = parsed.data;
+  const { message, logs, diagnostics, appVersion, platform, attachmentIds } = parsed.data;
+
+  // Resolve the claimed attachments up front (ownership-checked); we link them to
+  // the report once it exists and mirror their metadata into the GitHub issue.
+  const attachments = await ownedUnlinkedAttachments(attachmentIds, req.userId);
 
   // Bound the JSON column too — zod's .any() doesn't constrain its size.
   let diag = diagnostics ?? null;
@@ -81,6 +103,16 @@ router.post("/", requireAuth, async (req, res) => {
   if (diag != null) data.diagnostics = diag;
 
   const report = await prisma.bugReport.create({ data });
+
+  // Bind the uploaded files to the report (issue #96) so admins can retrieve them
+  // and a later report delete cascades them away.
+  if (attachments.length) {
+    await prisma.attachment.updateMany({
+      where: { id: { in: attachments.map((a) => a.id) } },
+      data: { bugReportId: report.id },
+    });
+  }
+
   res.status(201).json({ id: report.id });
 
   // Mirror to GitHub out-of-band: respond fast and never let GitHub's
@@ -90,6 +122,7 @@ router.post("/", requireAuth, async (req, res) => {
   if (githubEnabled()) {
     createIssueFromBugReport({
       ...report,
+      attachments,
       user: req.user ? { username: req.user.username } : null,
     })
       .then((issue) =>
@@ -125,7 +158,7 @@ router.get("/", requireAuth, requireAdmin, async (req, res) => {
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * pageSize,
       take: pageSize,
-      include: { user: userSelect },
+      include: reportInclude,
     }),
   ]);
 
@@ -149,7 +182,7 @@ router.patch("/:id", requireAuth, requireAdmin, async (req, res) => {
     const r = await prisma.bugReport.update({
       where: { id: req.params.id },
       data: { status: parsed.data.status },
-      include: { user: userSelect },
+      include: reportInclude,
     });
     res.json({ report: serialize(r) });
   } catch {

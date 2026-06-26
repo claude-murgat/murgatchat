@@ -11,11 +11,19 @@ import { getDiagnostics, getLogLines, dumpText, entryCount } from "../logbuffer.
 // Graceful fallback: if the support chat is disabled (no API key) or errors, the
 // first message is sent as a plain one-shot report instead — the historical
 // behavior — so reporting a bug never depends on the chat being available.
+// Attachment limits (issue #96). Screenshots are the stated use case, so we
+// allow images only; the count/size caps mirror the server's MAX_ATTACHMENTS and
+// stay well under the /uploads route's 25 MiB hard limit.
+const MAX_ATTACHMENTS = 3;
+const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 Mo
+
 export default function BugReportModal({ user, onClose }) {
   // "compose" → first message form · "chat" → conversation · "done" → success.
   const [phase, setPhase] = useState("compose");
   const [message, setMessage] = useState("");
   const [attachLogs, setAttachLogs] = useState(true);
+  const [files, setFiles] = useState([]); // pending screenshots, uploaded on send
+  const fileInputRef = useRef(null);
   const [showPreview, setShowPreview] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -92,13 +100,55 @@ export default function BugReportModal({ user, onClose }) {
     }
   }
 
+  // Add picked files to the pending list, rejecting non-images, too-large files,
+  // and anything beyond the count cap — with a clear message for each case.
+  function onPickFiles(e) {
+    const picked = Array.from(e.target.files || []);
+    e.target.value = ""; // let the same file be re-picked after a removal
+    if (!picked.length) return;
+    setError(null);
+    setFiles((prev) => {
+      let next = prev;
+      for (const f of picked) {
+        if (!f.type.startsWith("image/")) {
+          setError("Seules les images sont acceptées (captures d'écran).");
+          continue;
+        }
+        if (f.size > MAX_FILE_BYTES) {
+          setError("Chaque image doit faire moins de 5 Mo.");
+          continue;
+        }
+        if (next.length >= MAX_ATTACHMENTS) {
+          setError(`${MAX_ATTACHMENTS} pièces jointes au maximum.`);
+          break;
+        }
+        if (next.some((p) => p.name === f.name && p.size === f.size)) continue; // dedupe
+        next = [...next, f];
+      }
+      return next;
+    });
+  }
+
+  function removeFile(idx) {
+    setFiles((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  // Upload the pending screenshots (if any) and return their attachment ids, to
+  // be sent alongside the report. Throws on failure so the caller can stop.
+  async function uploadAttachments() {
+    if (!files.length) return [];
+    const uploaded = await Promise.all(files.map((f) => api.uploadFile(f)));
+    return uploaded.map((a) => a.id);
+  }
+
   // Last resort when the chat is unavailable: file a plain one-shot report.
-  async function oneShotFallback(text) {
+  async function oneShotFallback(text, attachmentIds = []) {
     await api.reportBug({
       message: text,
       appVersion: snapshot.diagnostics.appVersion,
       platform: snapshot.diagnostics.platform,
       ...logsPayload(),
+      attachmentIds,
     });
     setPhase("done");
   }
@@ -112,6 +162,16 @@ export default function BugReportModal({ user, onClose }) {
     }
     setBusy(true);
     setError(null);
+    // Upload screenshots first (while still on the compose screen) so a failure
+    // here keeps the form — with its file list — intact for a retry.
+    let attachmentIds;
+    try {
+      attachmentIds = await uploadAttachments();
+    } catch {
+      setError("Échec de l'envoi des pièces jointes — réessayez ou retirez-les.");
+      setBusy(false);
+      return;
+    }
     // Switch to the conversation view right away, echoing the user's first
     // message, so the thinking indicator below makes the (possibly several
     // seconds) wait for Claude's first reply read as "in progress", not frozen.
@@ -123,6 +183,7 @@ export default function BugReportModal({ user, onClose }) {
         appVersion: snapshot.diagnostics.appVersion,
         platform: snapshot.diagnostics.platform,
         ...logsPayload(),
+        attachmentIds,
       });
       setConversationId(res.id);
       setThread(res.messages || []);
@@ -131,7 +192,7 @@ export default function BugReportModal({ user, onClose }) {
       const code = e?.data?.error;
       if (code === "support_chat_unavailable" || code === "support_chat_error") {
         try {
-          await oneShotFallback(text);
+          await oneShotFallback(text, attachmentIds);
           return;
         } catch (e2) {
           setError(e2?.data?.error || e2?.message || "Échec de l'envoi — réessayez.");
@@ -316,6 +377,48 @@ export default function BugReportModal({ user, onClose }) {
                   </span>
                 </span>
               </label>
+
+              <div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={onPickFiles}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={files.length >= MAX_ATTACHMENTS}
+                  className="px-2.5 py-1.5 rounded border border-slate-300 hover:bg-slate-50 text-sm disabled:opacity-50"
+                >
+                  <span aria-hidden="true">📎 </span>Joindre une capture
+                </button>
+                <span className="block text-[12px] text-slate-500 mt-1">
+                  Images uniquement · {MAX_ATTACHMENTS} max · 5 Mo chacune.
+                </span>
+                {files.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {files.map((f, i) => (
+                      <li
+                        key={`${f.name}-${f.size}-${i}`}
+                        className="flex items-center justify-between gap-2 text-[12px] bg-slate-50 border border-slate-200 rounded px-2 py-1"
+                      >
+                        <span className="truncate min-w-0">{f.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeFile(i)}
+                          aria-label={`Retirer ${f.name}`}
+                          className="shrink-0 text-slate-400 hover:text-red-600"
+                        >
+                          ✕
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
 
               <div className="flex flex-wrap gap-2 text-sm">
                 <button

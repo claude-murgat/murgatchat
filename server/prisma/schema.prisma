@@ -98,12 +98,22 @@ model Attachment {
   storagePath String   @unique
   encrypted   Boolean  @default(false) // pre-encryption rows stay false; new uploads are true
   createdAt   DateTime @default(now())
+  // A bug-report screenshot lives here too: uploaded the same way (encrypted at
+  // rest) but tied to a BugReport / SupportConversation instead of a chat Message.
+  // Exactly one of messageId / bugReportId / supportConversationId is set; the
+  // support link is transient (re-pointed to the BugReport on finalization).
+  bugReportId           String?
+  supportConversationId String?
 
   message Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
   user    User?    @relation(fields: [uploadedBy], references: [id], onDelete: SetNull)
+  bugReport           BugReport?           @relation(fields: [bugReportId], references: [id], onDelete: Cascade)
+  supportConversation SupportConversation? @relation(fields: [supportConversationId], references: [id], onDelete: SetNull)
 
   @@index([messageId])
   @@index([uploadedBy])
+  @@index([bugReportId])
+  @@index([supportConversationId])
 }
 
 model Reaction {
@@ -204,6 +214,9 @@ model BugReport {
   createdAt   DateTime @default(now())
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  // Screenshots/files the reporter attached (issue #96). Cascade-deleted with the
+  // report so triaging it away leaves no orphan rows.
+  attachments Attachment[]
 
   @@index([status, createdAt])
 }
@@ -235,6 +248,9 @@ model SupportConversation {
   updatedAt   DateTime @updatedAt
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  // Attachments uploaded while composing the ticket; re-pointed to the BugReport
+  // on finalization (see routes/support.js) so they ride along with the report.
+  attachments Attachment[]
 
   @@index([userId, createdAt])
 }

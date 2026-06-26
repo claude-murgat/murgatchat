@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "../api.js";
+import { api, attachmentUrl } from "../api.js";
 
 const PAGE_SIZE = 30;
 
@@ -65,6 +65,38 @@ function ReportDetail({ report }) {
       <div className="text-sm whitespace-pre-wrap break-words bg-slate-50 border border-slate-200 rounded p-2">
         {report.message}
       </div>
+
+      {Array.isArray(report.attachments) && report.attachments.length > 0 && (
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1">
+            Pièces jointes
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {report.attachments.map((a) => (
+              <a
+                key={a.id}
+                href={attachmentUrl(a.id)}
+                target="_blank"
+                rel="noreferrer"
+                title={a.filename}
+                className="block"
+              >
+                {a.mimeType?.startsWith("image/") ? (
+                  <img
+                    src={attachmentUrl(a.id)}
+                    alt={a.filename}
+                    className="h-20 w-20 object-cover rounded border border-slate-200"
+                  />
+                ) : (
+                  <span className="text-[12px] underline text-blue-700 break-all">
+                    {a.filename}
+                  </span>
+                )}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
 
       {diag && (
         <div>

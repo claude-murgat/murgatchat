@@ -19,6 +19,28 @@ const upload = multer({
 
 const router = Router();
 
+// How many files a single bug report / support ticket may carry (issue #96).
+// Small on purpose: screenshots + a log file, not a dumping ground.
+export const MAX_ATTACHMENTS = 3;
+
+// Load the attachments a user is allowed to tie to a bug report or support
+// conversation: their own, and not already bound to a chat message or another
+// report. Returns the (deduped, capped) metadata rows; the caller then points
+// them at the target via prisma.attachment.updateMany. Filtering by ownership
+// here is the guard that stops a client from attaching someone else's upload by
+// guessing its id.
+export async function ownedUnlinkedAttachments(ids, uploadedBy) {
+  const unique = [...new Set((ids || []).filter((s) => typeof s === "string"))].slice(
+    0,
+    MAX_ATTACHMENTS
+  );
+  if (!unique.length) return [];
+  return prisma.attachment.findMany({
+    where: { id: { in: unique }, uploadedBy, messageId: null, bugReportId: null },
+    select: { id: true, filename: true, mimeType: true, size: true },
+  });
+}
+
 // Encrypt a buffer to disk and create its Attachment row. Shared by the file
 // upload route and the GIF import route (routes/gifs.js) so both go through the
 // same AES-256-GCM-at-rest path. `size` is the plaintext length; the on-disk
@@ -85,7 +107,19 @@ router.get("/:id", async (req, res) => {
   const isUploader = att.uploadedBy === userId;
   const isMember =
     att.message?.channel?.memberships?.some((m) => m.userId === userId);
-  if (!isUploader && !isMember) {
+  // Bug-report screenshots (issue #96): the reporter (uploader) always sees them;
+  // the team reaches them through the admin backlog, so any admin may fetch one
+  // that is tied to a report. Scoped to bug-report attachments — chat/DM files
+  // (no bugReportId) are untouched, so this doesn't widen access to private chats.
+  let isReportAdmin = false;
+  if (!isUploader && !isMember && att.bugReportId) {
+    const u = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { isAdmin: true },
+    });
+    isReportAdmin = Boolean(u?.isAdmin);
+  }
+  if (!isUploader && !isMember && !isReportAdmin) {
     return res.status(403).json({ error: "forbidden" });
   }
 

@@ -147,6 +147,76 @@ describe("POST /bug-reports → GitHub bridge", () => {
   });
 });
 
+describe("POST /bug-reports → attachments (issue #96)", () => {
+  async function upload(token, name) {
+    const up = await request(app)
+      .post("/uploads")
+      .set("Authorization", `Bearer ${token}`)
+      .attach("file", Buffer.from("fake-png-bytes"), name);
+    expect(up.status).toBe(200);
+    return up.body.attachment.id;
+  }
+
+  it("links uploaded files to the report; admins can fetch them, others can't", async () => {
+    const owner = await registerUser(app); // owner = admin
+    const member = await registerUser(app);
+    const other = await registerUser(app);
+
+    const attId = await upload(member.token, "capture.png");
+    const res = await authed(app, member.token)
+      .post("/bug-reports")
+      .send({ message: "voir la capture", attachmentIds: [attId] });
+    expect(res.status).toBe(201);
+
+    // The attachment row is now bound to the report.
+    const att = await prisma.attachment.findUnique({ where: { id: attId } });
+    expect(att.bugReportId).toBe(res.body.id);
+
+    // …and surfaces through the admin serializer.
+    const list = await authed(app, owner.token).get("/bug-reports");
+    const found = list.body.reports.find((r) => r.id === res.body.id);
+    expect(found.attachments).toHaveLength(1);
+    expect(found.attachments[0].filename).toBe("capture.png");
+
+    // An admin who is neither the uploader nor a channel member can still fetch it
+    // (the team consults reports through the admin backlog).
+    const okDl = await request(app).get(`/uploads/${attId}?token=${owner.token}`);
+    expect(okDl.status).toBe(200);
+
+    // A non-admin who isn't the uploader cannot.
+    const noDl = await request(app).get(`/uploads/${attId}?token=${other.token}`);
+    expect(noDl.status).toBe(403);
+  });
+
+  it("ignores attachment ids the caller doesn't own", async () => {
+    const owner = await registerUser(app);
+    const member = await registerUser(app);
+
+    // owner uploads; member tries to claim it on their own report.
+    const attId = await upload(owner.token, "owners.png");
+    const res = await authed(app, member.token)
+      .post("/bug-reports")
+      .send({ message: "tentative de vol", attachmentIds: [attId] });
+    expect(res.status).toBe(201);
+
+    const att = await prisma.attachment.findUnique({ where: { id: attId } });
+    expect(att.bugReportId).toBeNull(); // not hijacked
+  });
+
+  it("cascades attachments away when the report is deleted", async () => {
+    const owner = await registerUser(app); // admin
+    const attId = await upload(owner.token, "shot.png");
+    const res = await authed(app, owner.token)
+      .post("/bug-reports")
+      .send({ message: "à supprimer", attachmentIds: [attId] });
+    expect(res.status).toBe(201);
+
+    const del = await authed(app, owner.token).delete(`/bug-reports/${res.body.id}`);
+    expect(del.status).toBe(200);
+    expect(await prisma.attachment.findUnique({ where: { id: attId } })).toBeNull();
+  });
+});
+
 describe("GET /bug-reports (admin)", () => {
   it("rejects non-admins (403) and lists newest-first for admins", async () => {
     const owner = await registerUser(app);
