@@ -187,6 +187,27 @@ test("invitation registration + full web journey", async ({ page }) => {
   // Markdown survives a reload (re-parsed from the stored source).
   await expect(messageRow(page, "gras").locator("strong")).toBeVisible();
 
+  // Issue #124 : transférer un message vers une autre conversation. On envoie un
+  // message dédié, on ouvre son menu d'action, on choisit « Transférer » puis le
+  // salon « Général » dans la modale ; on bascule alors sur la cible où le
+  // message transféré apparaît avec sa mention d'origine et le texte cité.
+  await composer.fill("message a transferer");
+  await composer.press("Enter");
+  const toForward = messageRow(page, "message a transferer");
+  await toForward.hover();
+  await toForward.getByRole("button", { name: "Transférer" }).click();
+  const forwardDialog = page.getByRole("dialog", { name: "Transférer le message" });
+  await expect(forwardDialog).toBeVisible();
+  await forwardDialog.getByRole("button", { name: /Général/ }).click();
+  await expect(forwardDialog).toBeHidden();
+  // La cible reçoit le message transféré (attribution + texte d'origine cité).
+  await expect(page.getByText(/Message transféré de/)).toBeVisible();
+  await expect(
+    messageRow(page, "Message transféré de").locator("blockquote")
+  ).toContainText("message a transferer");
+  // On revient sur le salon d'origine pour ne pas perturber la suite du parcours.
+  await page.getByRole("button", { name: new RegExp(channel) }).click();
+
   // Issue #118 : la popup « Signaler un bug » doit expliquer son fonctionnement
   // — un agent IA traite d'abord la demande, puis le support la valide — pour
   // que l'utilisateur ne soit pas laissé sans repère après « Démarrer ».
