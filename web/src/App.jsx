@@ -80,6 +80,8 @@ export default function App() {
   // Tracks whether a History sentinel is pushed for the open conversation, so the
   // phone's back button closes it instead of leaving the app (mobile layout only).
   const backSentinelRef = useRef(false);
+  // Tracks whether the cold-start History guard has been seeded (see effect below).
+  const historyGuardRef = useRef(false);
   // The Tauri Update object from the last desktop update check (installed on demand).
   const desktopUpdateRef = useRef(null);
 
@@ -322,6 +324,31 @@ export default function App() {
     }
     window.addEventListener("pwa:deeplink", onDeepLink);
     return () => window.removeEventListener("pwa:deeplink", onDeepLink);
+  }, [user]);
+
+  // PWA cold-start hardening (#95): on launch we reopen the last viewed
+  // conversation straight away (see saveLastChannelId above), so the app boots
+  // directly into the conversation view. The "close conversation" sentinel below
+  // would then pop back to the initial launch entry, which on Android PWAs
+  // unloads the document into a frozen black screen instead of revealing the
+  // channel list. Seed one "list" guard entry up front so the system back button
+  // always lands on a real in-app view (the list) rather than escaping the app.
+  //
+  // Fire once, on mobile, while we're still on the LAUNCH entry — detected by the
+  // absence of one of our own pane markers in history.state (rather than the
+  // brittle `history.length <= 1`: a freshly launched standalone PWA does start at
+  // length 1, but an installed shortcut, a start_url redirect, or a test harness
+  // can launch at length 2+, which silently disabled the guard).
+  useEffect(() => {
+    if (
+      user &&
+      !historyGuardRef.current &&
+      !window.history.state?.chatPane &&
+      window.matchMedia("(max-width: 767px)").matches
+    ) {
+      window.history.pushState({ chatPane: "list" }, "");
+      historyGuardRef.current = true;
+    }
   }, [user]);
 
   // PWA / mobile: the phone's system "back" button closes the open conversation

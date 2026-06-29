@@ -1,10 +1,23 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, devices } from "@playwright/test";
 
 // Full web journey with invitation-based registration. Requires a FRESH isolated
 // stack (empty DB) so the first account bootstraps as admin. See TESTING.md.
 
 const tag = () => `e2e_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e4)}`;
 const API_URL = process.env.E2E_API_URL || "http://localhost:4001";
+
+// Reset the shared e2e DB to a virgin state before each attempt so this spec
+// bootstraps its own admin regardless of test order or retries (another spec may
+// have consumed the one-time bootstrap first). POST /test/reset is gated behind
+// E2E_TEST_MODE in docker-compose.e2e.yml; a 404 (stack without it) is tolerated.
+test.beforeEach(async ({ request }) => {
+  // Node-side request: force IPv4 (Windows resolves "localhost" to ::1, where the
+  // IPv4-bound server refuses the connection; Linux/CI is unaffected).
+  const res = await request.post(`${API_URL.replace("localhost", "127.0.0.1")}/test/reset`);
+  if (!res.ok() && res.status() !== 404) {
+    throw new Error(`/test/reset failed: HTTP ${res.status()}`);
+  }
+});
 
 async function configureServer(page) {
   const server = page.getByPlaceholder(/Adresse du serveur/);
@@ -93,7 +106,7 @@ async function createPrivateChannel(page, name) {
 const messageRow = (page, text) =>
   page.locator("div.group").filter({ hasText: text }).last();
 
-test("invitation registration + full web journey", async ({ page }) => {
+test("invitation registration + full web journey", async ({ page, browser }) => {
   page.on("dialog", (d) => d.accept());
 
   // Bootstrap admin, invite a user, capture the code, log out.
@@ -227,7 +240,21 @@ test("invitation registration + full web journey", async ({ page }) => {
   await expect(generalComposer).toHaveValue(new RegExp(`@${adminTag}\\s`));
   await generalComposer.press("Enter");
   await expect(messageRow(page, `@${adminTag}`)).toBeVisible();
-  // Retour au salon d'origine.
+
+  // Issue #94 : la recherche de la barre latérale doit être pilotable au clavier.
+  // On tape une requête, on bouge la sélection avec les flèches (bas puis haut,
+  // ce qui ramène sur le premier résultat « Général ») et on valide avec Entrée :
+  // la conversation surlignée doit s'ouvrir sans le moindre clic souris.
+  const search = page.getByPlaceholder(/Rechercher ou créer/);
+  await search.fill("Général");
+  await expect(page.getByText("Vos conversations")).toBeVisible();
+  await search.press("ArrowDown");
+  await search.press("ArrowUp");
+  await search.press("Enter");
+  await expect(page.getByPlaceholder("Message dans #Général")).toBeVisible();
+  // La validation au clavier vide aussi le champ de recherche.
+  await expect(search).toHaveValue("");
+  // On revient sur le salon d'origine pour la suite du parcours.
   await page.getByRole("button", { name: new RegExp(channel) }).click();
 
   // Issue #118 : la popup « Signaler un bug » doit expliquer son fonctionnement
@@ -238,4 +265,39 @@ test("invitation registration + full web journey", async ({ page }) => {
   await expect(page.getByText("🐞 Signaler un bug")).toBeVisible();
   await expect(page.getByText(/assistant IA échange avec vous/)).toBeVisible();
   await expect(page.getByText(/équipe de support, qui le valide/)).toBeVisible();
+
+  // Issue #133 : sur tactile (PWA mobile, pointeur « coarse »), la touche
+  // « Entrée » doit insérer un saut de ligne et NON envoyer le message — l'envoi
+  // reste assuré par le bouton « Envoyer » dédié, conformément aux conventions
+  // mobiles et pour éviter les envois accidentels. On rejoue le même utilisateur
+  // dans un contexte mobile émulé pour valider le comportement de bout en bout.
+  const mobileCtx = await browser.newContext({ ...devices["Pixel 7"] });
+  const mob = await mobileCtx.newPage();
+  mob.on("dialog", (d) => d.accept());
+  await mob.goto("/");
+  await configureServer(mob);
+  await mob.getByPlaceholder("email ou nom d'utilisateur").fill(userTag);
+  await mob.getByPlaceholder("Mot de passe").fill("test1234");
+  await mob.getByRole("button", { name: "Se connecter", exact: true }).click();
+  // Garde-fou : l'émulation mobile expose bien un pointeur tactile « coarse »,
+  // signal sur lequel s'appuie le composer pour basculer Entrée → saut de ligne.
+  expect(await mob.evaluate(() => matchMedia("(pointer: coarse)").matches)).toBe(true);
+  // Mise en page mono-panneau sur mobile : au login l'app ouvre directement un
+  // salon (le dernier/le premier), donc le composer est déjà accessible. On le
+  // cible de façon générique, le comportement testé étant indépendant du salon.
+  const mobComposer = mob.getByPlaceholder(/^Message dans #/);
+  await expect(mobComposer).toBeVisible();
+  await mobComposer.click();
+  await mobComposer.pressSequentially("ligne un");
+  await mobComposer.press("Enter");
+  await mobComposer.pressSequentially("ligne deux");
+  // Entrée n'a pas envoyé : le texte (avec saut de ligne) reste dans le composer
+  // et aucun message « ligne un » n'a été posté dans le fil.
+  await expect(mobComposer).toHaveValue("ligne un\nligne deux");
+  await expect(mob.getByText("ligne un", { exact: true })).toHaveCount(0);
+  // En revanche, le bouton « Envoyer » poste bien le message multi-lignes.
+  await mob.getByRole("button", { name: "Envoyer" }).click();
+  await expect(mobComposer).toHaveValue("");
+  await expect(mob.getByText("ligne deux")).toBeVisible();
+  await mobileCtx.close();
 });

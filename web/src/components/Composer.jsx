@@ -49,6 +49,14 @@ function fmtBytes(n) {
   return `${(n / 1024 / 1024).toFixed(1)} Mo`;
 }
 
+// Sur les appareils tactiles (mobile/PWA), le pointeur est « coarse » : le clavier
+// logiciel n'offre pas de raccourci pratique au saut de ligne, donc « Entrée » doit
+// revenir à la ligne et l'envoi passe par le bouton « Envoyer » dédié (cf. #133).
+// Sur desktop (pointeur fin), on garde Entrée = envoi (Maj+Entrée = saut de ligne).
+function isTouchDevice() {
+  return typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)")?.matches;
+}
+
 function Composer(
   { onSend, placeholder, allowSchedule = true, onTyping, members = [], currentUser },
   ref
@@ -229,7 +237,9 @@ function Composer(
         return;
       }
     }
-    if (e.key === "Enter" && !e.shiftKey) {
+    // Sur tactile, on laisse le comportement par défaut du textarea (saut de
+    // ligne) : l'envoi se fait via le bouton « Envoyer » (cf. #133).
+    if (e.key === "Enter" && !e.shiftKey && !isTouchDevice()) {
       e.preventDefault();
       send(false);
     }
