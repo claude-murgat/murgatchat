@@ -83,6 +83,28 @@ export function createServer() {
   app.use("/support", supportRouter);
   app.use("/gifs", gifsRouter);
 
+  // Test-only: reset the DB to a virgin state (then recreate the default channel,
+  // exactly like startup) so each e2e spec can bootstrap its own admin against the
+  // shared stack without contending for the one-time bootstrap. Gated behind
+  // E2E_TEST_MODE (set only in docker-compose.e2e.yml) → never exists in prod/dev.
+  if (process.env.E2E_TEST_MODE === "1") {
+    app.post("/test/reset", async (_req, res) => {
+      try {
+        const rows = await prisma.$queryRaw`
+          SELECT tablename FROM pg_tables
+          WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'`;
+        const names = rows.map((r) => `"${r.tablename}"`).join(", ");
+        if (names) {
+          await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${names} RESTART IDENTITY CASCADE`);
+        }
+        await ensureDefaultChannel();
+        res.json({ ok: true });
+      } catch (e) {
+        res.status(500).json({ error: String(e?.message || e) });
+      }
+    });
+  }
+
   return { app, server, io };
 }
 
