@@ -221,6 +221,22 @@ test("invitation registration + full web journey", async ({ page, browser }) => 
   // On revient sur le salon d'origine pour ne pas perturber la suite du parcours.
   await page.getByRole("button", { name: new RegExp(channel) }).click();
 
+  // Issue #94 : la recherche de la barre latérale doit être pilotable au clavier.
+  // On tape une requête, on bouge la sélection avec les flèches (bas puis haut,
+  // ce qui ramène sur le premier résultat « Général ») et on valide avec Entrée :
+  // la conversation surlignée doit s'ouvrir sans le moindre clic souris.
+  const search = page.getByPlaceholder(/Rechercher ou créer/);
+  await search.fill("Général");
+  await expect(page.getByText("Vos conversations")).toBeVisible();
+  await search.press("ArrowDown");
+  await search.press("ArrowUp");
+  await search.press("Enter");
+  await expect(page.getByPlaceholder("Message dans #Général")).toBeVisible();
+  // La validation au clavier vide aussi le champ de recherche.
+  await expect(search).toHaveValue("");
+  // On revient sur le salon d'origine pour la suite du parcours.
+  await page.getByRole("button", { name: new RegExp(channel) }).click();
+
   // Issue #118 : la popup « Signaler un bug » doit expliquer son fonctionnement
   // — un agent IA traite d'abord la demande, puis le support la valide — pour
   // que l'utilisateur ne soit pas laissé sans repère après « Démarrer ».

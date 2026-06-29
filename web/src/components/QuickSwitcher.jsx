@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import Avatar from "./Avatar.jsx";
 
@@ -20,6 +20,8 @@ export default function QuickSwitcher({
   const [publicRaw, setPublicRaw] = useState([]);
   const [peopleRaw, setPeopleRaw] = useState([]);
   const [busyId, setBusyId] = useState(null);
+  // Ligne surlignée pour la navigation clavier (#94). 0 = premier résultat.
+  const [active, setActive] = useState(0);
 
   const q = query.trim();
   // Accent- and case-insensitive so "general" finds "Général", "reunion" → "Réunion".
@@ -87,13 +89,63 @@ export default function QuickSwitcher({
   const nothing =
     existing.length === 0 && publicChannels.length === 0 && people.length === 0;
 
+  // Liste à plat des actions, dans l'ordre d'affichage des sections. C'est ce
+  // que parcourent les flèches et qu'active la touche Entrée (#94). Les « bases »
+  // donnent l'index global de la première ligne de chaque section, pour savoir
+  // quelle ligne surligner.
+  const items = [
+    ...existing.map((c) => () => onSelectChannel(c)),
+    ...publicChannels.map((c) => () => join(c)),
+    ...people.map((u) => () => dm(u)),
+    () => onCreateChannel(q),
+    () => dm(user),
+    () => onNewGroup(),
+  ];
+  const publicBase = existing.length;
+  const peopleBase = publicBase + publicChannels.length;
+  const createBase = peopleBase + people.length;
+
+  // Quand les résultats changent, on resélectionne la première ligne.
+  useEffect(() => {
+    setActive(0);
+  }, [ql, existing.length, publicChannels.length, people.length]);
+
+  // Navigation clavier depuis le champ de recherche (qui garde le focus) : les
+  // flèches déplacent la sélection, Entrée déclenche la ligne surlignée. On lit
+  // les valeurs courantes via des refs pour garder un seul écouteur stable.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  useEffect(() => {
+    function onKey(e) {
+      const list = itemsRef.current;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setActive((i) => Math.min(i + 1, list.length - 1));
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setActive((i) => Math.max(i - 1, 0));
+      } else if (e.key === "Enter") {
+        const run = list[activeRef.current];
+        if (run) {
+          e.preventDefault();
+          run();
+        }
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   return (
     <div className="space-y-4">
       {existing.length > 0 && (
         <Section title="Vos conversations">
-          {existing.map((c) => (
+          {existing.map((c, i) => (
             <Row
               key={c.id}
+              active={active === i}
               onClick={() => onSelectChannel(c)}
               prefix={c.isDirect ? "💬" : c.isPrivate ? "🔒" : "#"}
               label={(c.isDirect ? c.displayName : c.name) || "conversation"}
@@ -104,9 +156,10 @@ export default function QuickSwitcher({
 
       {publicChannels.length > 0 && (
         <Section title="Salons à rejoindre">
-          {publicChannels.map((c) => (
+          {publicChannels.map((c, i) => (
             <Row
               key={c.id}
+              active={active === publicBase + i}
               onClick={() => join(c)}
               busy={busyId === c.id}
               prefix="#"
@@ -122,9 +175,10 @@ export default function QuickSwitcher({
 
       {people.length > 0 && (
         <Section title="Personnes">
-          {people.map((u) => (
+          {people.map((u, i) => (
             <Row
               key={u.id}
+              active={active === peopleBase + i}
               onClick={() => dm(u)}
               busy={busyId === u.id}
               avatar={u}
@@ -137,14 +191,25 @@ export default function QuickSwitcher({
       )}
 
       <Section title="Créer">
-        <Row onClick={() => onCreateChannel(q)} prefix="➕" label={`Créer le salon « ${q} »`} />
         <Row
+          active={active === createBase}
+          onClick={() => onCreateChannel(q)}
+          prefix="➕"
+          label={`Créer le salon « ${q} »`}
+        />
+        <Row
+          active={active === createBase + 1}
           onClick={() => dm(user)}
           busy={busyId === user.id}
           prefix="📝"
           label="Mes notes (conversation avec soi-même)"
         />
-        <Row onClick={onNewGroup} prefix="👥" label="Nouveau groupe de discussion" />
+        <Row
+          active={active === createBase + 2}
+          onClick={onNewGroup}
+          prefix="👥"
+          label="Nouveau groupe de discussion"
+        />
       </Section>
 
       {nothing && (
@@ -167,12 +232,21 @@ function Section({ title, children }) {
   );
 }
 
-function Row({ onClick, busy, prefix, avatar, online, label, sub, action }) {
+function Row({ active, onClick, busy, prefix, avatar, online, label, sub, action }) {
+  const ref = useRef(null);
+  // Garde la ligne surlignée visible quand on la rejoint au clavier (#94).
+  useEffect(() => {
+    if (active) ref.current?.scrollIntoView({ block: "nearest" });
+  }, [active]);
   return (
     <button
+      ref={ref}
+      aria-selected={active}
       onClick={onClick}
       disabled={busy}
-      className="w-full flex items-center gap-2 px-3 py-2.5 md:py-1.5 rounded text-left text-[15px] md:text-sm text-aubergine-400 hover:bg-aubergine-600 hover:text-white disabled:opacity-50"
+      className={`w-full flex items-center gap-2 px-3 py-2.5 md:py-1.5 rounded text-left text-[15px] md:text-sm hover:bg-aubergine-600 hover:text-white disabled:opacity-50 ${
+        active ? "bg-aubergine-600 text-white" : "text-aubergine-400"
+      }`}
     >
       {avatar ? (
         <span className="relative shrink-0">
