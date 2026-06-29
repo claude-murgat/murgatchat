@@ -6,6 +6,19 @@ import { test, expect } from "@playwright/test";
 const tag = () => `e2e_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e4)}`;
 const API_URL = process.env.E2E_API_URL || "http://localhost:4001";
 
+// Reset the shared e2e DB to a virgin state before each attempt so this spec
+// bootstraps its own admin regardless of test order or retries (another spec may
+// have consumed the one-time bootstrap first). POST /test/reset is gated behind
+// E2E_TEST_MODE in docker-compose.e2e.yml; a 404 (stack without it) is tolerated.
+test.beforeEach(async ({ request }) => {
+  // Node-side request: force IPv4 (Windows resolves "localhost" to ::1, where the
+  // IPv4-bound server refuses the connection; Linux/CI is unaffected).
+  const res = await request.post(`${API_URL.replace("localhost", "127.0.0.1")}/test/reset`);
+  if (!res.ok() && res.status() !== 404) {
+    throw new Error(`/test/reset failed: HTTP ${res.status()}`);
+  }
+});
+
 async function configureServer(page) {
   const server = page.getByPlaceholder(/Adresse du serveur/);
   await expect(server).toBeVisible();

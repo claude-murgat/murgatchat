@@ -326,20 +326,24 @@ export default function App() {
     return () => window.removeEventListener("pwa:deeplink", onDeepLink);
   }, [user]);
 
-  // PWA cold-start hardening (#95): a freshly launched standalone PWA usually has
-  // a single History entry, and we reopen the last viewed conversation straight
-  // away (see saveLastChannelId above) — so the app boots directly into the
-  // conversation view. The "close conversation" sentinel below would then pop
-  // back to that initial launch entry, which on Android PWAs unloads the document
-  // into a frozen black screen instead of revealing the channel list. Seed one
-  // guard entry up front so the system back button always lands on a real in-app
-  // view (the list) rather than escaping the freshly-launched PWA. Mobile-only and
-  // only when there's no previous entry to fall back on (history.length <= 1).
+  // PWA cold-start hardening (#95): on launch we reopen the last viewed
+  // conversation straight away (see saveLastChannelId above), so the app boots
+  // directly into the conversation view. The "close conversation" sentinel below
+  // would then pop back to the initial launch entry, which on Android PWAs
+  // unloads the document into a frozen black screen instead of revealing the
+  // channel list. Seed one "list" guard entry up front so the system back button
+  // always lands on a real in-app view (the list) rather than escaping the app.
+  //
+  // Fire once, on mobile, while we're still on the LAUNCH entry — detected by the
+  // absence of one of our own pane markers in history.state (rather than the
+  // brittle `history.length <= 1`: a freshly launched standalone PWA does start at
+  // length 1, but an installed shortcut, a start_url redirect, or a test harness
+  // can launch at length 2+, which silently disabled the guard).
   useEffect(() => {
     if (
       user &&
       !historyGuardRef.current &&
-      window.history.length <= 1 &&
+      !window.history.state?.chatPane &&
       window.matchMedia("(max-width: 767px)").matches
     ) {
       window.history.pushState({ chatPane: "list" }, "");
