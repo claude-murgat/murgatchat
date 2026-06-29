@@ -80,6 +80,8 @@ export default function App() {
   // Tracks whether a History sentinel is pushed for the open conversation, so the
   // phone's back button closes it instead of leaving the app (mobile layout only).
   const backSentinelRef = useRef(false);
+  // Tracks whether the cold-start History guard has been seeded (see effect below).
+  const historyGuardRef = useRef(false);
   // The Tauri Update object from the last desktop update check (installed on demand).
   const desktopUpdateRef = useRef(null);
 
@@ -322,6 +324,27 @@ export default function App() {
     }
     window.addEventListener("pwa:deeplink", onDeepLink);
     return () => window.removeEventListener("pwa:deeplink", onDeepLink);
+  }, [user]);
+
+  // PWA cold-start hardening (#95): a freshly launched standalone PWA usually has
+  // a single History entry, and we reopen the last viewed conversation straight
+  // away (see saveLastChannelId above) — so the app boots directly into the
+  // conversation view. The "close conversation" sentinel below would then pop
+  // back to that initial launch entry, which on Android PWAs unloads the document
+  // into a frozen black screen instead of revealing the channel list. Seed one
+  // guard entry up front so the system back button always lands on a real in-app
+  // view (the list) rather than escaping the freshly-launched PWA. Mobile-only and
+  // only when there's no previous entry to fall back on (history.length <= 1).
+  useEffect(() => {
+    if (
+      user &&
+      !historyGuardRef.current &&
+      window.history.length <= 1 &&
+      window.matchMedia("(max-width: 767px)").matches
+    ) {
+      window.history.pushState({ chatPane: "list" }, "");
+      historyGuardRef.current = true;
+    }
   }, [user]);
 
   // PWA / mobile: the phone's system "back" button closes the open conversation
