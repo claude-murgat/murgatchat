@@ -221,6 +221,26 @@ test("invitation registration + full web journey", async ({ page, browser }) => 
   // On revient sur le salon d'origine pour ne pas perturber la suite du parcours.
   await page.getByRole("button", { name: new RegExp(channel) }).click();
 
+  // Issue #135 : autocomplétion des mentions. Dans « Général » (admin + invité
+  // sont tous deux membres du salon par défaut), taper « @ » suivi d'un préfixe
+  // propose les autres membres ; choisir une entrée insère « @username », la
+  // forme « @pseudo » reconnue côté serveur (isMentioned) pour les notifications.
+  await page.getByRole("button", { name: /Général/ }).click();
+  const generalComposer = page.getByPlaceholder("Message dans #Général");
+  await generalComposer.click();
+  await generalComposer.pressSequentially("salut @adm");
+  // La liste propose l'admin (nom affiché « Admin … » + @username sous-titré).
+  const mentionOption = page.getByRole("button", {
+    name: new RegExp(`Admin ${adminTag}`),
+  });
+  await expect(mentionOption).toBeVisible();
+  await mentionOption.click();
+  // Le composer contient désormais la mention au format @username (suivie d'une
+  // espace), prête à être complétée.
+  await expect(generalComposer).toHaveValue(new RegExp(`@${adminTag}\\s`));
+  await generalComposer.press("Enter");
+  await expect(messageRow(page, `@${adminTag}`)).toBeVisible();
+
   // Issue #94 : la recherche de la barre latérale doit être pilotable au clavier.
   // On tape une requête, on bouge la sélection avec les flèches (bas puis haut,
   // ce qui ramène sur le premier résultat « Général ») et on valide avec Entrée :

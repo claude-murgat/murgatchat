@@ -658,6 +658,8 @@ export default function ChannelView({
           ref={composerRef}
           onSend={send}
           onTyping={notifyTyping}
+          members={channel.members}
+          currentUser={currentUser}
           placeholder={
             channel.isDirect
               ? `Message à ${channel.displayName}`
