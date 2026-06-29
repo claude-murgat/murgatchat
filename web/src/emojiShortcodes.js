@@ -1,0 +1,198 @@
+// Autocomplétion d'emojis par shortcode `:nom:` dans le composer (issue #138).
+//
+// On garde une table curée des emojis les plus courants plutôt que d'embarquer
+// une base complète : c'est suffisant pour l'usage chat, sans dépendance ni
+// poids supplémentaire. Le bouton 😀 (emoji-picker-react) reste là pour le reste.
+export const EMOJI_SHORTCODES = {
+  smile: "😄",
+  smiley: "😃",
+  grin: "😁",
+  laughing: "😆",
+  joy: "😂",
+  rofl: "🤣",
+  sweat_smile: "😅",
+  blush: "😊",
+  innocent: "😇",
+  slightly_smiling_face: "🙂",
+  upside_down_face: "🙃",
+  wink: "😉",
+  relieved: "😌",
+  heart_eyes: "😍",
+  kissing_heart: "😘",
+  yum: "😋",
+  stuck_out_tongue: "😛",
+  stuck_out_tongue_winking_eye: "😜",
+  zany_face: "🤪",
+  sunglasses: "😎",
+  nerd_face: "🤓",
+  thinking: "🤔",
+  hugs: "🤗",
+  shushing_face: "🤫",
+  zipper_mouth_face: "🤐",
+  neutral_face: "😐",
+  expressionless: "😑",
+  no_mouth: "😶",
+  smirk: "😏",
+  unamused: "😒",
+  roll_eyes: "🙄",
+  grimacing: "😬",
+  lying_face: "🤥",
+  relaxed: "☺️",
+  pensive: "😔",
+  sleepy: "😪",
+  sleeping: "😴",
+  drooling_face: "🤤",
+  mask: "😷",
+  face_with_thermometer: "🤒",
+  dizzy_face: "😵",
+  exploding_head: "🤯",
+  cowboy_hat_face: "🤠",
+  partying_face: "🥳",
+  sob: "😭",
+  cry: "😢",
+  disappointed: "😞",
+  worried: "😟",
+  confused: "😕",
+  frowning_face: "🙁",
+  persevere: "😣",
+  weary: "😩",
+  tired_face: "😫",
+  triumph: "😤",
+  angry: "😠",
+  rage: "😡",
+  scream: "😱",
+  fearful: "😨",
+  cold_sweat: "😰",
+  flushed: "😳",
+  astonished: "😲",
+  open_mouth: "😮",
+  hushed: "😯",
+  pleading_face: "🥺",
+  grinning: "😀",
+  star_struck: "🤩",
+  shrug: "🤷",
+  facepalm: "🤦",
+  poop: "💩",
+  clown_face: "🤡",
+  ghost: "👻",
+  alien: "👽",
+  robot: "🤖",
+  skull: "💀",
+  thumbsup: "👍",
+  "+1": "👍",
+  thumbsdown: "👎",
+  "-1": "👎",
+  ok_hand: "👌",
+  pinching_hand: "🤏",
+  v: "✌️",
+  crossed_fingers: "🤞",
+  call_me_hand: "🤙",
+  muscle: "💪",
+  pray: "🙏",
+  clap: "👏",
+  raised_hands: "🙌",
+  wave: "👋",
+  point_up: "☝️",
+  point_down: "👇",
+  point_left: "👈",
+  point_right: "👉",
+  fire: "🔥",
+  sparkles: "✨",
+  star: "⭐",
+  star2: "🌟",
+  zap: "⚡",
+  boom: "💥",
+  tada: "🎉",
+  confetti_ball: "🎊",
+  balloon: "🎈",
+  gift: "🎁",
+  trophy: "🏆",
+  medal: "🏅",
+  rocket: "🚀",
+  heart: "❤️",
+  orange_heart: "🧡",
+  yellow_heart: "💛",
+  green_heart: "💚",
+  blue_heart: "💙",
+  purple_heart: "💜",
+  black_heart: "🖤",
+  broken_heart: "💔",
+  two_hearts: "💕",
+  sparkling_heart: "💖",
+  heartpulse: "💗",
+  cupid: "💘",
+  100: "💯",
+  check: "✅",
+  white_check_mark: "✅",
+  heavy_check_mark: "✔️",
+  x: "❌",
+  warning: "⚠️",
+  question: "❓",
+  exclamation: "❗",
+  bulb: "💡",
+  eyes: "👀",
+  speech_balloon: "💬",
+  bell: "🔔",
+  lock: "🔒",
+  key: "🔑",
+  hourglass: "⏳",
+  alarm_clock: "⏰",
+  calendar: "📅",
+  email: "📧",
+  pushpin: "📌",
+  paperclip: "📎",
+  memo: "📝",
+  books: "📚",
+  computer: "💻",
+  iphone: "📱",
+  bug: "🐛",
+  coffee: "☕",
+  beer: "🍺",
+  pizza: "🍕",
+  hamburger: "🍔",
+  cake: "🍰",
+  birthday: "🎂",
+  apple: "🍎",
+  sun: "☀️",
+  cloud: "☁️",
+  rainbow: "🌈",
+  snowflake: "❄️",
+  dog: "🐶",
+  cat: "🐱",
+  unicorn: "🦄",
+  penguin: "🐧",
+  earth_africa: "🌍",
+  moon: "🌙",
+};
+
+// Repère le shortcode emoji en cours de saisie juste avant le curseur.
+// Renvoie `{ start, query }` (start = position du `:`) ou `null` si le contexte
+// n'est pas un shortcode actif (pas de `:`, `:` non précédé d'un espace, espace
+// dans la requête, etc.). Le `:` doit débuter le texte ou suivre une espace,
+// pour ne pas se déclencher au milieu d'une URL (`http://`) par exemple.
+export function emojiTokenAt(text, caret) {
+  const upto = text.slice(0, caret);
+  const colon = upto.lastIndexOf(":");
+  if (colon < 0) return null;
+  if (colon > 0 && !/\s/.test(upto[colon - 1])) return null;
+  const query = upto.slice(colon + 1);
+  if (!/^[a-z0-9_+-]*$/i.test(query)) return null;
+  return { start: colon, query };
+}
+
+// Renvoie jusqu'à `limit` suggestions pour une requête de shortcode.
+// Priorité aux noms qui commencent par la requête (triés du plus court au plus
+// long, puis alphabétiquement), suivis des noms qui la contiennent.
+export function queryEmojiShortcodes(query, limit = 8) {
+  const q = String(query || "").toLowerCase();
+  if (!q) return [];
+  const starts = [];
+  const contains = [];
+  for (const [name, char] of Object.entries(EMOJI_SHORTCODES)) {
+    const i = name.indexOf(q);
+    if (i === 0) starts.push({ name, char });
+    else if (i > 0) contains.push({ name, char });
+  }
+  starts.sort((a, b) => a.name.length - b.name.length || a.name.localeCompare(b.name));
+  return [...starts, ...contains].slice(0, limit);
+}

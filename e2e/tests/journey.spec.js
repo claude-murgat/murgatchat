@@ -191,6 +191,20 @@ test("invitation registration + full web journey", async ({ page, browser }) => 
   await expect(mdRow.locator("strong", { hasText: "gras" })).toBeVisible();
   await expect(mdRow.locator("code", { hasText: "code" })).toBeVisible();
 
+  // Issue #138 : autocomplétion d'emojis. Taper « :smile » dans le composer doit
+  // ouvrir une liste de suggestions. Entrée insère le premier emoji (😄) dans le
+  // texte sans envoyer le message ; un second Entrée envoie le message obtenu.
+  await composer.click();
+  await composer.pressSequentially(":smile");
+  const emojiOption = page.getByRole("option").first();
+  await expect(emojiOption).toBeVisible();
+  await expect(emojiOption).toContainText(":smile:");
+  await composer.press("Enter"); // sélectionne la suggestion (n'envoie pas)
+  await expect(page.getByRole("option")).toHaveCount(0);
+  await expect(composer).toHaveValue(/😄/);
+  await composer.press("Enter"); // envoie le message contenant l'emoji
+  await expect(messageRow(page, "😄")).toBeVisible();
+
   await page.reload();
   await page.getByRole("button", { name: new RegExp(channel) }).click();
   // After the reload there are 2 "hello edited" on screen: the original

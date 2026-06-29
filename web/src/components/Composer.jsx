@@ -3,6 +3,7 @@ import EmojiPicker from "emoji-picker-react";
 import GifPicker from "./GifPicker.jsx";
 import Avatar from "./Avatar.jsx";
 import { uploadFile, api } from "../api.js";
+import { emojiTokenAt, queryEmojiShortcodes } from "../emojiShortcodes.js";
 
 function formatLocalIso(dt) {
   const pad = (n) => String(n).padStart(2, "0");
@@ -80,6 +81,13 @@ function Composer(
   const [gifBusy, setGifBusy] = useState(false);
   const gifRef = useRef(null);
   const gifBtnRef = useRef(null);
+  // Autocomplétion d'emojis « :nom » (issue #138). emojiQuery vaut null quand le
+  // menu est fermé ; emojiItems liste les suggestions courantes ; emojiTokenStart
+  // mémorise la position du « : » pour remplacer le bon segment à l'insertion.
+  const [emojiQuery, setEmojiQuery] = useState(null);
+  const [emojiItems, setEmojiItems] = useState([]);
+  const [emojiIndex, setEmojiIndex] = useState(0);
+  const emojiTokenStart = useRef(0);
 
   useEffect(() => {
     const ta = taRef.current;
@@ -167,6 +175,50 @@ function Composer(
     setAttachments((prev) => prev.filter((a) => a.id !== id));
   }
 
+  function closeEmojiMenu() {
+    setEmojiQuery(null);
+    setEmojiItems([]);
+  }
+
+  // Recalcule le menu d'autocomplétion à partir du texte et de la position du
+  // curseur. On n'ouvre qu'à partir de 2 caractères saisis après le « : » pour
+  // ne pas inonder l'utilisateur dès la frappe d'un simple deux-points.
+  function refreshEmojiMenu(value, caret) {
+    const tok = emojiTokenAt(value, caret);
+    if (!tok || tok.query.length < 2) {
+      closeEmojiMenu();
+      return;
+    }
+    const items = queryEmojiShortcodes(tok.query);
+    if (items.length === 0) {
+      closeEmojiMenu();
+      return;
+    }
+    emojiTokenStart.current = tok.start;
+    setEmojiItems(items);
+    setEmojiQuery(tok.query);
+    setEmojiIndex(0);
+  }
+
+  // Remplace le segment « :nom » en cours par le caractère emoji choisi.
+  function applyEmojiSuggestion(item) {
+    const ta = taRef.current;
+    const caret = ta ? ta.selectionStart : text.length;
+    const start = emojiTokenStart.current;
+    const before = text.slice(0, start);
+    const after = text.slice(caret);
+    const insert = item.char + " ";
+    setText(before + insert + after);
+    closeEmojiMenu();
+    const pos = before.length + insert.length;
+    requestAnimationFrame(() => {
+      if (ta) {
+        ta.focus();
+        ta.setSelectionRange(pos, pos);
+      }
+    });
+  }
+
   function send(schedule = false) {
     const body = text.trim();
     if (!body && attachments.length === 0) return;
@@ -183,6 +235,7 @@ function Composer(
     setText("");
     setAttachments([]);
     setShowSchedule(false);
+    closeEmojiMenu();
   }
 
   // Recalcule le jeton de mention actif d'après le contenu et la position du
@@ -213,6 +266,30 @@ function Composer(
   }
 
   function onKeyDown(e) {
+    // Quand un menu d'autocomplétion est ouvert (emoji « :nom » #138, puis mention
+    // « @ » #135), les flèches/Entrée/Tab/Échap le pilotent (et n'envoient pas).
+    if (emojiQuery !== null && emojiItems.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setEmojiIndex((i) => (i + 1) % emojiItems.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setEmojiIndex((i) => (i - 1 + emojiItems.length) % emojiItems.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        applyEmojiSuggestion(emojiItems[emojiIndex]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeEmojiMenu();
+        return;
+      }
+    }
     if (showMentions) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -274,6 +351,34 @@ function Composer(
           <GifPicker onSelect={onGifSelect} />
         </div>
       )}
+      {emojiQuery !== null && emojiItems.length > 0 && (
+        <div
+          className="absolute bottom-full left-2 mb-2 z-50 w-64 max-h-60 overflow-auto bg-white border border-slate-200 rounded-lg shadow-xl py-1"
+          role="listbox"
+        >
+          {emojiItems.map((it, i) => (
+            <button
+              key={it.name}
+              type="button"
+              role="option"
+              aria-selected={i === emojiIndex}
+              // onMouseDown + preventDefault : on insère sans que le textarea
+              // perde le focus ni que le curseur bouge avant la lecture.
+              onMouseDown={(e) => {
+                e.preventDefault();
+                applyEmojiSuggestion(it);
+              }}
+              onMouseEnter={() => setEmojiIndex(i)}
+              className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm ${
+                i === emojiIndex ? "bg-slate-100" : ""
+              }`}
+            >
+              <span className="text-base leading-none">{it.char}</span>
+              <span className="text-slate-600">:{it.name}:</span>
+            </button>
+          ))}
+        </div>
+      )}
       {showMentions && (
         <div className="absolute bottom-full left-2 mb-2 z-50 w-64 max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl py-1">
           {mentionCandidates.map((m, i) => (
@@ -312,6 +417,7 @@ function Composer(
           setText(e.target.value);
           refreshMention(e.target.value, e.target.selectionStart);
           onTyping?.();
+          refreshEmojiMenu(e.target.value, e.target.selectionStart);
         }}
         onKeyDown={onKeyDown}
         // Ferme la liste de mentions quand on quitte le champ. La sélection à la
