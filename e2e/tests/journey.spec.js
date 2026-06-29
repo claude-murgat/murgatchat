@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, devices } from "@playwright/test";
 
 // Full web journey with invitation-based registration. Requires a FRESH isolated
 // stack (empty DB) so the first account bootstraps as admin. See TESTING.md.
@@ -93,7 +93,7 @@ async function createPrivateChannel(page, name) {
 const messageRow = (page, text) =>
   page.locator("div.group").filter({ hasText: text }).last();
 
-test("invitation registration + full web journey", async ({ page }) => {
+test("invitation registration + full web journey", async ({ page, browser }) => {
   page.on("dialog", (d) => d.accept());
 
   // Bootstrap admin, invite a user, capture the code, log out.
@@ -216,4 +216,39 @@ test("invitation registration + full web journey", async ({ page }) => {
   await expect(page.getByText("🐞 Signaler un bug")).toBeVisible();
   await expect(page.getByText(/assistant IA échange avec vous/)).toBeVisible();
   await expect(page.getByText(/équipe de support, qui le valide/)).toBeVisible();
+
+  // Issue #133 : sur tactile (PWA mobile, pointeur « coarse »), la touche
+  // « Entrée » doit insérer un saut de ligne et NON envoyer le message — l'envoi
+  // reste assuré par le bouton « Envoyer » dédié, conformément aux conventions
+  // mobiles et pour éviter les envois accidentels. On rejoue le même utilisateur
+  // dans un contexte mobile émulé pour valider le comportement de bout en bout.
+  const mobileCtx = await browser.newContext({ ...devices["Pixel 7"] });
+  const mob = await mobileCtx.newPage();
+  mob.on("dialog", (d) => d.accept());
+  await mob.goto("/");
+  await configureServer(mob);
+  await mob.getByPlaceholder("email ou nom d'utilisateur").fill(userTag);
+  await mob.getByPlaceholder("Mot de passe").fill("test1234");
+  await mob.getByRole("button", { name: "Se connecter", exact: true }).click();
+  // Garde-fou : l'émulation mobile expose bien un pointeur tactile « coarse »,
+  // signal sur lequel s'appuie le composer pour basculer Entrée → saut de ligne.
+  expect(await mob.evaluate(() => matchMedia("(pointer: coarse)").matches)).toBe(true);
+  // Mise en page mono-panneau sur mobile : au login l'app ouvre directement un
+  // salon (le dernier/le premier), donc le composer est déjà accessible. On le
+  // cible de façon générique, le comportement testé étant indépendant du salon.
+  const mobComposer = mob.getByPlaceholder(/^Message dans #/);
+  await expect(mobComposer).toBeVisible();
+  await mobComposer.click();
+  await mobComposer.pressSequentially("ligne un");
+  await mobComposer.press("Enter");
+  await mobComposer.pressSequentially("ligne deux");
+  // Entrée n'a pas envoyé : le texte (avec saut de ligne) reste dans le composer
+  // et aucun message « ligne un » n'a été posté dans le fil.
+  await expect(mobComposer).toHaveValue("ligne un\nligne deux");
+  await expect(mob.getByText("ligne un", { exact: true })).toHaveCount(0);
+  // En revanche, le bouton « Envoyer » poste bien le message multi-lignes.
+  await mob.getByRole("button", { name: "Envoyer" }).click();
+  await expect(mobComposer).toHaveValue("");
+  await expect(mob.getByText("ligne deux")).toBeVisible();
+  await mobileCtx.close();
 });
