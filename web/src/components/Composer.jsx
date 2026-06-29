@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from "react";
 import EmojiPicker from "emoji-picker-react";
 import GifPicker from "./GifPicker.jsx";
+import Avatar from "./Avatar.jsx";
 import { uploadFile, api } from "../api.js";
 import { emojiTokenAt, queryEmojiShortcodes } from "../emojiShortcodes.js";
 
@@ -9,14 +10,63 @@ function formatLocalIso(dt) {
   return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
 }
 
+// Détecte la mention en cours de saisie juste avant le curseur : on remonte
+// jusqu'au "@" qui démarre le jeton (début de texte ou précédé d'une espace),
+// sans espace ni saut de ligne entre ce "@" et le curseur. Renvoie
+// { start, query } ou null s'il n'y a pas de mention active à cet endroit.
+export function findMentionQuery(text, caret) {
+  for (let i = caret - 1; i >= 0; i--) {
+    const ch = text[i];
+    if (/\s/.test(ch)) return null;
+    if (ch === "@") {
+      if (i === 0 || /\s/.test(text[i - 1])) {
+        return { start: i, query: text.slice(i + 1, caret) };
+      }
+      return null;
+    }
+  }
+  return null;
+}
+
+// Candidats à proposer pour la mention « @query » : les autres membres du salon
+// dont le username ou le nom affiché contient la requête (insensible à la casse).
+// Limité à 8 entrées pour garder la liste lisible.
+export function matchMembers(members, currentUser, query) {
+  const q = query.toLowerCase();
+  return (members || [])
+    .filter((m) => m.id !== currentUser?.id)
+    .filter(
+      (m) =>
+        !q ||
+        m.username?.toLowerCase().includes(q) ||
+        m.displayName?.toLowerCase().includes(q)
+    )
+    .slice(0, 8);
+}
+
 function fmtBytes(n) {
   if (n < 1024) return `${n} o`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} ko`;
   return `${(n / 1024 / 1024).toFixed(1)} Mo`;
 }
 
-function Composer({ onSend, placeholder, allowSchedule = true, onTyping }, ref) {
+// Sur les appareils tactiles (mobile/PWA), le pointeur est « coarse » : le clavier
+// logiciel n'offre pas de raccourci pratique au saut de ligne, donc « Entrée » doit
+// revenir à la ligne et l'envoi passe par le bouton « Envoyer » dédié (cf. #133).
+// Sur desktop (pointeur fin), on garde Entrée = envoi (Maj+Entrée = saut de ligne).
+function isTouchDevice() {
+  return typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)")?.matches;
+}
+
+function Composer(
+  { onSend, placeholder, allowSchedule = true, onTyping, members = [], currentUser },
+  ref
+) {
   const [text, setText] = useState("");
+  // Autocomplétion de mention « @pseudo » (#135) : `mention` porte le jeton en
+  // cours { start, query } ou null ; `mentionIndex` est l'entrée surlignée.
+  const [mention, setMention] = useState(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
   const [showSchedule, setShowSchedule] = useState(false);
   const defaultSched = new Date(Date.now() + 60 * 60_000);
   const [scheduledAt, setScheduledAt] = useState(formatLocalIso(defaultSched));
@@ -188,9 +238,36 @@ function Composer({ onSend, placeholder, allowSchedule = true, onTyping }, ref) 
     closeEmojiMenu();
   }
 
+  // Recalcule le jeton de mention actif d'après le contenu et la position du
+  // curseur ; remet la sélection au premier candidat à chaque changement.
+  function refreshMention(value, caret) {
+    setMention(findMentionQuery(value, caret));
+    setMentionIndex(0);
+  }
+
+  // Remplace le « @query » en cours par « @username » (suivi d'une espace) afin
+  // de coller à la convention reconnue côté serveur (isMentioned), puis replace
+  // le curseur juste après la mention insérée.
+  function applyMention(member) {
+    if (!mention || !member) return;
+    const before = text.slice(0, mention.start);
+    const after = text.slice(mention.start + 1 + mention.query.length);
+    const insert = `@${member.username} `;
+    setText(before + insert + after);
+    setMention(null);
+    const caret = before.length + insert.length;
+    requestAnimationFrame(() => {
+      const ta = taRef.current;
+      if (ta) {
+        ta.focus();
+        ta.setSelectionRange(caret, caret);
+      }
+    });
+  }
+
   function onKeyDown(e) {
-    // Quand le menu d'autocomplétion est ouvert, les flèches/Entrée/Tab/Échap le
-    // pilotent (et n'envoient donc pas le message).
+    // Quand un menu d'autocomplétion est ouvert (emoji « :nom » #138, puis mention
+    // « @ » #135), les flèches/Entrée/Tab/Échap le pilotent (et n'envoient pas).
     if (emojiQuery !== null && emojiItems.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -213,11 +290,42 @@ function Composer({ onSend, placeholder, allowSchedule = true, onTyping }, ref) 
         return;
       }
     }
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (showMentions) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionIndex((i) => (i + 1) % mentionCandidates.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionIndex(
+          (i) => (i - 1 + mentionCandidates.length) % mentionCandidates.length
+        );
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        applyMention(mentionCandidates[mentionIndex]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMention(null);
+        return;
+      }
+    }
+    // Sur tactile, on laisse le comportement par défaut du textarea (saut de
+    // ligne) : l'envoi se fait via le bouton « Envoyer » (cf. #133).
+    if (e.key === "Enter" && !e.shiftKey && !isTouchDevice()) {
       e.preventDefault();
       send(false);
     }
   }
+
+  const mentionCandidates = mention
+    ? matchMembers(members, currentUser, mention.query)
+    : [];
+  const showMentions = mentionCandidates.length > 0;
 
   return (
     <div className="relative border border-slate-300 rounded-lg bg-white shadow-sm">
@@ -271,16 +379,50 @@ function Composer({ onSend, placeholder, allowSchedule = true, onTyping }, ref) 
           ))}
         </div>
       )}
+      {showMentions && (
+        <div className="absolute bottom-full left-2 mb-2 z-50 w-64 max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl py-1">
+          {mentionCandidates.map((m, i) => (
+            <button
+              key={m.id}
+              type="button"
+              // onMouseDown (et non onClick) + preventDefault : on insère la
+              // mention sans laisser le textarea perdre le focus au préalable.
+              onMouseDown={(e) => {
+                e.preventDefault();
+                applyMention(m);
+              }}
+              onMouseEnter={() => setMentionIndex(i)}
+              className={`w-full text-left px-2 py-1.5 flex items-center gap-2 ${
+                i === mentionIndex ? "bg-aubergine-700/10" : "hover:bg-slate-50"
+              }`}
+            >
+              <Avatar user={m} size={28} />
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm text-slate-900 truncate">
+                  {m.displayName}
+                </span>
+                <span className="block text-xs text-slate-500 truncate">
+                  @{m.username}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
       <textarea
         ref={taRef}
         rows={1}
         value={text}
         onChange={(e) => {
           setText(e.target.value);
+          refreshMention(e.target.value, e.target.selectionStart);
           onTyping?.();
           refreshEmojiMenu(e.target.value, e.target.selectionStart);
         }}
         onKeyDown={onKeyDown}
+        // Ferme la liste de mentions quand on quitte le champ. La sélection à la
+        // souris passe par onMouseDown+preventDefault, donc le blur n'y survient pas.
+        onBlur={() => setMention(null)}
         onPaste={onPaste}
         placeholder={placeholder || "Écrire un message..."}
         className="w-full resize-none px-3 py-3 text-slate-900 outline-none rounded-t-lg"

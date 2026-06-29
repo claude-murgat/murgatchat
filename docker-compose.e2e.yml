@@ -35,6 +35,9 @@ services:
       UPLOAD_DIR: /data/uploads
       PORT: "4000"
       CORS_ORIGIN: "*"
+      # Enables the POST /test/reset endpoint so each e2e spec starts from a
+      # virgin DB (avoids contending for the one-time admin bootstrap).
+      E2E_TEST_MODE: "1"
     ports:
       - "4001:4000"
 
