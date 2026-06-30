@@ -5,7 +5,7 @@ Copie graphiquement inspirée de Slack avec :
 - **Backend** Node.js (Express + Socket.IO) + Prisma + PostgreSQL
 - **Web** React + Vite + Tailwind (thème aubergine de Slack)
 - **Desktop** Tauri 2 (Windows / macOS / Linux) — réutilise le React, ajoute system tray + notifications natives
-- **Mobile** React Native via Expo (Android d'abord, iOS prêt à activer)
+- **Mobile** React Native via Expo (Android) ; **iOS** passe par la **PWA** (Safari → écran d'accueil)
 - **Docker** `docker-compose` pour DB + backend + web
 - **Fonctionnalités** : auth JWT, salons publics/privés, messages directs (+ auto-DM « notes pour soi »), *Ne pas déranger*, **messages planifiés** (créer / modifier / supprimer), réponses inline (citation cliquable), **rendu Markdown** (GFM : gras, code inline + blocs colorés, listes, liens, tables…), **pièces jointes chiffrées at-rest** + bodies chiffrés (AES-256-GCM), recherche full-text, notifications temps réel, **notifications système** (toast Windows/macOS via Tauri ou API browser)
 
@@ -15,10 +15,10 @@ Copie graphiquement inspirée de Slack avec :
 ├── server/         # API + WebSocket + Prisma
 ├── web/            # client React (Slack look)
 │   └── src-tauri/  # wrapper desktop (Rust + Tauri 2)
-└── mobile/         # app Expo (Android, iOS prêt)
+└── mobile/         # app Expo (Android ; iOS = PWA)
 ```
 
-> Les installeurs (Windows `.exe`, Android `.apk`) ne sont **pas** versionnés dans le dépôt : ils sont buildés par CI et publiés dans les [GitHub Releases](../../releases) au push d'un tag `v*`.
+> L'installeur Windows `.exe` n'est **pas** versionné dans le dépôt : il est buildé par CI et publié dans les [GitHub Releases](../../releases) au push d'un tag `v*` (mobile = PWA, pas d'APK).
 
 ## Démarrage avec Docker
 
@@ -91,11 +91,11 @@ npm install
 npx expo start
 ```
 
-L'adresse du serveur se saisit **dans l'app** (écran de connexion) ; aucun serveur n'est baké (`extra.API_URL=""`). Pour l'émulateur Android, l'hôte est `http://10.0.2.2:4000` (alias émulateur → machine) ; pour un device physique, l'IP LAN de ta machine. iOS s'active dès `expo run:ios` sur macOS.
+L'adresse du serveur se saisit **dans l'app** (écran de connexion) ; aucun serveur n'est baké (`extra.API_URL=""`). Pour l'émulateur Android, l'hôte est `http://10.0.2.2:4000` (alias émulateur → machine) ; pour un device physique, l'IP LAN de ta machine. Le code RN reste cross-platform (un simulateur iOS tourne en dev via `expo run:ios`), mais la **distribution iOS passe par la PWA** — pas de build natif iOS (voir le pivot PWA).
 
 ### Desktop (Tauri — Windows / macOS / Linux)
 
-**Installeur Windows + APK** : téléchargez-les depuis la section **[Releases](../../releases)** du dépôt. Chaque release est buildée automatiquement par CI au push d'un tag `v*` (voir [Releases automatisées](#releases-automatisées-ci)). L'installeur NSIS est non signé (SmartScreen avertit une fois). L'adresse du serveur se configure **dans l'app** (écran de connexion) ; les builds ne bakent **aucun serveur par défaut** (champ vide au premier lancement).
+**Installeur Windows** : téléchargez-le depuis la section **[Releases](../../releases)** du dépôt (mobile = PWA, pas d'APK). Chaque release est buildée automatiquement par CI au push d'un tag `v*` (voir [Releases automatisées](#releases-automatisées-ci)). L'installeur NSIS est signé pour l'**auto-updater** (minisign) mais n'a pas de certificat **Authenticode** → SmartScreen avertit à la première installation. L'adresse du serveur se configure **dans l'app** (écran de connexion) ; les builds ne bakent **aucun serveur par défaut** (champ vide au premier lancement).
 
 Le scaffold complet est dans [web/src-tauri/](web/src-tauri/). Tauri lance Vite en dev et embarque le `dist/` en release.
 
@@ -128,37 +128,26 @@ En MSVC (toolchain standard, ce que fait la CI), `WebView2Loader.dll` est liée 
 
 ### Releases automatisées (CI)
 
-Le workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) se déclenche au **push d'un tag `v*`** et publie une GitHub Release avec l'installeur Windows et l'APK signée.
+Le workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) se déclenche au **push d'un tag `v*`** et publie une GitHub Release avec l'**installeur Windows signé**. La distribution mobile passe désormais par la **PWA** (« Ajouter à l'écran d'accueil ») — **plus d'APK ni de build iOS dans la CI** (voir le *pivot PWA* dans [PROGRESS.md](PROGRESS.md)).
 
-Pipeline : `test` (réutilise [`tests.yml`](.github/workflows/tests.yml)) → `release` (crée une release *draft* + valide que les 5 fichiers de version == tag) → `desktop` (`windows-latest`, MSVC, `tauri-action`) **et** `android` (`ubuntu-latest`, `expo prebuild` + APK signée) en parallèle → `publish` (passe la release en *live*).
+Pipeline : `test` (réutilise [`tests.yml`](.github/workflows/tests.yml)) → `release` (crée une release *draft* + valide que les **3 fichiers de version == tag**) → `desktop` (`windows-latest`, MSVC, `tauri-action` : build, **signature** de l'installeur NSIS et génération de `latest.json` pour l'auto-updater) → `publish` (passe la release en *live*).
 
 **Couper une release :**
 ```bash
-# 1. bumper la version dans les 5 fichiers : web/package.json, mobile/package.json,
-#    mobile/app.json (expo.version), web/src-tauri/tauri.conf.json, web/src-tauri/Cargo.toml
+# 1. bumper la version dans les 3 fichiers : web/package.json,
+#    web/src-tauri/tauri.conf.json, web/src-tauri/Cargo.toml
+#    (le job `release` échoue si l'un d'eux != tag).
 # 2. merger sur main, puis :
-git tag v0.5.3 && git push origin v0.5.3
+git tag v0.7.4 && git push origin v0.7.4
 ```
-Le `versionName` vient du tag ; le `versionCode` Android est dérivé du semver (`MAJ*10000+MIN*100+PAT`, monotone). Le build desktop/APK ne bake **aucun serveur** (pas de `VITE_API_URL`, `extra.API_URL=""`).
+Le build desktop ne bake **aucun serveur** (pas de `VITE_API_URL` → l'adresse du serveur se configure sur l'écran de login).
 
-**Secrets requis** (Settings → Secrets and variables → Actions) pour signer l'APK avec une **keystore d'upload stable** (sinon les MAJ ne s'installent pas par-dessus) :
+**Secret requis** (Settings → Secrets and variables → Actions) — l'installeur est signé pour l'auto-updater Tauri (`createUpdaterArtifacts`), donc la clé est nécessaire à **chaque** build desktop :
 
 | Secret | Contenu |
 | --- | --- |
-| `ANDROID_KEYSTORE_BASE64` | la keystore encodée base64 |
-| `ANDROID_KEYSTORE_PASSWORD` | mot de passe du store |
-| `ANDROID_KEY_PASSWORD` | mot de passe de la clé |
-| `ANDROID_KEY_ALIAS` | alias (`murgat-upload`) |
-
-Générer la keystore (**une seule fois, à sauvegarder hors-ligne à vie**) :
-```bash
-keytool -genkeypair -v -keystore upload.keystore -alias murgat-upload \
-  -keyalg RSA -keysize 2048 -validity 10000 \
-  -storepass '<store-pass>' -keypass '<key-pass>' \
-  -dname "CN=Murgat Chat, O=Murgat, C=FR"
-# PowerShell : [Convert]::ToBase64String([IO.File]::ReadAllBytes("upload.keystore")) | Set-Content upload.keystore.b64 -NoNewline
-```
-La signature release est câblée par le config-plugin [`mobile/plugins/withReleaseSigning.js`](mobile/plugins/withReleaseSigning.js) (fallback debug en local si les secrets sont absents, donc un build local reste possible).
+| `TAURI_SIGNING_PRIVATE_KEY` | clé privée minisign de l'updater (à **sauvegarder hors-ligne** — sa perte casse l'auto-update) |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | mot de passe de la clé (vide si générée sans) |
 
 ### Bannière de mise à jour (version checker)
 
@@ -393,7 +382,7 @@ Récap des choix faits pendant le build (et pourquoi), pour qu'on puisse les rem
 
 ### Stack
 - **Tauri 2 plutôt qu'Electron** pour le desktop : bundle ~3 Mo (vs ~150), WebView2 déjà présent sur Windows 10+, Rust backend, supporté en cross-compile depuis Linux. Coût : Rust à installer pour builder.
-- **Expo pour le mobile** : un seul codebase Android + iOS. iOS prêt sans réécriture, juste `expo run:ios` sur macOS.
+- **Expo pour le mobile** : codebase React Native cross-platform, ciblant **Android**. **iOS** passe désormais par la **PWA** (le build natif a été abandonné — pivot PWA, la VM macOS x86_64 ne peut pas faire tourner Xcode 26 arm64-only).
 - **Prisma + Postgres** plutôt que Mongo/SQLite : relations natives (messages × channels × users × attachments), index, robuste pour l'historique.
 
 ### Auth & sécurité
@@ -440,7 +429,7 @@ Récap des choix faits pendant le build (et pourquoi), pour qu'on puisse les rem
 - **Installeur pré-buildé committé** dans [dist/](dist/) : pratique pour un MVP, à remplacer par une release GitHub si le projet grossit.
 
 ### Mobile (Expo)
-- **Android d'abord** mais le même codebase couvre déjà iOS — il manque juste un build/distrib iOS.
+- **Android d'abord** (le dossier `mobile/` Expo cible Android) ; **iOS passe par la PWA** (Safari → « Sur l'écran d'accueil » + web-push VAPID). Le build natif iOS a été **abandonné** (pivot PWA — la VM macOS x86_64 ne peut pas faire tourner Xcode 26 arm64-only exigé par l'App Store).
 
 ## Pistes pour la suite
 
@@ -458,30 +447,26 @@ par thème :
 - **Audit log** des actions admin (qui a désactivé qui, transferts de
   propriété, promotions / révocations).
 
-### Mobile
-- **Build iOS standalone** (`eas build --platform ios` ou local Xcode) et
-  publication App Store. Le code est prêt (`app.json` ATS + `ios.deploymentTarget`).
-- **Envoi de pièces jointes** depuis mobile (l'affichage marche déjà, il
-  manque le picker natif).
-- **Vraie clé de signature Android** (à la place de la clé debug actuelle)
-  pour distribuer sur Play Store.
-- **Push réelles** : projectId Expo + FCM (`google-services.json` + APNs côté
-  iOS). Le gating serveur est déjà en place.
+### Mobile (Android + PWA)
+- **Envoi de pièces jointes** depuis mobile (l'affichage et les GIF marchent déjà ;
+  il manque le picker natif de fichiers).
+- **Vraie clé de signature Android** (à la place de la clé debug actuelle) pour
+  distribuer sur le Play Store.
+- **Push natives Android réelles** : projectId Expo + FCM (`google-services.json`).
+  Le gating serveur est déjà en place.
+- _iOS : passe désormais par la **PWA** (Safari → « Sur l'écran d'accueil ») + web-push
+  VAPID. Le build natif iOS a été **abandonné** (voir le pivot PWA) — ne pas le remettre
+  dans `release.yml` sans décision explicite._
 
 ### Desktop
-- **Auto-start au boot** Windows via [`tauri-plugin-autostart`](https://v2.tauri.app/plugin/autostart/).
-- **Badges non-lus** sur l'icône tray.
 - **Signature de code** Windows (Authenticode) pour éviter le warning SmartScreen
-  à la première installation.
+  à la première installation. _(L'installeur est déjà signé pour l'**auto-updater**
+  Tauri via minisign, mais ce n'est **pas** un certificat Authenticode → SmartScreen
+  reste présent.)_
 - **Builds macOS / Linux** (le code Tauri est cross-platform, juste à câbler
   les bundles).
 
 ### Fonctionnalités
 - **E2E (chiffrement bout-en-bout) pour les DM** — empêcherait la recherche
-  full-text et la planification de messages, donc à exclure sur ces canaux.
-- **Recherche full-text Postgres** (incompatible avec l'E2E ci-dessus, à
-  arbitrer).
-- **Nettoyage des fichiers orphelins** sur disque (la suppression d'un message
-  avec PJ supprime la ligne `Attachment` mais laisse le blob).
-- **Pagination du panel d'administration** au-delà de quelques centaines de
-  comptes (le `GET /auth/users` ramène tout pour l'instant).
+  full-text (déjà en place) et la planification de messages sur ces canaux, donc à
+  arbitrer / exclure sur les DM concernés.
