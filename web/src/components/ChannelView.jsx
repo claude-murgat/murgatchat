@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import EmojiPicker from "emoji-picker-react";
 import Avatar from "./Avatar.jsx";
 import Composer from "./Composer.jsx";
@@ -144,6 +144,11 @@ export default function ChannelView({
   onBackToList,
 }) {
   const [messages, setMessages] = useState([]);
+  // Pagination par curseur : 200 messages les plus récents à l'ouverture, puis
+  // « charger les plus anciens » par paquets de 200 (cf. loadOlder + l'API `before`).
+  const [hasMore, setHasMore] = useState(false);
+  const [oldestCursor, setOldestCursor] = useState(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [scheduled, setScheduled] = useState([]);
   const [showScheduled, setShowScheduled] = useState(false);
   // Discord-style: tapping "Répondre" sets the target here; the next outgoing
@@ -156,6 +161,10 @@ export default function ChannelView({
   const [showNotifyMenu, setShowNotifyMenu] = useState(false);
   const notifyMenuRef = useRef(null);
   const scrollRef = useRef(null);
+  // Pilote le scroll après une maj de `messages` : "bottom" (initial / nouveau
+  // message alors qu'on est déjà en bas), "preserve" (préfixe d'anciens messages
+  // → garder la position), ou null (édition/suppression/réaction → ne pas bouger).
+  const scrollModeRef = useRef({ type: "bottom" });
   const messageRefs = useRef({});
   const typingTimers = useRef({});
   const lastTypingSent = useRef(0);
@@ -213,8 +222,14 @@ export default function ChannelView({
     let cancelled = false;
     setTypingUserIds([]);
     setReplyingTo(null);
+    setHasMore(false);
+    setOldestCursor(null);
     api.messages(channel.id).then((res) => {
-      if (!cancelled) setMessages(res.messages);
+      if (cancelled) return;
+      scrollModeRef.current = { type: "bottom" };
+      setMessages(res.messages);
+      setHasMore(!!res.hasMore);
+      setOldestCursor(res.nextCursor || null);
     });
     api.scheduled(channel.id).then((res) => {
       if (!cancelled) setScheduled(res.scheduled);
@@ -243,9 +258,18 @@ export default function ChannelView({
     if (!socket) return;
     function onNew(msg) {
       if (!channel || msg.channelId !== channel.id) return;
+      // Ne suivre le bas que si on y est déjà (ne pas arracher un lecteur
+      // d'historique vers le bas à chaque nouveau message).
+      const el = scrollRef.current;
+      const nearBottom =
+        !el || el.scrollHeight - el.scrollTop - el.clientHeight < 150;
       // Replies arrive on `message:new` too in the new model (parent quote is
       // carried inline in `msg.parent`), so a single handler covers both.
-      setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === msg.id)) return prev;
+        scrollModeRef.current = nearBottom ? { type: "bottom" } : null;
+        return [...prev, msg];
+      });
       if (isWindowFocused()) socket.emit("channel:read", { channelId: channel.id });
     }
     function onUpdated(msg) {
@@ -286,10 +310,44 @@ export default function ChannelView({
     };
   }, [socket, channel?.id, currentUser?.id]);
 
-  useEffect(() => {
+  // Applique le mode de scroll décidé par la dernière maj de `messages` :
+  // "bottom" (coller le bas), "preserve" (on vient de préfixer d'anciens messages
+  // → garder le message courant en place) ou null (édition/réaction → ne rien faire).
+  useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages.length, channel?.id]);
+    const mode = scrollModeRef.current;
+    if (!el || !mode) return;
+    if (mode.type === "bottom") {
+      el.scrollTop = el.scrollHeight;
+    } else if (mode.type === "preserve") {
+      el.scrollTop = el.scrollHeight - mode.prevHeight + mode.prevTop;
+    }
+    scrollModeRef.current = null;
+  }, [messages]);
+
+  // Charge les 200 messages antérieurs au plus ancien affiché et les préfixe,
+  // en conservant la position de lecture (la hauteur grandit par le haut).
+  function loadOlder() {
+    if (loadingOlder || !hasMore || !oldestCursor || !channel) return;
+    setLoadingOlder(true);
+    api
+      .messages(channel.id, oldestCursor)
+      .then((res) => {
+        const el = scrollRef.current;
+        const prevHeight = el ? el.scrollHeight : 0;
+        const prevTop = el ? el.scrollTop : 0;
+        setMessages((prev) => {
+          const seen = new Set(prev.map((m) => m.id));
+          const older = (res.messages || []).filter((m) => !seen.has(m.id));
+          if (!older.length) return prev;
+          scrollModeRef.current = { type: "preserve", prevHeight, prevTop };
+          return [...older, ...prev];
+        });
+        setHasMore(!!res.hasMore);
+        setOldestCursor(res.nextCursor || null);
+      })
+      .finally(() => setLoadingOlder(false));
+  }
 
   // Ferme le menu de notifications au clic en dehors / changement de channel.
   useEffect(() => {
@@ -579,6 +637,18 @@ export default function ChannelView({
       )}
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto scroll-thin px-4 py-3">
+        {hasMore && (
+          <div className="flex justify-center pb-2">
+            <button
+              type="button"
+              onClick={loadOlder}
+              disabled={loadingOlder}
+              className="text-sm text-aubergine-700 hover:underline disabled:opacity-50"
+            >
+              {loadingOlder ? "Chargement…" : "Charger les messages plus anciens"}
+            </button>
+          </div>
+        )}
         {messages.map((m, idx) => {
           const day = dayLabel(m.createdAt);
           const showDay = day !== lastDay;
