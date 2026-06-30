@@ -253,7 +253,12 @@ test("invitation registration + full web journey", async ({ page, browser }) => 
   // espace), prête à être complétée.
   await expect(generalComposer).toHaveValue(new RegExp(`@${adminTag}\\s`));
   await generalComposer.press("Enter");
-  await expect(messageRow(page, `@${adminTag}`)).toBeVisible();
+  const mentionRow = messageRow(page, `@${adminTag}`);
+  await expect(mentionRow).toBeVisible();
+  // Issue #143 : après envoi, la mention ne doit plus rester en texte brut mais
+  // être rendue comme tag stylisé. Le rendu Markdown convertit « @username » en
+  // <span class="mention …"> ; on vérifie ce span et son contenu.
+  await expect(mentionRow.locator("span.mention")).toHaveText(`@${adminTag}`);
 
   // Issue #94 : la recherche de la barre latérale doit être pilotable au clavier.
   // On tape une requête, on bouge la sélection avec les flèches (bas puis haut,
