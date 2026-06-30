@@ -52,6 +52,41 @@ describe("GET /channels/:id/messages", () => {
     expect(root.parent).toBeNull();
   });
 
+  it("paginates by 200 from the most recent, with a cursor for older messages", async () => {
+    const { owner, channelId } = await setup();
+    const base = Date.now() - 300_000;
+    for (let i = 0; i < 250; i++) {
+      await seedMessage({
+        channelId,
+        authorId: owner.user.id,
+        body: `m${i}`,
+        createdAt: new Date(base + i * 100),
+      });
+    }
+
+    // Page 1 (sans curseur) = les 200 PLUS RÉCENTS (m50..m249), triés du plus
+    // ancien au plus récent pour l'affichage ; il en reste avant.
+    const p1 = await authed(app, owner.token).get(`/channels/${channelId}/messages`);
+    expect(p1.status).toBe(200);
+    expect(p1.body.messages).toHaveLength(200);
+    expect(p1.body.messages[0].body).toBe("m50");
+    expect(p1.body.messages[199].body).toBe("m249");
+    expect(p1.body.hasMore).toBe(true);
+    // Le curseur pointe sur le plus ancien renvoyé (à passer en `before`).
+    expect(p1.body.nextCursor).toBe(p1.body.messages[0].id);
+
+    // Page 2 (`before` = curseur) = les antérieurs (m0..m49), plus rien après.
+    const p2 = await authed(app, owner.token).get(
+      `/channels/${channelId}/messages?before=${p1.body.nextCursor}`
+    );
+    expect(p2.status).toBe(200);
+    expect(p2.body.messages).toHaveLength(50);
+    expect(p2.body.messages[0].body).toBe("m0");
+    expect(p2.body.messages[49].body).toBe("m49");
+    expect(p2.body.hasMore).toBe(false);
+    expect(p2.body.nextCursor).toBeNull();
+  }, 30000);
+
   it("rejects a non-member with 403", async () => {
     const { channelId } = await setup();
     const stranger = await registerUser(app);

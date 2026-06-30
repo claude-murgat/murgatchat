@@ -146,7 +146,14 @@ router.get("/:id/messages", requireAuth, async (req, res) => {
   // Discord/Messenger model: replies live inline in the timeline alongside
   // root messages, with a quote of the parent rendered above each reply.
   // (Old Slack-thread model filtered out anything with parentId.)
-  const messages = await prisma.message.findMany({
+  // Pagination par curseur, du plus récent vers le plus ancien. Par défaut on
+  // renvoie les 200 messages les PLUS RÉCENTS ; `?before=<messageId>` charge les
+  // 200 antérieurs à ce message (curseur Prisma stable grâce au tie-break sur
+  // l'id). On récupère PAGE+1 lignes pour savoir s'il reste du plus ancien, puis
+  // on renvoie la page triée du plus ancien au plus récent (ordre d'affichage).
+  const PAGE = 200;
+  const before = typeof req.query.before === "string" ? req.query.before : null;
+  const rows = await prisma.message.findMany({
     where: { channelId: id, delivered: true },
     include: {
       author: true,
@@ -157,10 +164,18 @@ router.get("/:id/messages", requireAuth, async (req, res) => {
       // send time.
       parent: { include: { author: true } },
     },
-    orderBy: { createdAt: "asc" },
-    take: 200,
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: PAGE + 1,
+    ...(before ? { cursor: { id: before }, skip: 1 } : {}),
   });
-  res.json({ messages: messages.map(serializeMessage) });
+  const hasMore = rows.length > PAGE;
+  const page = rows.slice(0, PAGE); // plus récent -> plus ancien
+  const oldestId = page.length ? page[page.length - 1].id : null;
+  res.json({
+    messages: page.reverse().map(serializeMessage), // plus ancien -> plus récent
+    hasMore,
+    nextCursor: hasMore ? oldestId : null,
+  });
 });
 
 router.get("/:id/scheduled", requireAuth, async (req, res) => {
