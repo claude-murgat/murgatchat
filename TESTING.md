@@ -133,11 +133,13 @@ launch + login) : voir la recette dans [PROGRESS.md](PROGRESS.md) et le README.
   - **100 « chatters »** : connexions Socket.IO persistantes (handshake `40{auth}`,
     `message:send`, `typing`, `channel:read`, heartbeat `activity`, réponse aux pings).
   - **50 « readers »** : boucles REST (`/auth/me`, `/channels`, `/channels/:id/messages`,
-    `/channels/public`, réactions, `/auth/dnd`) avec think-time.
+    `/channels/public`, réactions, niveau de notif par salon, `/auth/dnd`) avec think-time.
 - **Montée 1 min → plateau 8 min 30 → descente 30 s** (≈ 10 min).
-- `setup()` enregistre les 150 comptes + des salons partagés (chaque envoi fait donc
-  un vrai fan-out vers les membres). Aucun appel Expo réel (les comptes n'ont pas de
-  push-token → `notifyMembers` n'émet pas de push).
+- `setup()` repart d'une base vierge (`POST /test/reset`, gated `E2E_TEST_MODE`),
+  bootstrap un admin, puis crée les 150 comptes **via le flux d'invitation** (inscription
+  invitation-only — l'admin émet une invitation par compte, puis register avec le token) +
+  des salons partagés (chaque envoi fait donc un vrai fan-out vers les membres). Aucun appel
+  Expo réel (les comptes n'ont pas de push-token → `notifyMembers` n'émet pas de push).
 
 ### Prérequis
 - [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/) (`winget install k6`,
