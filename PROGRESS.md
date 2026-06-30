@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-06-23** (0.6.5 : pipeline support « Claude in-app → issue → PR », force-kill installeur TSE, fixes UX login/menu/notes ; 0.6.4 : auto-updater desktop signé + install tous-utilisateurs).
+Dernière mise à jour : **2026-06-29** (0.7.1 : autocomplétions mentions « @ » / emojis « :nom », Entrée tactile, nav clavier recherche, fix écran noir retour PWA ; 0.7.0 : transfert de message, notifs par salon, fix raccourci installeur ; 0.6.6–0.6.7 : drag-drop, afficher/masquer mdp, UX signalement de bug).
 
 ---
 
@@ -687,9 +687,46 @@ globalSetup crée automatiquement la nouvelle table.
 Release **0.6.5** publiée (installeur signé + `latest.json` ; pipeline `release.yml` verte) —
 **première transition d'auto-update** : les installs per-user en 0.6.4 se mettent à jour seules.
 
+## Itération 2026-06-24 → 06-29 — composer, autocomplétions, PWA & installeur (0.6.6 → 0.7.1)
+
+63. **Glisser-déposer de fichiers + afficher/masquer le mot de passe (0.6.6)** — drag-drop de
+    fichiers sur la zone de chat (#91) ; sur le login, bouton **afficher/masquer le mot de
+    passe** + **exemples en placeholder** (« Claude Murgat », « claudem ») pour casser le
+    réflexe « Prénom Nom » dans le nom d'utilisateur (#99, web **et** mobile). Trombone des PJ
+    en **SVG** (Clippy) visible sur toutes les plateformes (#102). Sécurité : le texte
+    utilisateur n'est plus transformé en @mention GitHub (#103).
+64. **Signalement de bug plus lisible (0.6.7)** — indicateur **« l'assistant réfléchit »**
+    pendant le chat de support (#114) ; mascotte **Clippy** restaurée/reconnaissable sur le
+    bouton PJ (#98/#113) ; la popup de signalement explique son fonctionnement (#118). Process :
+    salon support-dev réservé aux admins (#116), triage écrit dans le **corps de l'issue**
+    plutôt qu'en labels (#120).
+65. **Transfert de message, notifs par salon, raccourci installeur (0.7.0)** — **transfert**
+    d'un message vers une autre conversation (issue #124 / PR #129) ; **niveaux de notification
+    par salon** — tout / mentions / muet (issue #128 / PR #130) ; installeur : le hook NSIS
+    **rafraîchit le raccourci Start Menu** à chaque (ré)install et supprime le raccourci périmé
+    de l'**autre contexte** (per-user ↔ all-users), pour ne plus lancer une vieille version
+    après mise à jour (#131 — Tauri saute la (re)création du raccourci en `/UPDATE`).
+66. **Composer : autocomplétions + Entrée tactile ; écran noir PWA (0.7.1)** — **autocomplétion
+    des mentions « @ »** (issue #135 / PR #140) et des **emojis « :nom »** (issue #138 / PR
+    #141) dans le composer ; sur **tactile**, *Entrée* revient à la ligne, l'envoi passe par le
+    bouton « Envoyer » (issue #133 / PR #134) ; **navigation clavier** dans les résultats de
+    recherche (issue #94 / PR #139). Fix **#95** (PR #137) : plus d'écran noir au bouton retour
+    PWA au démarrage à froid — la garde d'historique s'arme désormais sur l'**entrée de
+    lancement** (`!history.state?.chatPane`, robuste à `history.length`) au lieu du fragile
+    `≤ 1` qui ne s'armait jamais hors d'un PWA strictement à 1 entrée. Tests : endpoint e2e
+    **`POST /test/reset`** (gated `E2E_TEST_MODE`, jamais en prod) pour des specs isolées — fin
+    de la contention sur le bootstrap admin unique de la DB partagée.
+
+Releases **0.6.6 → 0.7.1** publiées (pipeline `release.yml` verte, installeur **signé** +
+`latest.json` à chaque tag) — l'auto-update desktop enchaîne les versions sans réinstall.
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
 > installeur **signé** + `latest.json` → point de départ de l'auto-update),
 > **0.6.5** (#60–62 : force-kill installeur TSE, fixes UX login/menu/notes, pipeline support
-> Claude → issue → PR).
+> Claude → issue → PR), **0.6.6** (drag-drop fichiers #91, afficher/masquer mdp + placeholders
+> #99, Clippy SVG #102), **0.6.7** (« assistant réfléchit » #114, Clippy #98/#113, popup
+> signalement #118), **0.7.0** (transfert message #124, notifs par salon #128, raccourci
+> installeur #131), **0.7.1** (mentions #135 + emojis #138, Entrée tactile #133, nav recherche
+> #94, écran noir PWA #95).
