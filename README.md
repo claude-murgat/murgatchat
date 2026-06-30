@@ -5,7 +5,7 @@ Copie graphiquement inspirée de Slack avec :
 - **Backend** Node.js (Express + Socket.IO) + Prisma + PostgreSQL
 - **Web** React + Vite + Tailwind (thème aubergine de Slack)
 - **Desktop** Tauri 2 (Windows / macOS / Linux) — réutilise le React, ajoute system tray + notifications natives
-- **Mobile** React Native via Expo (Android d'abord, iOS prêt à activer)
+- **Mobile** React Native via Expo (Android) ; **iOS** passe par la **PWA** (Safari → écran d'accueil)
 - **Docker** `docker-compose` pour DB + backend + web
 - **Fonctionnalités** : auth JWT, salons publics/privés, messages directs (+ auto-DM « notes pour soi »), *Ne pas déranger*, **messages planifiés** (créer / modifier / supprimer), réponses inline (citation cliquable), **rendu Markdown** (GFM : gras, code inline + blocs colorés, listes, liens, tables…), **pièces jointes chiffrées at-rest** + bodies chiffrés (AES-256-GCM), recherche full-text, notifications temps réel, **notifications système** (toast Windows/macOS via Tauri ou API browser)
 
@@ -15,10 +15,10 @@ Copie graphiquement inspirée de Slack avec :
 ├── server/         # API + WebSocket + Prisma
 ├── web/            # client React (Slack look)
 │   └── src-tauri/  # wrapper desktop (Rust + Tauri 2)
-└── mobile/         # app Expo (Android, iOS prêt)
+└── mobile/         # app Expo (Android ; iOS = PWA)
 ```
 
-> Les installeurs (Windows `.exe`, Android `.apk`) ne sont **pas** versionnés dans le dépôt : ils sont buildés par CI et publiés dans les [GitHub Releases](../../releases) au push d'un tag `v*`.
+> L'installeur Windows `.exe` n'est **pas** versionné dans le dépôt : il est buildé par CI et publié dans les [GitHub Releases](../../releases) au push d'un tag `v*` (mobile = PWA, pas d'APK).
 
 ## Démarrage avec Docker
 
@@ -91,11 +91,11 @@ npm install
 npx expo start
 ```
 
-L'adresse du serveur se saisit **dans l'app** (écran de connexion) ; aucun serveur n'est baké (`extra.API_URL=""`). Pour l'émulateur Android, l'hôte est `http://10.0.2.2:4000` (alias émulateur → machine) ; pour un device physique, l'IP LAN de ta machine. iOS s'active dès `expo run:ios` sur macOS.
+L'adresse du serveur se saisit **dans l'app** (écran de connexion) ; aucun serveur n'est baké (`extra.API_URL=""`). Pour l'émulateur Android, l'hôte est `http://10.0.2.2:4000` (alias émulateur → machine) ; pour un device physique, l'IP LAN de ta machine. Le code RN reste cross-platform (un simulateur iOS tourne en dev via `expo run:ios`), mais la **distribution iOS passe par la PWA** — pas de build natif iOS (voir le pivot PWA).
 
 ### Desktop (Tauri — Windows / macOS / Linux)
 
-**Installeur Windows + APK** : téléchargez-les depuis la section **[Releases](../../releases)** du dépôt. Chaque release est buildée automatiquement par CI au push d'un tag `v*` (voir [Releases automatisées](#releases-automatisées-ci)). L'installeur NSIS est non signé (SmartScreen avertit une fois). L'adresse du serveur se configure **dans l'app** (écran de connexion) ; les builds ne bakent **aucun serveur par défaut** (champ vide au premier lancement).
+**Installeur Windows** : téléchargez-le depuis la section **[Releases](../../releases)** du dépôt (mobile = PWA, pas d'APK). Chaque release est buildée automatiquement par CI au push d'un tag `v*` (voir [Releases automatisées](#releases-automatisées-ci)). L'installeur NSIS est signé pour l'**auto-updater** (minisign) mais n'a pas de certificat **Authenticode** → SmartScreen avertit à la première installation. L'adresse du serveur se configure **dans l'app** (écran de connexion) ; les builds ne bakent **aucun serveur par défaut** (champ vide au premier lancement).
 
 Le scaffold complet est dans [web/src-tauri/](web/src-tauri/). Tauri lance Vite en dev et embarque le `dist/` en release.
 
@@ -382,7 +382,7 @@ Récap des choix faits pendant le build (et pourquoi), pour qu'on puisse les rem
 
 ### Stack
 - **Tauri 2 plutôt qu'Electron** pour le desktop : bundle ~3 Mo (vs ~150), WebView2 déjà présent sur Windows 10+, Rust backend, supporté en cross-compile depuis Linux. Coût : Rust à installer pour builder.
-- **Expo pour le mobile** : un seul codebase Android + iOS. iOS prêt sans réécriture, juste `expo run:ios` sur macOS.
+- **Expo pour le mobile** : codebase React Native cross-platform, ciblant **Android**. **iOS** passe désormais par la **PWA** (le build natif a été abandonné — pivot PWA, la VM macOS x86_64 ne peut pas faire tourner Xcode 26 arm64-only).
 - **Prisma + Postgres** plutôt que Mongo/SQLite : relations natives (messages × channels × users × attachments), index, robuste pour l'historique.
 
 ### Auth & sécurité
