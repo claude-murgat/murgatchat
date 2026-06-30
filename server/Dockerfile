@@ -11,7 +11,10 @@ COPY prisma ./prisma
 RUN npx prisma generate
 
 COPY src ./src
+COPY scripts ./scripts
 
 EXPOSE 4000
 
-CMD ["sh", "-c", "npx prisma db push --accept-data-loss && node src/index.js"]
+# Migrations versionnées : adopte une base héritée de `db push` (baseline de la
+# migration initiale) puis applique les migrations en attente, avant le serveur.
+CMD ["sh", "-c", "node scripts/db-migrate.js && node src/index.js"]

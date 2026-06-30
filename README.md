@@ -38,7 +38,7 @@ docker compose up --build
 > VITE_API_URL=http://10.0.0.42:4000 docker compose up -d --build web
 > ```
 
-Au démarrage, le serveur exécute `prisma db push` pour synchroniser le schéma (voir [Migrations](#migrations) pour le pourquoi).
+Au démarrage, le serveur applique les **migrations versionnées** (`prisma migrate deploy`, avec baseline auto d'une base héritée de `db push` — voir [Migrations](#migrations)).
 
 ### Premiers pas
 
@@ -249,9 +249,14 @@ Tables (Prisma) :
 - `Attachment` (id, messageId?, uploadedBy, filename, mimeType, size, storagePath, createdAt) — indices `(messageId)` et `(uploadedBy)`
 
 ### Migrations
-**Décision : `prisma db push`** au démarrage, pas de fichiers de migration committés. C'est volontaire pour un MVP — itération rapide sans dossier `prisma/migrations/` à maintenir.
+**Migrations versionnées Prisma** (`server/prisma/migrations/`), appliquées au démarrage par [`server/scripts/db-migrate.js`](server/scripts/db-migrate.js) (lancé par le `Dockerfile` avant le serveur) :
 
-Pour passer en production : générer un dossier de migrations versionné (`prisma migrate dev --name init`, commit), puis remplacer la commande du `Dockerfile` par `prisma migrate deploy`.
+- **Base héritée de l'ancien `db push`** (schéma déjà là, pas d'historique de migrations) → le script la **baseline** automatiquement (marque la migration initiale `0_init` comme déjà appliquée), puis `prisma migrate deploy` n'a rien à recréer — **aucun risque de perte de données**. No-op sur une base fraîche (deploy crée tout) ou déjà sous migrations.
+- **Faire évoluer le schéma** : modifier `prisma/schema.prisma`, générer la migration contre une base jetable, committer le dossier généré ; le prochain déploiement l'applique :
+  ```bash
+  cd server && npx prisma migrate dev --name <description>   # crée prisma/migrations/<ts>_<description>/
+  ```
+- En **dev local / tests**, la base jetable reste synchronisée par `prisma db push` (rapide, éphémère — voir `server/test/globalSetup.js`).
 
 ## Variables d'environnement (server)
 
@@ -448,13 +453,11 @@ Récap des choix faits pendant le build (et pourquoi), pour qu'on puisse les rem
 par thème :
 
 ### Sécurité & production
-- **HTTPS** (reverse proxy Caddy/Traefik) — bloquant pour la publication iOS
-  App Store (`NSAllowsArbitraryLoads` est toléré en dev, refusé en review).
+- **HTTPS** (reverse proxy Caddy/Traefik) — requis en prod pour la **PWA** :
+  service worker + web-push exigent un contexte sécurisé hors `localhost`.
 - **Refresh tokens** côté serveur, à la place du JWT 30j non révoquable.
 - **2FA / MFA** pour les comptes admin/owner.
 - **CORS strict** (`*` aujourd'hui).
-- **Vraies migrations versionnées Prisma** (`prisma migrate` plutôt que
-  `db push` au démarrage) — indispensable dès qu'on a de la vraie donnée.
 - **Audit log** des actions admin (qui a désactivé qui, transferts de
   propriété, promotions / révocations).
 
