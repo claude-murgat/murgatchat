@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-06-29** (0.7.1 : autocomplétions mentions « @ » / emojis « :nom », Entrée tactile, nav clavier recherche, fix écran noir retour PWA ; 0.7.0 : transfert de message, notifs par salon, fix raccourci installeur ; 0.6.6–0.6.7 : drag-drop, afficher/masquer mdp, UX signalement de bug).
+Dernière mise à jour : **2026-06-30** (0.7.2 : mentions interactives, fuite de brouillon corrigée, drag-drop Desktop ; 0.7.1 : autocomplétions mentions « @ » / emojis « :nom », Entrée tactile, nav clavier recherche, fix écran noir retour PWA ; 0.7.0 : transfert de message, notifs par salon, fix raccourci installeur).
 
 ---
 
@@ -720,6 +720,18 @@ Release **0.6.5** publiée (installeur signé + `latest.json` ; pipeline `releas
 Releases **0.6.6 → 0.7.1** publiées (pipeline `release.yml` verte, installeur **signé** +
 `latest.json` à chaque tag) — l'auto-update desktop enchaîne les versions sans réinstall.
 
+## Itération 2026-06-30 — mentions interactives, brouillon, drag-drop Desktop (0.7.2)
+
+67. **Correctifs front + Desktop (0.7.2)** — les **mentions** s'affichent comme **tags
+    interactifs** une fois le message envoyé (issue #143 / PR #146) ; fin de la **fuite de
+    brouillon** de saisie entre conversations — le texte non envoyé reste attaché à sa
+    conversation au lieu de suivre l'utilisateur d'un salon à l'autre (issue #144 / PR #148) ;
+    **drag-drop de fichiers réparé sur le Desktop Tauri** (issue #147 / PR #149). Outillage :
+    test de charge k6 remis à niveau — flux d'invitation (l'inscription invitation-only
+    cassait l'ancien `setup()`) + reset DB + couverture du niveau de notif par salon (PR #150).
+
+Release **0.7.2** publiée (pipeline `release.yml` verte, installeur signé + `latest.json`).
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
@@ -729,4 +741,5 @@ Releases **0.6.6 → 0.7.1** publiées (pipeline `release.yml` verte, installeur
 > #99, Clippy SVG #102), **0.6.7** (« assistant réfléchit » #114, Clippy #98/#113, popup
 > signalement #118), **0.7.0** (transfert message #124, notifs par salon #128, raccourci
 > installeur #131), **0.7.1** (mentions #135 + emojis #138, Entrée tactile #133, nav recherche
-> #94, écran noir PWA #95).
+> #94, écran noir PWA #95), **0.7.2** (mentions interactives #143, fuite de brouillon #144,
+> drag-drop Desktop #147).
