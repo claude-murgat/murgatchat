@@ -655,6 +655,12 @@ export default function ChannelView({
           </div>
         )}
         <Composer
+          // Issue #144 : un brouillon non envoyé ne doit jamais « fuiter » d'une
+          // conversation à l'autre (risque d'envoi au mauvais destinataire). Le
+          // Composer porte son texte dans un état local ; comme ChannelView est
+          // réutilisé d'un salon à l'autre, on force son remontage par salon via
+          // `key` afin de repartir d'un champ vide à chaque changement.
+          key={channel.id}
           ref={composerRef}
           onSend={send}
           onTyping={notifyTyping}

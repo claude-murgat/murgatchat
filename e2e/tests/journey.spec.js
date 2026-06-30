@@ -276,6 +276,21 @@ test("invitation registration + full web journey", async ({ page, browser }) => 
   // On revient sur le salon d'origine pour la suite du parcours.
   await page.getByRole("button", { name: new RegExp(channel) }).click();
 
+  // Issue #144 : le brouillon de saisie ne doit pas « fuiter » d'une conversation
+  // à l'autre. On tape un texte SANS l'envoyer dans le salon courant, puis on
+  // bascule sur « Général » : son champ de saisie doit être vide (et non porter
+  // le brouillon de l'autre conversation), faute de quoi un message privé peut
+  // partir au mauvais destinataire (risque de confidentialité signalé).
+  const draftComposer = page.getByPlaceholder(`Message dans #${channel}`);
+  await draftComposer.click();
+  await draftComposer.fill("brouillon prive a ne pas divulguer");
+  await page.getByRole("button", { name: /Général/ }).click();
+  const generalDraft = page.getByPlaceholder("Message dans #Général");
+  await expect(generalDraft).toBeVisible();
+  await expect(generalDraft).toHaveValue("");
+  // On revient sur le salon d'origine pour la suite du parcours.
+  await page.getByRole("button", { name: new RegExp(channel) }).click();
+
   // Issue #118 : la popup « Signaler un bug » doit expliquer son fonctionnement
   // — un agent IA traite d'abord la demande, puis le support la valide — pour
   // que l'utilisateur ne soit pas laissé sans repère après « Démarrer ».
