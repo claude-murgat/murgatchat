@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-06-30** (0.7.2 : mentions interactives, fuite de brouillon corrigée, drag-drop Desktop ; 0.7.1 : autocomplétions mentions « @ » / emojis « :nom », Entrée tactile, nav clavier recherche, fix écran noir retour PWA ; 0.7.0 : transfert de message, notifs par salon, fix raccourci installeur).
+Dernière mise à jour : **2026-06-30** (0.7.3 : correctif urgent — pagination par curseur des messages ; 0.7.2 : mentions interactives, fuite de brouillon corrigée, drag-drop Desktop ; 0.7.1 : autocomplétions mentions « @ » / emojis « :nom », Entrée tactile, nav clavier recherche, fix écran noir retour PWA).
 
 ---
 
@@ -732,6 +732,23 @@ Releases **0.6.6 → 0.7.1** publiées (pipeline `release.yml` verte, installeur
 
 Release **0.7.2** publiée (pipeline `release.yml` verte, installeur signé + `latest.json`).
 
+## Itération 2026-06-30 (bis) — correctif urgent pagination des messages (0.7.3)
+
+68. **Pagination par curseur des messages (0.7.3, release d'urgence)** — `GET
+    /channels/:id/messages` faisait `orderBy createdAt asc` + `take 200` : il
+    renvoyait les **200 messages les plus ANCIENS**, si bien que dans un salon de
+    >200 messages **les plus récents n'étaient jamais servis** (timeline figée sur
+    les 200 premiers). Corrigé en **pagination par curseur** : 200 **plus récents**
+    par défaut, `?before=<messageId>` pour les antérieurs ; réponse `{ messages
+    (ancien→récent), hasMore, nextCursor }` (curseur Prisma stable via tie-break
+    `id`). Web : bouton « Charger les messages plus anciens », position de lecture
+    préservée au préfixe (`useLayoutEffect` + `scrollModeRef`), et un nouveau
+    message ne colle au bas que si on y est déjà. Test backend (250 messages →
+    page de 200 + curseur → 50 antérieurs). Bug handicapant à long terme →
+    **release d'urgence** (PR #152).
+
+Release **0.7.3** publiée (pipeline `release.yml` verte, installeur signé + `latest.json`).
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
@@ -742,4 +759,5 @@ Release **0.7.2** publiée (pipeline `release.yml` verte, installeur signé + `l
 > signalement #118), **0.7.0** (transfert message #124, notifs par salon #128, raccourci
 > installeur #131), **0.7.1** (mentions #135 + emojis #138, Entrée tactile #133, nav recherche
 > #94, écran noir PWA #95), **0.7.2** (mentions interactives #143, fuite de brouillon #144,
-> drag-drop Desktop #147).
+> drag-drop Desktop #147), **0.7.3** (correctif urgent : pagination des messages — 200 derniers
+> + « charger plus anciens », fin de la timeline figée au-delà de 200 messages).
