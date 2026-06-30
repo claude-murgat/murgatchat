@@ -12,7 +12,9 @@ import { Counter, Rate } from "k6/metrics";
 //
 // Profile (per scenario, same timeline): ramp 1m -> hold 8m30s -> ramp-down 30s.
 //
-// Target the ISOLATED stack so the dev DB is never touched:
+// Target the ISOLATED e2e stack so the dev DB is never touched. setup() wipes it
+// via POST /test/reset (gated by E2E_TEST_MODE) and creates users through the
+// invitation flow — registration is invitation-only, only the bootstrap admin is exempt:
 //   docker compose -f docker-compose.e2e.yml up -d --build      # api on :4001
 //   k6 run load/k6/chat-load.js
 // Override with -e BASE_URL=..., -e CHATTERS=.., -e READERS=.., or -e SMOKE=1.
@@ -80,18 +82,46 @@ const jsonHeaders = (token) => ({
   },
 });
 
-function register(seed) {
-  const tag = `ld_${seed}_${Date.now().toString(36)}${randInt(0, 9999)}`.slice(0, 30);
+const makeTag = (seed) =>
+  `ld_${seed}_${Date.now().toString(36)}${randInt(0, 9999)}`.slice(0, 30);
+
+// e2e stack only (gated by E2E_TEST_MODE): wipe the DB so the admin below can
+// bootstrap on a clean slate even if a previous run / the e2e suite left data.
+// A 404 (stack without the endpoint) is tolerated — we then rely on a fresh stack.
+function resetDb() {
+  const res = http.post(`${BASE}/test/reset`, null, jsonHeaders());
+  if (res.status !== 200 && res.status !== 404) {
+    throw new Error(`/test/reset failed (${res.status}): ${res.body}`);
+  }
+}
+
+// Admin-only: mint an invitation for `email` and return its token. Registration
+// is invitation-only (only the first/bootstrap account is exempt), so every
+// non-admin load user needs one.
+function invite(adminToken, email) {
   const res = http.post(
-    `${BASE}/auth/register`,
-    JSON.stringify({
-      email: `${tag}@load.local`,
-      username: tag,
-      displayName: tag,
-      password: "test1234",
-    }),
-    jsonHeaders()
+    `${BASE}/auth/invitations`,
+    JSON.stringify({ email }),
+    jsonHeaders(adminToken)
   );
+  const body = res.json();
+  if (res.status !== 200 || !body.token) {
+    throw new Error(`invite failed (${res.status}): ${res.body}`);
+  }
+  return body.token;
+}
+
+// Register `tag`. Pass the invitation token for every account except the very
+// first one (bootstrap admin on an empty DB, exempt).
+function register(tag, inviteToken) {
+  const payload = {
+    email: `${tag}@load.local`,
+    username: tag,
+    displayName: tag,
+    password: "test1234",
+  };
+  if (inviteToken) payload.token = inviteToken;
+  const res = http.post(`${BASE}/auth/register`, JSON.stringify(payload), jsonHeaders());
   const body = res.json();
   if (res.status !== 200 || !body.token) {
     throw new Error(`register failed (${res.status}): ${res.body}`);
@@ -102,7 +132,8 @@ function register(seed) {
 // Seed users + channels once, before the ramp. Returns the user pool for the VUs.
 export function setup() {
   const total = CHATTERS + READERS;
-  const admin = register("admin");
+  resetDb();
+  const admin = register(makeTag("admin"));
 
   const channels = [];
   for (let i = 0; i < NUM_CHANNELS; i++) {
@@ -117,7 +148,8 @@ export function setup() {
   const users = [];
   const membersByChannel = {};
   for (let i = 0; i < total; i++) {
-    const u = register(`u${i}`);
+    const tag = makeTag(`u${i}`);
+    const u = register(tag, invite(admin.token, `${tag}@load.local`));
     const mine = [];
     for (let k = 0; k < CHANNELS_PER_USER; k++) {
       const cid = channels[(i + k) % channels.length];
@@ -245,6 +277,16 @@ export function reader(data) {
   http.get(`${BASE}/channels/public`, h);
   if (Math.random() < 0.1) {
     http.post(`${BASE}/auth/dnd`, JSON.stringify({ minutes: pick([0, 30]) }), h);
+  }
+
+  // Niveaux de notification par salon (#130) : un membre ajuste son niveau.
+  if (channels.length && Math.random() < 0.1) {
+    const c = pick(channels);
+    http.patch(
+      `${BASE}/channels/${c.id}/notifications`,
+      JSON.stringify({ level: pick(["all", "mentions", "none"]) }),
+      h
+    );
   }
 
   sleep(randInt(1, 4));
