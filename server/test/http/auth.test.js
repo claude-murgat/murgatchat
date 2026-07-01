@@ -107,6 +107,23 @@ describe("POST /auth/register (invitation-based)", () => {
     }
   });
 
+  it("returns an intelligible French field message for a username with a space", async () => {
+    const res = await request(app).post("/auth/register").send({
+      email: "spacey@test.local",
+      username: "claude murgat", // space → fails the handle regex
+      displayName: "Claude",
+      password: "test1234",
+    });
+    expect(res.status).toBe(400);
+    // Zod flatten() shape: the client reads the field message straight from here,
+    // so it must be a real sentence — not the raw "Invalid" (which would surface
+    // as an unhelpful message) nor an object (which rendered as "[object Object]").
+    const msg = res.body.error?.fieldErrors?.username?.[0];
+    expect(typeof msg).toBe("string");
+    expect(msg).toMatch(/nom d'utilisateur/i);
+    expect(msg).not.toBe("Invalid");
+  });
+
   it("rejects a duplicate username via an invitation (409)", async () => {
     const admin = await registerUser(app, { username: "taken" });
     const inv = await authed(app, admin.token)

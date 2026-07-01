@@ -15,22 +15,39 @@ const palette = [
   "#ECB22E", "#36C5F0", "#8E44AD", "#16A085",
 ];
 
+// User-facing messages are in French and specific: on a validation failure the
+// client extracts them from the flatten() payload and shows them as-is, so a
+// vague "Invalid" would just confuse the user (e.g. a space in the username).
 const registerSchema = z.object({
   // Lowercased too: emails are de-facto case-insensitive; storing them normalized
   // lets the @unique constraint dedupe case-variants and login match exactly.
-  email: z.string().trim().email().transform((s) => s.toLowerCase()),
+  email: z
+    .string()
+    .trim()
+    .email({ message: "Adresse e-mail invalide." })
+    .transform((s) => s.toLowerCase()),
   // Lowercased so the handle is case-insensitive everywhere: the @unique
   // constraint then enforces case-insensitive uniqueness, and login can match
   // on an exact (lowercased) value — no ILIKE/wildcard surprises.
   username: z
     .string()
     .trim()
-    .min(2)
-    .max(30)
-    .regex(/^[a-zA-Z0-9_.-]+$/)
+    .min(2, { message: "Le nom d'utilisateur doit faire au moins 2 caractères." })
+    .max(30, { message: "Le nom d'utilisateur ne peut pas dépasser 30 caractères." })
+    .regex(/^[a-zA-Z0-9_.-]+$/, {
+      message:
+        "Le nom d'utilisateur ne peut contenir que des lettres, chiffres, points, tirets et underscores — sans espace ni accent.",
+    })
     .transform((s) => s.toLowerCase()),
-  displayName: z.string().trim().min(1).max(60),
-  password: z.string().min(6).max(200),
+  displayName: z
+    .string()
+    .trim()
+    .min(1, { message: "Le nom affiché est requis." })
+    .max(60, { message: "Le nom affiché ne peut pas dépasser 60 caractères." }),
+  password: z
+    .string()
+    .min(6, { message: "Le mot de passe doit faire au moins 6 caractères." })
+    .max(200, { message: "Le mot de passe est trop long (200 caractères maximum)." }),
   token: z.string().optional(), // invitation token
 });
 

@@ -57,6 +57,25 @@ export function setToken(t) {
   else localStorage.removeItem("chat_token");
 }
 
+// Turn a server error payload into a human-readable string. Most endpoints
+// return { error: "some_code" }, but Zod validation failures return a
+// flatten() object ({ formErrors, fieldErrors }) — an object that, if handed
+// straight to `new Error()`, stringifies to the useless "[object Object]".
+// Pull the first real message out of either shape (fields first, then form),
+// falling back to the HTTP status text.
+export function errorMessage(error, fallback) {
+  if (typeof error === "string" && error) return error;
+  if (error && typeof error === "object") {
+    const fieldMsg = Object.values(error.fieldErrors || {})
+      .flat()
+      .find((m) => typeof m === "string" && m);
+    if (fieldMsg) return fieldMsg;
+    const formMsg = (error.formErrors || []).find((m) => typeof m === "string" && m);
+    if (formMsg) return formMsg;
+  }
+  return fallback;
+}
+
 async function request(path, { method = "GET", body, auth = true } = {}) {
   const headers = { "Content-Type": "application/json" };
   if (auth) {
@@ -79,8 +98,9 @@ async function request(path, { method = "GET", body, auth = true } = {}) {
   const text = await res.text();
   const data = text ? JSON.parse(text) : {};
   if (!res.ok) {
-    logEvent("warn", `API ${res.status} ${method} ${path}${data.error ? ` (${data.error})` : ""}`);
-    throw Object.assign(new Error(data.error || res.statusText), { data });
+    const message = errorMessage(data.error, res.statusText);
+    logEvent("warn", `API ${res.status} ${method} ${path}${message ? ` (${message})` : ""}`);
+    throw Object.assign(new Error(message), { data });
   }
   return data;
 }
@@ -95,7 +115,7 @@ export async function uploadFile(file) {
     body: fd,
   });
   const data = await res.json();
-  if (!res.ok) throw Object.assign(new Error(data.error || res.statusText), { data });
+  if (!res.ok) throw Object.assign(new Error(errorMessage(data.error, res.statusText)), { data });
   return data.attachment;
 }
 
