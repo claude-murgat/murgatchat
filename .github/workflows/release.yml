@@ -23,7 +23,7 @@ jobs:
       version: ${{ steps.ver.outputs.version }}
       id: ${{ steps.create.outputs.id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - id: ver
         shell: bash
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
@@ -42,7 +42,7 @@ jobs:
           chk "Cargo.toml" "$(grep -m1 '^version *= *"' web/src-tauri/Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')"
           [ "$fail" = 0 ] || { echo "Bump the 3 web/desktop version files to $V before tagging."; exit 1; }
       - id: create
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
@@ -54,14 +54,16 @@ jobs:
     needs: [test, release]
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: stable
+      - uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: web/src-tauri
       - run: npm ci
@@ -70,7 +72,7 @@ jobs:
       # with NO baked server (web/src/api.js prod default is ""). tauri-action
       # runs beforeBuildCommand (npm run build), bundles the NSIS installer, and
       # uploads Chat_<version>_x64-setup.exe to the draft release.
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Updater signing: with createUpdaterArtifacts=true, Tauri signs the
@@ -89,7 +91,7 @@ jobs:
     needs: [desktop]
     runs-on: ubuntu-latest
     steps:
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ github.ref_name }}
           draft: false
