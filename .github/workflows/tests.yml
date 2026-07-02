@@ -74,7 +74,7 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose -f docker-compose.e2e.yml down -v
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
           name: playwright-report
@@ -122,7 +122,7 @@ jobs:
           --config=p/expressjs --config=p/secrets --config=p/owasp-top-ten
       - name: Upload SARIF report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: semgrep-sarif
           path: semgrep.sarif
@@ -163,7 +163,7 @@ jobs:
             -r zap-out/report.html -w zap-out/report.md -J zap-out/report.json
       - name: Upload ZAP report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: zap-baseline-report
           path: zap-out
