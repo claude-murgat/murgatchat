@@ -48,7 +48,7 @@ export async function decryptFile(srcPath) {
   const iv = buf.subarray(1, HEADER_BYTES);
   const ct = buf.subarray(HEADER_BYTES, buf.length - TAG_BYTES);
   const tag = buf.subarray(buf.length - TAG_BYTES);
-  const decipher = crypto.createDecipheriv("aes-256-gcm", KEY, iv);
+  const decipher = crypto.createDecipheriv("aes-256-gcm", KEY, iv, { authTagLength: TAG_BYTES });
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(ct), decipher.final()]);
 }

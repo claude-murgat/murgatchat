@@ -1,9 +1,9 @@
-# OWASP ZAP baseline alert tuning — tab-separated: <pluginId><TAB><IGNORE|WARN|FAIL>
+# OWASP ZAP baseline alert tuning.
+# Format required by zap-baseline.py: <pluginId><TAB><IGNORE|WARN|FAIL><TAB><name>
 # IGNORE = scanner/bundle noise, not an application vulnerability. Everything
-# else stays at its default threshold and FAILS the build (see tests.yml).
-# Review this list when the app or ZAP rules change.
-10096	IGNORE
-10094	IGNORE
-10027	IGNORE
-90003	IGNORE
-10109	IGNORE
+# else keeps its default threshold and FAILS the build (see tests.yml).
+10096	IGNORE	Timestamp Disclosure
+10094	IGNORE	Base64 Disclosure
+10027	IGNORE	Information Disclosure - Suspicious Comments
+90003	IGNORE	Sub Resource Integrity Attribute Missing
+10109	IGNORE	Modern Web Application

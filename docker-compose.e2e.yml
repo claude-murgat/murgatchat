@@ -49,4 +49,4 @@ services:
     depends_on:
       - server-e2e
     ports:
-      - "5174:80"
+      - "5174:8080"
