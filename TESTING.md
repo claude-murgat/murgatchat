@@ -2,11 +2,12 @@
 
 Objectif : vérifier que toutes les fonctionnalités définies (voir [PROGRESS.md](PROGRESS.md))
 fonctionnent et ne régressent pas d'une version à l'autre. La couverture est
-organisée en trois couches, par ordre de valeur :
+organisée en quatre couches de test, par ordre de valeur (plus des garde-fous
+**qualité / sécurité** en CI — lint, SAST, DAST — décrits en [fin de page](#ci-github-actions)) :
 
 | Couche | Outil | Ce qu'elle protège | Vérifiée |
 | --- | --- | --- | --- |
-| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 106 tests |
+| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 210 tests |
 | **E2E Web** (priorité 2) | Playwright | Câblage de l'UI web (auth, envoi, édition, suppression, threads, persistance) | ✅ parcours vert |
 | **Mobile** (priorité 3) | `expo export` + smoke APK | Le bundle RN se compile ; l'app se lance | Documentée |
 | **Charge** (k6) | k6 (HTTP + Socket.IO) | Tenue à 150 utilisateurs simultanés (REST + temps réel) | ✅ script validé (smoke) |
@@ -167,9 +168,31 @@ k6 run -e SMOKE=1 load/k6/chat-load.js
 
 ## CI (GitHub Actions)
 
-[.github/workflows/tests.yml](.github/workflows/tests.yml) lance sur chaque PR et push `main` :
+[.github/workflows/tests.yml](.github/workflows/tests.yml) tourne sur **chaque pull request**
+(et est appelé par `release.yml` via `workflow_call`, comme gate avant publication ; il n'y a
+**pas** de trigger `push` sur `main` — la PR a déjà tout validé). **Cinq jobs, tous bloquants** :
+
 - **backend** — service Postgres + `npm ci` + `prisma generate` + `npm test`
   (passe `TEST_DATABASE_URL`, donc pas de Docker-in-Docker).
 - **e2e** — monte `docker-compose.e2e.yml`, installe Playwright + Chromium,
   attend la santé du stack, lance le parcours, puis démonte (artefact = rapport
   Playwright en cas d'échec).
+- **lint** — ESLint 9 (flat config) sur `web/` et `server/` (`npm run lint` dans chaque
+  package). Échoue sur toute **erreur** ; `react-hooks/exhaustive-deps` reste en warning
+  advisory. ⚠ En local, lancer `npx prisma generate` après un changement de schéma avant
+  `npm test` (le `globalSetup` fait `db push --skip-generate`).
+- **sast** — [Semgrep](https://semgrep.dev) (rulesets `javascript`, `react`, `nodejs`,
+  `expressjs`, `secrets`, `owasp-top-ten`). SARIF publié en artefact ; **échoue sur les
+  findings de sévérité ERROR**.
+- **dast** — [OWASP ZAP](https://www.zaproxy.org) baseline (passif) contre le même stack e2e,
+  lancé après montée du `docker-compose.e2e.yml`. Alertes triées/acceptées dans
+  [.zap/rules.tsv](.zap/rules.tsv) (format `id⇥action⇥nom`) ; **échoue sur toute alerte
+  WARN/FAIL non triée** ; rapport HTML/MD/JSON en artefact.
+
+Les actions GitHub sont **épinglées au SHA de commit** et maintenues à jour par Dependabot
+([.github/dependabot.yml](.github/dependabot.yml) — hebdo, cooldown de 7 j).
+
+> **Durcissement associé** (côté image, pas côté test — validé indirectement par e2e/dast) :
+> conteneurs **non-root** (serveur = user `node`, web = `nginx-unprivileged` sur `:8080`) +
+> en-têtes de sécurité (Helmet côté API, en-têtes nginx côté web). Voir le
+> [README](README.md#auth--sécurité) et la note de déploiement (chown des volumes).
