@@ -40,6 +40,20 @@ docker compose up --build
 
 Au démarrage, le serveur applique les **migrations versionnées** (`prisma migrate deploy`, avec baseline auto d'une base héritée de `db push` — voir [Migrations](#migrations)).
 
+> **⚠️ Mise à jour depuis une version antérieure à ce durcissement** — les conteneurs
+> tournent désormais en **non-root** (serveur : user `node` ; web : nginx unprivileged).
+> Les volumes prod **existants** (`uploads-data`, `server-meta`) ayant été créés en root,
+> chownez-les **une seule fois** avant de déployer, sinon l'écriture des uploads et des
+> clés VAPID sera refusée :
+>
+> ```bash
+> docker compose run --rm --user root server chown -R node:node /data
+> docker compose up -d --build
+> ```
+>
+> Les nouveaux déploiements (volumes vierges) n'ont rien à faire : la propriété est
+> déjà correcte dans l'image.
+
 ### Premiers pas
 
 1. Crée deux comptes depuis l'écran d'inscription (un dans une fenêtre privée pour tester en parallèle).
