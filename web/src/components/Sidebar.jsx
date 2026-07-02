@@ -1,8 +1,60 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Avatar from "./Avatar.jsx";
 import QuickSwitcher from "./QuickSwitcher.jsx";
 import { isTauri } from "../desktop.js";
 import { pwaSupported, requestNotificationPermission, isPwaInstalled } from "../pwa.js";
+
+// Appui long (mobile/PWA) + clic droit (desktop) sur une conversation pour
+// ouvrir un menu contextuel. Renvoie les gestionnaires à étaler sur l'élément
+// ainsi qu'un `onClickCapture` qui neutralise le clic parasite déclenché après
+// un appui long (sinon la conversation s'ouvrirait au relâchement du doigt).
+function useLongPress(onLongPress) {
+  const timer = useRef(null);
+  const fired = useRef(false);
+  const clear = () => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+  };
+  useEffect(() => clear, []);
+  return {
+    handlers: {
+      onTouchStart: (e) => {
+        fired.current = false;
+        const point = e.touches?.[0] || e;
+        const x = point.clientX;
+        const y = point.clientY;
+        clear();
+        timer.current = setTimeout(() => {
+          fired.current = true;
+          onLongPress({ x, y });
+        }, 500);
+      },
+      onTouchEnd: (e) => {
+        // Après un appui long, on supprime le clic synthétique du navigateur :
+        // sinon il retomberait sur le backdrop du menu et le refermerait aussitôt
+        // (et rouvrirait la conversation). onClickCapture reste un garde-fou desktop.
+        if (fired.current) e.preventDefault();
+        clear();
+      },
+      onTouchMove: clear,
+      onContextMenu: (e) => {
+        // Clic droit desktop (et menu natif de certains appuis longs).
+        e.preventDefault();
+        fired.current = true;
+        onLongPress({ x: e.clientX, y: e.clientY });
+      },
+    },
+    onClickCapture: (e) => {
+      if (fired.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        fired.current = false;
+      }
+    },
+  };
+}
 
 function dndLabel(user) {
   if (!user?.dndUntil) return null;
@@ -19,6 +71,8 @@ export default function Sidebar({
   channels,
   activeChannelId,
   onSelectChannel,
+  onMarkUnread,
+  onMarkRead,
   onNewChannel,
   onNewDm,
   onChannelJoined,
@@ -34,6 +88,9 @@ export default function Sidebar({
   typingByChannel,
 }) {
   const [showMenu, setShowMenu] = useState(false);
+  // Menu contextuel d'une conversation (appui long / clic droit) :
+  // { channelId, unread, x, y } ou null.
+  const [convMenu, setConvMenu] = useState(null);
   // Unified search ("quick switcher"): while non-empty, replaces the channel/DM
   // lists with grouped results (your convos + public salons + people + create).
   const [query, setQuery] = useState("");
@@ -283,6 +340,9 @@ export default function Sidebar({
               key={c.id}
               active={c.id === activeChannelId}
               onClick={() => onSelectChannel(c)}
+              onLongPress={(pos) =>
+                setConvMenu({ channelId: c.id, unread: c.unread, ...pos })
+              }
               prefix={c.isPrivate ? "🔒" : "#"}
               label={c.name || "salon"}
               unread={c.unread}
@@ -294,63 +354,20 @@ export default function Sidebar({
         </SidebarSection>
 
         <SidebarSection title="Messages directs">
-          {dms.map((c) => {
-            const other = c.members.find((m) => m.id !== user.id) || c.members[0];
-            const isGroup = c.members.length > 2;
-            // Self-DM (notes pour soi): a single membership, that's the viewer.
-            const isSelf = c.members.length === 1 && c.members[0]?.id === user.id;
-            const isTyping = (typingByChannel?.[c.id]?.length || 0) > 0;
-            return (
-              <button
-                key={c.id}
-                onClick={() => onSelectChannel(c)}
-                className={`w-full flex items-center gap-2 px-3 py-2.5 md:py-1.5 rounded text-left text-[15px] md:text-sm ${
-                  c.id === activeChannelId
-                    ? "bg-slackblue text-white"
-                    : c.unread
-                    ? "text-white font-semibold hover:bg-aubergine-600"
-                    : "text-aubergine-400 hover:bg-aubergine-600 hover:text-white"
-                }`}
-              >
-                {isTyping ? (
-                  <span
-                    className="w-5 h-5 shrink-0 rounded grid place-items-center bg-aubergine-500 text-white text-[11px] font-bold animate-pulse"
-                    title="En train d'écrire…"
-                  >
-                    …
-                  </span>
-                ) : isSelf ? (
-                  <span
-                    className="w-5 h-5 shrink-0 rounded grid place-items-center bg-aubergine-500 text-white text-[12px]"
-                    title="Notes pour vous-même"
-                  >
-                    📝
-                  </span>
-                ) : isGroup ? (
-                  <span
-                    className="w-5 h-5 shrink-0 rounded grid place-items-center bg-aubergine-500 text-white text-[11px] font-semibold"
-                    title={`Groupe · ${c.members.length} personnes`}
-                  >
-                    {c.members.length}
-                  </span>
-                ) : (
-                  <Avatar user={other} size={20} />
-                )}
-                {!isGroup && !isSelf && (
-                  <span
-                    className={`w-2 h-2 rounded-full shrink-0 ${
-                      onlineUserIds?.has(other?.id) ? "bg-green-400" : "bg-slate-500"
-                    }`}
-                    title={onlineUserIds?.has(other?.id) ? "En ligne" : "Hors ligne"}
-                  />
-                )}
-                <span className="truncate flex-1">{c.displayName || "DM"}</span>
-                {c.unread && c.id !== activeChannelId && (
-                  <span className="w-2 h-2 rounded-full bg-white shrink-0" />
-                )}
-              </button>
-            );
-          })}
+          {dms.map((c) => (
+            <DmItem
+              key={c.id}
+              c={c}
+              user={user}
+              active={c.id === activeChannelId}
+              isTyping={(typingByChannel?.[c.id]?.length || 0) > 0}
+              onlineUserIds={onlineUserIds}
+              onClick={() => onSelectChannel(c)}
+              onLongPress={(pos) =>
+                setConvMenu({ channelId: c.id, unread: c.unread, ...pos })
+              }
+            />
+          ))}
           {dms.length === 0 && (
             <div className="text-xs text-aubergine-400 px-2 py-1">Aucun DM</div>
           )}
@@ -358,6 +375,53 @@ export default function Sidebar({
           </>
         )}
       </div>
+
+      {/* Menu contextuel d'une conversation (appui long / clic droit). Backdrop
+          invisible pour fermer au clic extérieur, comme le menu utilisateur. */}
+      {convMenu && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setConvMenu(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setConvMenu(null);
+            }}
+            aria-hidden="true"
+          />
+          <div
+            className="fixed bg-white text-slate-800 rounded-md shadow-lg overflow-hidden z-50 w-56"
+            style={{
+              left: Math.min(convMenu.x, window.innerWidth - 230),
+              top: Math.min(convMenu.y, window.innerHeight - 60),
+            }}
+          >
+            {convMenu.unread ? (
+              <button
+                onClick={() => {
+                  const id = convMenu.channelId;
+                  setConvMenu(null);
+                  onMarkRead?.(id);
+                }}
+                className="block w-full text-left px-3 py-2.5 text-sm hover:bg-slate-100"
+              >
+                Marquer comme lu
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  const id = convMenu.channelId;
+                  setConvMenu(null);
+                  onMarkUnread?.(id);
+                }}
+                className="block w-full text-left px-3 py-2.5 text-sm hover:bg-slate-100"
+              >
+                Marquer comme non lu
+              </button>
+            )}
+          </div>
+        </>
+      )}
     </aside>
   );
 }
@@ -373,10 +437,13 @@ function SidebarSection({ title, children }) {
   );
 }
 
-function SidebarItem({ active, onClick, prefix, label, unread }) {
+function SidebarItem({ active, onClick, onLongPress, prefix, label, unread }) {
+  const { handlers, onClickCapture } = useLongPress(onLongPress || (() => {}));
   return (
     <button
       onClick={onClick}
+      onClickCapture={onClickCapture}
+      {...handlers}
       className={`w-full text-left px-3 py-2.5 md:py-1.5 rounded flex items-center gap-2 text-[15px] md:text-sm ${
         active
           ? "bg-slackblue text-white"
@@ -388,6 +455,65 @@ function SidebarItem({ active, onClick, prefix, label, unread }) {
       <span className="opacity-80">{prefix}</span>
       <span className="truncate flex-1">{label}</span>
       {unread && !active && (
+        <span className="w-2 h-2 rounded-full bg-white shrink-0" />
+      )}
+    </button>
+  );
+}
+
+function DmItem({ c, user, active, isTyping, onlineUserIds, onClick, onLongPress }) {
+  const { handlers, onClickCapture } = useLongPress(onLongPress || (() => {}));
+  const other = c.members.find((m) => m.id !== user.id) || c.members[0];
+  const isGroup = c.members.length > 2;
+  // Self-DM (notes pour soi): a single membership, that's the viewer.
+  const isSelf = c.members.length === 1 && c.members[0]?.id === user.id;
+  return (
+    <button
+      onClick={onClick}
+      onClickCapture={onClickCapture}
+      {...handlers}
+      className={`w-full flex items-center gap-2 px-3 py-2.5 md:py-1.5 rounded text-left text-[15px] md:text-sm ${
+        active
+          ? "bg-slackblue text-white"
+          : c.unread
+          ? "text-white font-semibold hover:bg-aubergine-600"
+          : "text-aubergine-400 hover:bg-aubergine-600 hover:text-white"
+      }`}
+    >
+      {isTyping ? (
+        <span
+          className="w-5 h-5 shrink-0 rounded grid place-items-center bg-aubergine-500 text-white text-[11px] font-bold animate-pulse"
+          title="En train d'écrire…"
+        >
+          …
+        </span>
+      ) : isSelf ? (
+        <span
+          className="w-5 h-5 shrink-0 rounded grid place-items-center bg-aubergine-500 text-white text-[12px]"
+          title="Notes pour vous-même"
+        >
+          📝
+        </span>
+      ) : isGroup ? (
+        <span
+          className="w-5 h-5 shrink-0 rounded grid place-items-center bg-aubergine-500 text-white text-[11px] font-semibold"
+          title={`Groupe · ${c.members.length} personnes`}
+        >
+          {c.members.length}
+        </span>
+      ) : (
+        <Avatar user={other} size={20} />
+      )}
+      {!isGroup && !isSelf && (
+        <span
+          className={`w-2 h-2 rounded-full shrink-0 ${
+            onlineUserIds?.has(other?.id) ? "bg-green-400" : "bg-slate-500"
+          }`}
+          title={onlineUserIds?.has(other?.id) ? "En ligne" : "Hors ligne"}
+        />
+      )}
+      <span className="truncate flex-1">{c.displayName || "DM"}</span>
+      {c.unread && !active && (
         <span className="w-2 h-2 rounded-full bg-white shrink-0" />
       )}
     </button>
