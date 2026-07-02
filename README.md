@@ -408,6 +408,14 @@ Récap des choix faits pendant le build (et pourquoi), pour qu'on puisse les rem
 - **JWT 30j sans refresh token** pour la simplicité MVP. À ajouter dès qu'on veut une vraie politique d'expiration.
 - **CORS `*`** : OK en dev, à restreindre en prod.
 - **Pas de HTTPS direct** sur le backend : à reverse-proxier (Caddy/nginx) en prod.
+- **Conteneurs non-root** : serveur en user `node`, web sur base `nginx-unprivileged`
+  (`:8080` en interne, ports hôte inchangés). ⚠ Volumes prod existants à chowner une fois —
+  voir la note dans « [Démarrage avec Docker](#démarrage-avec-docker) ».
+- **En-têtes de sécurité** : Helmet côté API + nginx côté web (CSP, X-Content-Type-Options,
+  X-Frame-Options, Referrer-Policy, Permissions-Policy, `server_tokens off`).
+- **CI de sécurité bloquante** : ESLint (lint), Semgrep (SAST) et OWASP ZAP baseline (DAST)
+  sur chaque PR ; actions GitHub épinglées au SHA + suivies par Dependabot. Détails dans
+  [TESTING.md](TESTING.md#ci-github-actions).
 
 ### Chiffrement
 - **At-rest, pas E2E.** Choix fait pour garder fonctionnels :
