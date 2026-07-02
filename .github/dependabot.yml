@@ -1,0 +1,11 @@
+# Keep the SHA-pinned GitHub Actions fresh: Dependabot opens a weekly PR bumping
+# each `uses: …@<sha> # vX` to the latest release (SHA + comment). Without this,
+# pinning to a commit would silently freeze actions and miss their security fixes.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"

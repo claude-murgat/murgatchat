@@ -18,14 +18,14 @@ jobs:
   desktop:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+      - uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: web/src-tauri
       - run: npm ci
@@ -33,7 +33,7 @@ jobs:
       # VITE_API_URL is deliberately NOT set -> the installer ships with NO baked
       # server (web/src/api.js prod default is ""), exactly like the release build.
       # Without tagName/releaseId, tauri-action only builds (no upload to a release).
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           # createUpdaterArtifacts=true → the build signs the installer, so the
           # signing key must be present even for this test build.
@@ -42,7 +42,7 @@ jobs:
         with:
           projectPath: web
           args: --bundles nsis
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: desktop-installer
           path: web/src-tauri/target/release/bundle/nsis/*-setup.exe

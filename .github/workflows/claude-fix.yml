@@ -67,7 +67,7 @@ jobs:
       # les conteneurs. Par défaut actions/checkout fige le SHA de l'événement
       # (« labeled »), qui peut être en retard si main a avancé entre-temps. On force
       # donc la POINTE de main pour bâtir le chat (et brancher le fix) sur le code à jour.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: main
 
@@ -97,7 +97,7 @@ jobs:
       - name: Démarrer le chat en local
         run: docker compose up -d --build
 
-      - uses: anthropics/claude-code-action@v1
+      - uses: anthropics/claude-code-action@6c0083bb7289c31716797a039b6367b3079cc46e # v1
         id: claude
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
