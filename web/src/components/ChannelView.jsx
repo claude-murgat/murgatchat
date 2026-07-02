@@ -167,6 +167,11 @@ export default function ChannelView({
   const scrollModeRef = useRef({ type: "bottom" });
   const messageRefs = useRef({});
   const typingTimers = useRef({});
+  // Brouillons en cours par conversation (texte + pièces jointes déjà uploadées) :
+  // ChannelView n'est PAS remonté au changement de salon, donc ce ref survit et
+  // permet de restaurer le bon brouillon au retour (#165). Le Composer, lui, est
+  // remonté par `key` de salon et lit/écrit uniquement l'entrée du salon courant.
+  const draftsRef = useRef({});
   const lastTypingSent = useRef(0);
   // Glisser-déposer de fichiers sur la zone de chat. Le compteur gère les
   // événements dragenter/dragleave qui se déclenchent aussi sur les enfants :
@@ -729,13 +734,17 @@ export default function ChannelView({
           </div>
         )}
         <Composer
-          // Issue #144 : un brouillon non envoyé ne doit jamais « fuiter » d'une
-          // conversation à l'autre (risque d'envoi au mauvais destinataire). Le
-          // Composer porte son texte dans un état local ; comme ChannelView est
-          // réutilisé d'un salon à l'autre, on force son remontage par salon via
-          // `key` afin de repartir d'un champ vide à chaque changement.
+          // Un brouillon est propre à SA conversation : le remontage par salon
+          // (`key`) garantit qu'il ne « fuit » jamais vers une autre conversation
+          // (risque d'envoi au mauvais destinataire — #144), tandis que
+          // `initialDraft`/`onDraftChange` le conservent et le restaurent au
+          // retour sur le salon (#165). Le store vit dans `draftsRef` (ci-dessus).
           key={channel.id}
           ref={composerRef}
+          initialDraft={draftsRef.current[channel.id]}
+          onDraftChange={(draft) => {
+            draftsRef.current[channel.id] = draft;
+          }}
           onSend={send}
           onTyping={notifyTyping}
           members={channel.members}

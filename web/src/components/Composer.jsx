@@ -59,10 +59,21 @@ function isTouchDevice() {
 }
 
 function Composer(
-  { onSend, placeholder, allowSchedule = true, onTyping, members = [], currentUser },
+  {
+    onSend,
+    placeholder,
+    allowSchedule = true,
+    onTyping,
+    members = [],
+    currentUser,
+    // Brouillon restauré pour CETTE conversation (texte + pièces jointes déjà
+    // uploadées) + rappel pour le remonter au parent — voir #165.
+    initialDraft,
+    onDraftChange,
+  },
   ref
 ) {
-  const [text, setText] = useState("");
+  const [text, setText] = useState(() => initialDraft?.text ?? "");
   // Autocomplétion de mention « @pseudo » (#135) : `mention` porte le jeton en
   // cours { start, query } ou null ; `mentionIndex` est l'entrée surlignée.
   const [mention, setMention] = useState(null);
@@ -70,7 +81,7 @@ function Composer(
   const [showSchedule, setShowSchedule] = useState(false);
   const defaultSched = new Date(Date.now() + 60 * 60_000);
   const [scheduledAt, setScheduledAt] = useState(formatLocalIso(defaultSched));
-  const [attachments, setAttachments] = useState([]);
+  const [attachments, setAttachments] = useState(() => initialDraft?.attachments ?? []);
   const [uploading, setUploading] = useState(false);
   const taRef = useRef(null);
   const fileRef = useRef(null);
@@ -95,6 +106,16 @@ function Composer(
     ta.style.height = "auto";
     ta.style.height = Math.min(ta.scrollHeight, 160) + "px";
   }, [text]);
+
+  // Remonte le brouillon courant (texte + pièces jointes) au parent à chaque
+  // changement, pour qu'il soit conservé en quittant la conversation puis
+  // restauré au retour (#165). Le callback est lu via un ref pour qu'un simple
+  // changement de son identité ne redéclenche pas la synchro.
+  const onDraftChangeRef = useRef(onDraftChange);
+  onDraftChangeRef.current = onDraftChange;
+  useEffect(() => {
+    onDraftChangeRef.current?.({ text, attachments });
+  }, [text, attachments]);
 
   useEffect(() => {
     if (!showEmoji) return;

@@ -276,20 +276,39 @@ test("invitation registration + full web journey", async ({ page, browser }) => 
   // On revient sur le salon d'origine pour la suite du parcours.
   await page.getByRole("button", { name: new RegExp(channel) }).click();
 
-  // Issue #144 : le brouillon de saisie ne doit pas « fuiter » d'une conversation
-  // à l'autre. On tape un texte SANS l'envoyer dans le salon courant, puis on
-  // bascule sur « Général » : son champ de saisie doit être vide (et non porter
-  // le brouillon de l'autre conversation), faute de quoi un message privé peut
-  // partir au mauvais destinataire (risque de confidentialité signalé).
+  // Brouillon par conversation — deux garde-fous complémentaires :
+  //  - #144 : le brouillon ne doit pas « fuiter » vers une autre conversation
+  //    (risque d'envoi au mauvais destinataire) ;
+  //  - #165 : mais il doit être CONSERVÉ pour SA conversation et restauré au
+  //    retour, texte ET pièces jointes.
+  // On compose un brouillon (texte + fichier joint) sans l'envoyer, on bascule
+  // sur « Général » (champ vide, aucune pièce jointe → pas de fuite #144), puis
+  // on revient : le brouillon complet est restauré (#165).
   const draftComposer = page.getByPlaceholder(`Message dans #${channel}`);
   await draftComposer.click();
   await draftComposer.fill("brouillon prive a ne pas divulguer");
+  const draftDt = await page.evaluateHandle(() => {
+    const dt = new DataTransfer();
+    dt.items.add(new File(["brouillon joint"], "brouillon.txt", { type: "text/plain" }));
+    return dt;
+  });
+  await chat.dispatchEvent("drop", { dataTransfer: draftDt });
+  await expect(page.getByText("brouillon.txt")).toBeVisible();
+  // Bascule sur « Général » : ni le texte ni la pièce jointe ne fuitent (#144).
   await page.getByRole("button", { name: /Général/ }).click();
   const generalDraft = page.getByPlaceholder("Message dans #Général");
   await expect(generalDraft).toBeVisible();
   await expect(generalDraft).toHaveValue("");
-  // On revient sur le salon d'origine pour la suite du parcours.
+  await expect(page.getByText("brouillon.txt")).toHaveCount(0);
+  // Retour sur le salon d'origine : texte ET pièce jointe sont restaurés (#165).
   await page.getByRole("button", { name: new RegExp(channel) }).click();
+  const restoredComposer = page.getByPlaceholder(`Message dans #${channel}`);
+  await expect(restoredComposer).toHaveValue("brouillon prive a ne pas divulguer");
+  await expect(page.getByText("brouillon.txt")).toBeVisible();
+  // Nettoyage : on retire la pièce jointe et on vide le texte pour la suite.
+  await chat.getByRole("button", { name: "✕" }).click();
+  await expect(page.getByText("brouillon.txt")).toBeHidden();
+  await restoredComposer.fill("");
 
   // Issue #118 : la popup « Signaler un bug » doit expliquer son fonctionnement
   // — un agent IA traite d'abord la demande, puis le support la valide — pour
