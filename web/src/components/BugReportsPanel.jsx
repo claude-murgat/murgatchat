@@ -178,7 +178,6 @@ export default function BugReportsPanel() {
 
   useEffect(() => {
     fetchPage({ p: 1, status: statusFilter, append: false });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter]);
 
   async function changeStatus(report, status) {

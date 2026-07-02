@@ -47,7 +47,6 @@ export default function GifPicker({ onSelect }) {
   useEffect(() => {
     const t = setTimeout(() => load(q.trim(), 0, false), 350);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 
   return (

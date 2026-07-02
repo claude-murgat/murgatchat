@@ -17,7 +17,7 @@ import { getDiagnostics, getLogLines, dumpText, entryCount } from "../logbuffer.
 const MAX_ATTACHMENTS = 3;
 const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 Mo
 
-export default function BugReportModal({ user, onClose }) {
+export default function BugReportModal({ onClose }) {
   // "compose" → first message form · "chat" → conversation · "done" → success.
   const [phase, setPhase] = useState("compose");
   const [message, setMessage] = useState("");
