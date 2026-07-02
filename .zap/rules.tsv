@@ -1,0 +1,9 @@
+# OWASP ZAP baseline alert tuning — tab-separated: <pluginId><TAB><IGNORE|WARN|FAIL>
+# IGNORE = scanner/bundle noise, not an application vulnerability. Everything
+# else stays at its default threshold and FAILS the build (see tests.yml).
+# Review this list when the app or ZAP rules change.
+10096	IGNORE
+10094	IGNORE
+10027	IGNORE
+90003	IGNORE
+10109	IGNORE

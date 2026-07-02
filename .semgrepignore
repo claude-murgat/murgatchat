@@ -1,0 +1,11 @@
+# Paths Semgrep should not scan (vendored, generated, or build output).
+node_modules/
+dist/
+dev-dist/
+build/
+coverage/
+e2e/playwright-report/
+web/src-tauri/target/
+web/src-tauri/gen/
+mobile/patches/
+*.min.js
