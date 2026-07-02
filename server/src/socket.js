@@ -295,6 +295,32 @@ export function setupSocket(httpServer, corsOrigin) {
       socket.to(`user:${userId}`).emit("channel:read", { channelId });
     });
 
+    socket.on("channel:unread", async ({ channelId }) => {
+      if (!channelId) return;
+      // Marquer comme non lu : on recule `lastReadAt` juste avant le dernier
+      // message livré du salon, pour que serializeChannel le recalcule en
+      // "non lu" (voir la logique `unread` dans routes/channels.js).
+      const last = await prisma.message
+        .findFirst({
+          where: { channelId, delivered: true },
+          orderBy: { createdAt: "desc" },
+          select: { createdAt: true },
+        })
+        .catch(() => null);
+      if (!last) return;
+      // 1 s de marge avant l'horodatage du message : le comparateur d'unread
+      // est strict (`>`), une marge évite les faux négatifs de précision.
+      const before = new Date(new Date(last.createdAt).getTime() - 1000);
+      await prisma.membership
+        .update({
+          where: { userId_channelId: { userId, channelId } },
+          data: { lastReadAt: before },
+        })
+        .catch(() => {});
+      // Propage aux autres appareils/onglets de l'utilisateur.
+      socket.to(`user:${userId}`).emit("channel:unread", { channelId });
+    });
+
     socket.on("disconnect", () => {
       markWebInactive(userId, socket.id);
       const count = (online.get(userId) || 1) - 1;

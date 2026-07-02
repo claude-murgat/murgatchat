@@ -240,6 +240,49 @@ describe("typing + channel:read", () => {
     expect((await readOnDev2).channelId).toBe(ch.id);
     await senderSilent; // the device that read does not receive its own echo
   });
+
+  it("channel:unread rewinds lastReadAt so the channel reads as unread again", async () => {
+    const { alice, bob, channelId } = await pairInChannel();
+    const aSock = await ready(alice.token, channelId);
+    const bSock = await ready(bob.token, channelId);
+
+    // alice poste, bob lit : la conversation est "lue".
+    await send(aSock, { channelId, body: "coucou" });
+    bSock.emit("channel:read", { channelId });
+    // Attendre que la lecture soit persistée (unread=false).
+    let readSeen = false;
+    for (let i = 0; i < 30 && !readSeen; i++) {
+      const list = await authed(srv.app, bob.token).get("/channels");
+      if (list.body.channels.find((c) => c.id === channelId)?.unread === false) readSeen = true;
+      else await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(readSeen).toBe(true);
+
+    // bob remet la conversation en "non lu".
+    bSock.emit("channel:unread", { channelId });
+    let unreadAgain = false;
+    for (let i = 0; i < 30 && !unreadAgain; i++) {
+      const list = await authed(srv.app, bob.token).get("/channels");
+      if (list.body.channels.find((c) => c.id === channelId)?.unread === true) unreadAgain = true;
+      else await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(unreadAgain).toBe(true);
+  });
+
+  it("syncs channel:unread to the user's other devices (not the sender)", async () => {
+    const alice = await registerUser(srv.app);
+    const ch = (await authed(srv.app, alice.token).post("/channels").send({ name: "sync-unread" })).body.channel;
+    const dev1 = await ready(alice.token, ch.id);
+    const dev2 = await ready(alice.token, ch.id);
+    // Il faut au moins un message pour qu'il y ait quelque chose à marquer non lu.
+    await send(dev1, { channelId: ch.id, body: "un message" });
+
+    const unreadOnDev2 = waitForEvent(dev2, "channel:unread", (e) => e.channelId === ch.id);
+    const senderSilent = expectNoEvent(dev1, "channel:unread", 600);
+    dev1.emit("channel:unread", { channelId: ch.id });
+    expect((await unreadOnDev2).channelId).toBe(ch.id);
+    await senderSilent; // the device that acted does not receive its own echo
+  });
 });
 
 describe("presence", () => {

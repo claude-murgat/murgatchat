@@ -256,6 +256,12 @@ export default function App() {
         prev.map((c) => (c.id === channelId ? { ...c, unread: false } : c))
       );
 
+    // A convos was flagged unread from another device/tab -> reflect the badge.
+    const onUnread = ({ channelId }) =>
+      setChannels((prev) =>
+        prev.map((c) => (c.id === channelId ? { ...c, unread: true } : c))
+      );
+
     s.on("message:new", onNew);
     s.on("channel:created", onCreated);
     s.on("channel:removed", onRemoved);
@@ -266,6 +272,7 @@ export default function App() {
     s.on("presence:update", onPresenceUpdate);
     s.on("typing:update", onTyping);
     s.on("channel:read", onRead);
+    s.on("channel:unread", onUnread);
     return () => {
       s.off("message:new", onNew);
       s.off("channel:created", onCreated);
@@ -277,6 +284,7 @@ export default function App() {
       s.off("presence:update", onPresenceUpdate);
       s.off("typing:update", onTyping);
       s.off("channel:read", onRead);
+      s.off("channel:unread", onUnread);
     };
   }, [user]);
 
@@ -465,6 +473,30 @@ export default function App() {
     );
   }, []);
 
+  const onMarkUnread = useCallback(
+    (channelId) => {
+      socket?.emit("channel:unread", { channelId });
+      setChannels((prev) =>
+        prev.map((c) => (c.id === channelId ? { ...c, unread: true } : c))
+      );
+      // Si le salon marqué non lu est celui ouvert, on le referme : sinon
+      // ChannelView le repasserait aussitôt en "lu" (focus / message:new).
+      setActiveChannelId((curr) => (curr === channelId ? null : curr));
+    },
+    [socket]
+  );
+
+  // Marquer lu sans ouvrir la conversation (action inverse dans le menu long-press).
+  const onMarkRead = useCallback(
+    (channelId) => {
+      socket?.emit("channel:read", { channelId });
+      setChannels((prev) =>
+        prev.map((c) => (c.id === channelId ? { ...c, unread: false } : c))
+      );
+    },
+    [socket]
+  );
+
   const onNewChannelCreated = useCallback((channel) => {
     setChannels((prev) =>
       prev.some((c) => c.id === channel.id) ? prev : [...prev, channel]
@@ -577,6 +609,8 @@ export default function App() {
             channels={channels}
             activeChannelId={activeChannelId}
             onSelectChannel={onSelectChannel}
+            onMarkUnread={onMarkUnread}
+            onMarkRead={onMarkRead}
             onNewChannel={(name) => {
               setNewChannelName(name || "");
               setShowNewChannel(true);
