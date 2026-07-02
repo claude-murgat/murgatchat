@@ -217,34 +217,38 @@ export default function ChannelView({
     setTimeout(() => el.classList.remove("ring-2", "ring-amber-400"), 1500);
   }
 
+  // The channel's id drives every effect below; depend on the primitive (not the
+  // `channel` object) so realtime subscriptions don't churn on identity changes.
+  const activeChannelId = channel?.id;
+
   useEffect(() => {
-    if (!channel) return;
+    if (!activeChannelId) return;
     let cancelled = false;
     setTypingUserIds([]);
     setReplyingTo(null);
     setHasMore(false);
     setOldestCursor(null);
-    api.messages(channel.id).then((res) => {
+    api.messages(activeChannelId).then((res) => {
       if (cancelled) return;
       scrollModeRef.current = { type: "bottom" };
       setMessages(res.messages);
       setHasMore(!!res.hasMore);
       setOldestCursor(res.nextCursor || null);
     });
-    api.scheduled(channel.id).then((res) => {
+    api.scheduled(activeChannelId).then((res) => {
       if (!cancelled) setScheduled(res.scheduled);
     });
-    socket?.emit("channel:join", channel.id);
-    if (isWindowFocused()) socket?.emit("channel:read", { channelId: channel.id });
+    socket?.emit("channel:join", activeChannelId);
+    if (isWindowFocused()) socket?.emit("channel:read", { channelId: activeChannelId });
     return () => {
       cancelled = true;
     };
-  }, [channel?.id, socket]);
+  }, [activeChannelId, socket]);
 
   useEffect(() => {
-    if (!channel || !socket) return;
+    if (!activeChannelId || !socket) return;
     const markRead = () => {
-      if (isWindowFocused()) socket.emit("channel:read", { channelId: channel.id });
+      if (isWindowFocused()) socket.emit("channel:read", { channelId: activeChannelId });
     };
     window.addEventListener("focus", markRead);
     document.addEventListener("visibilitychange", markRead);
@@ -252,12 +256,12 @@ export default function ChannelView({
       window.removeEventListener("focus", markRead);
       document.removeEventListener("visibilitychange", markRead);
     };
-  }, [channel?.id, socket]);
+  }, [activeChannelId, socket]);
 
   useEffect(() => {
     if (!socket) return;
     function onNew(msg) {
-      if (!channel || msg.channelId !== channel.id) return;
+      if (!activeChannelId || msg.channelId !== activeChannelId) return;
       // Ne suivre le bas que si on y est déjà (ne pas arracher un lecteur
       // d'historique vers le bas à chaque nouveau message).
       const el = scrollRef.current;
@@ -270,14 +274,14 @@ export default function ChannelView({
         scrollModeRef.current = nearBottom ? { type: "bottom" } : null;
         return [...prev, msg];
       });
-      if (isWindowFocused()) socket.emit("channel:read", { channelId: channel.id });
+      if (isWindowFocused()) socket.emit("channel:read", { channelId: activeChannelId });
     }
     function onUpdated(msg) {
-      if (!channel || msg.channelId !== channel.id) return;
+      if (!activeChannelId || msg.channelId !== activeChannelId) return;
       setMessages((prev) => prev.map((m) => (m.id === msg.id ? msg : m)));
     }
     function onDeleted({ id, channelId }) {
-      if (!channel || channelId !== channel.id) return;
+      if (!activeChannelId || channelId !== activeChannelId) return;
       setMessages((prev) => prev.filter((m) => m.id !== id));
       // Don't keep an orphaned reply-target if it just vanished.
       setReplyingTo((curr) => (curr?.id === id ? null : curr));
@@ -288,7 +292,7 @@ export default function ChannelView({
       );
     }
     function onTyping({ channelId, userId }) {
-      if (!channel || channelId !== channel.id || userId === currentUser?.id) return;
+      if (!activeChannelId || channelId !== activeChannelId || userId === currentUser?.id) return;
       setTypingUserIds((prev) => (prev.includes(userId) ? prev : [...prev, userId]));
       clearTimeout(typingTimers.current[userId]);
       typingTimers.current[userId] = setTimeout(() => {
@@ -308,7 +312,7 @@ export default function ChannelView({
       socket.off("reaction:update", onReaction);
       socket.off("typing:update", onTyping);
     };
-  }, [socket, channel?.id, currentUser?.id]);
+  }, [socket, activeChannelId, currentUser?.id]);
 
   // Applique le mode de scroll décidé par la dernière maj de `messages` :
   // "bottom" (coller le bas), "preserve" (on vient de préfixer d'anciens messages

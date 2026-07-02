@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api.js";
 import Avatar from "./Avatar.jsx";
 
@@ -8,7 +8,12 @@ export default function AddMembersModal({ channel, currentUserId, onClose, onAdd
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const memberIds = new Set((channel.members || []).map((m) => m.id));
+  // Memoized so it's a stable dep for the fetch effect below (recomputed only
+  // when the channel's member set actually changes).
+  const memberIds = useMemo(
+    () => new Set((channel.members || []).map((m) => m.id)),
+    [channel.members]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -22,7 +27,7 @@ export default function AddMembersModal({ channel, currentUserId, onClose, onAdd
     return () => {
       cancelled = true;
     };
-  }, [q]);
+  }, [q, currentUserId, memberIds]);
 
   function toggle(id) {
     const next = new Set(selected);
