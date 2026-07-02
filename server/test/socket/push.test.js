@@ -150,7 +150,7 @@ describe("push gating (notifyMembers)", () => {
   });
 
   it("with notifyLevel=mentions, notifies only when the recipient is mentioned", async () => {
-    const fetchMock = mockExpo();
+    mockExpo(); // install the Expo push mock (asserted via socket events below, not the mock)
     const { author, recipient, channelId } = await setup();
     await authed(srv.app, recipient.token)
       .patch(`/channels/${channelId}/notifications`)

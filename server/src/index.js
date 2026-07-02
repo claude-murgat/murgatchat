@@ -3,6 +3,7 @@ import { pathToFileURL, fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import express from "express";
+import helmet from "helmet";
 import cors from "cors";
 import authRouter, { ensureOwner, ensureLowercaseIdentifiers } from "./routes/auth.js";
 import usersRouter from "./routes/users.js";
@@ -44,6 +45,18 @@ export function createServer() {
   initWebPush();
 
   const app = express();
+  // Security headers. This is a JSON/file API consumed cross-origin by the web
+  // app (and it serves uploaded images embedded there), so:
+  //   - CSP is left to nginx on the web origin (the API renders no HTML);
+  //   - Cross-Origin-Resource-Policy must allow cross-origin so avatars/uploads
+  //     load in the web app served from a different origin.
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginResourcePolicy: { policy: "cross-origin" },
+      crossOriginEmbedderPolicy: false,
+    })
+  );
   app.use(cors({ origin: CORS_ORIGIN }));
   app.use(express.json({ limit: "1mb" }));
 

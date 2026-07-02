@@ -226,7 +226,7 @@ describe("POST /auth/transfer-ownership", () => {
   });
 
   it("rejects non-owners (403)", async () => {
-    const owner = await registerUser(app);
+    await registerUser(app); // bootstrap owner (first account) — the guard being tested
     const member = await registerUser(app);
     const target = await registerUser(app);
 

@@ -80,3 +80,94 @@ jobs:
           name: playwright-report
           path: e2e/playwright-report
           retention-days: 7
+
+  lint:
+    name: lint (eslint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            web/package-lock.json
+      - name: Lint server
+        working-directory: server
+        run: |
+          npm ci
+          npm run lint
+      - name: Lint web
+        working-directory: web
+        run: |
+          npm ci
+          npm run lint
+
+  sast:
+    name: sast (semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install semgrep
+      # Full scan → SARIF artifact (all severities), never fails on its own.
+      - name: Semgrep scan (report)
+        continue-on-error: true
+        run: >-
+          semgrep scan --metrics=off --sarif --output=semgrep.sarif
+          --config=p/javascript --config=p/react --config=p/nodejs
+          --config=p/expressjs --config=p/secrets --config=p/owasp-top-ten
+      - name: Upload SARIF report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-sarif
+          path: semgrep.sarif
+          retention-days: 7
+      # Gate: fail the build only on high-severity (ERROR) findings.
+      - name: Gate on high-severity findings
+        run: >-
+          semgrep scan --metrics=off --error --severity=ERROR -q
+          --config=p/javascript --config=p/react --config=p/nodejs
+          --config=p/expressjs --config=p/secrets --config=p/owasp-top-ten
+
+  dast:
+    name: dast (zap baseline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start isolated stack
+        run: docker compose -f docker-compose.e2e.yml up -d --build
+      - name: Wait for stack
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:4001/health && curl -sf http://localhost:5174 >/dev/null; then
+              echo "stack ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "stack did not become ready"; docker compose -f docker-compose.e2e.yml logs; exit 1
+      # ZAP runs in its own container with --network host so it can reach the
+      # stack published on the runner's localhost. Passive baseline scan only.
+      # Fails (non-zero) on any WARN/FAIL alert not downgraded in .zap/rules.tsv.
+      - name: ZAP baseline scan
+        run: |
+          mkdir -p zap-out && chmod 777 zap-out
+          docker run --network host -v "${{ github.workspace }}:/zap/wrk/:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py -t http://localhost:5174 \
+            -c .zap/rules.tsv \
+            -r zap-out/report.html -w zap-out/report.md -J zap-out/report.json
+      - name: Upload ZAP report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-baseline-report
+          path: zap-out
+          retention-days: 7
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.e2e.yml down -v

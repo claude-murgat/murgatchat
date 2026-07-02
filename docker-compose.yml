@@ -95,7 +95,7 @@ services:
     depends_on:
       - server
     ports:
-      - "5173:80"
+      - "5173:8080"
 
 volumes:
   db-data:

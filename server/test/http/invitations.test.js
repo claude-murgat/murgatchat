@@ -46,7 +46,7 @@ describe("invitations", () => {
   });
 
   it("rejects invitation creation by a non-admin (403)", async () => {
-    const admin = await registerUser(app); // bootstrap admin
+    await registerUser(app); // bootstrap admin
     const member = await registerUser(app); // invited by admin → not admin
     const res = await authed(app, member.token)
       .post("/auth/invitations")

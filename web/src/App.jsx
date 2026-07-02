@@ -11,7 +11,7 @@ import {
   checkDesktopUpdate,
   installDesktopUpdate,
 } from "./desktop.js";
-import { ensurePwaReady, isPwaInstalled, unsubscribePush, resubscribeIfNeeded } from "./pwa.js";
+import { ensurePwaReady, unsubscribePush, resubscribeIfNeeded } from "./pwa.js";
 import Login from "./components/Login.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import ChannelView from "./components/ChannelView.jsx";

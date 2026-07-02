@@ -1,0 +1,24 @@
+# OWASP ZAP baseline alert tuning.
+# Format required by zap-baseline.py: <pluginId><TAB><IGNORE|WARN|FAIL><TAB><name>
+# IGNORE = reviewed and accepted (scanner/bundle noise, or inherent to the app
+# design). Everything else keeps its default threshold and FAILS the build
+# (see the dast job in .github/workflows/tests.yml). Re-review on app changes.
+
+# --- Scanner / bundle noise (not application vulnerabilities) ---------------
+10096	IGNORE	Timestamp Disclosure
+10094	IGNORE	Base64 Disclosure
+10027	IGNORE	Information Disclosure - Suspicious Comments
+90003	IGNORE	Sub Resource Integrity Attribute Missing
+10109	IGNORE	Modern Web Application
+
+# --- Accepted: inherent to this app's design --------------------------------
+# The server address is entered at runtime on the login screen (any host, http
+# or https, ws or wss) and media/avatars come from the API + third parties, so
+# connect-src/img-src/media-src are deliberately scheme-broad. script-src stays
+# 'self'. Tightening these would break the product.
+10055	IGNORE	CSP Wildcard Directive (connect/img/media broad by design)
+# COEP require-corp would block cross-origin media (uploads, GIF search) that do
+# not send CORP; not applicable to this app's threat model.
+90004	IGNORE	Cross-Origin-Embedder-Policy Missing
+# Public static SPA assets (no server-rendered secrets): caching is desirable.
+10049	IGNORE	Storable and Cacheable Content
