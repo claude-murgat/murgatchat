@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-06-30** (0.7.3 : correctif urgent — pagination par curseur des messages ; 0.7.2 : mentions interactives, fuite de brouillon corrigée, drag-drop Desktop ; 0.7.1 : autocomplétions mentions « @ » / emojis « :nom », Entrée tactile, nav clavier recherche, fix écran noir retour PWA).
+Dernière mise à jour : **2026-07-03** (0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages ; 0.7.2 : mentions interactives, fuite de brouillon corrigée, drag-drop Desktop).
 
 ---
 
@@ -749,6 +749,48 @@ Release **0.7.2** publiée (pipeline `release.yml` verte, installeur signé + `l
 
 Release **0.7.3** publiée (pipeline `release.yml` verte, installeur signé + `latest.json`).
 
+## Itération 2026-07-01 → 07-03 — CI durcie, migrations, non-lus & correctifs (0.7.4)
+
+69. **CI « plus poussée » : lint + SAST + DAST (0.7.4)** — trois jobs **bloquants**
+    ajoutés à `tests.yml` : **ESLint** (web+server, flat config v9 — épinglé, plugin-react
+    ≤ 9.7), **Semgrep** (SAST, gate sur sévérité ERROR, SARIF en artefact) et **OWASP ZAP**
+    (DAST baseline contre le stack e2e, triage `.zap/rules.tsv`). Findings de sécurité
+    corrigés au passage : `authTagLength` GCM explicite (crypto), **conteneurs non-root**
+    (serveur user `node` + web `nginx-unprivileged` sur `:8080`), **en-têtes de sécurité**
+    (Helmet côté API + nginx). Actions GitHub **épinglées au SHA de commit** + **Dependabot**
+    (hebdo, cooldown 7 j) ; warnings ESLint `react-hooks/exhaustive-deps` résolus.
+    (PR #157, #158, bumps #159–163)
+
+70. **Migrations Prisma versionnées (0.7.4)** — fin du risqué `prisma db push
+    --accept-data-loss` au démarrage : `prisma migrate deploy` + **baseline automatique**
+    d'une base héritée de `db push` (adoption sans perte de données, sans étape manuelle).
+    (PR #155)
+
+71. **Correctifs de signalements utilisateurs (0.7.4)** — (1) **inscription** : un nom
+    d'utilisateur avec espace affichait `[object Object]` → **messages d'erreur clairs**
+    (helper front robuste + messages FR côté back). (2) **Brouillons conservés par
+    conversation** (texte **et** pièces jointes), restaurés au retour, sans fuite entre
+    salons (issue #165). (3) **Clic sur une notification** (OS + toast in-app) → ouvre la
+    conversation et remonte la fenêtre (issue #169). (PR #156, #167, #171)
+
+72. **Non-lus : indicateur barre des tâches + marquer non-lu (0.7.4)** — badge de non-lus
+    sur l'icône : **PWA** = compteur natif (`navigator.setAppBadge`), **Desktop Tauri** =
+    **point rouge** en overlay natif Windows (`setOverlayIcon`), complétant le point du tray
+    (issue #170). **Marquer une conversation comme non lue** par appui long (issue #164).
+    (PR #171, #168)
+
+73. **Docs (0.7.4)** — README purgé (pistes déjà livrées, pivot PWA, retrait iOS-natif/APK)
+    + section CI corrigée ; **TESTING.md** aligné sur les 5 jobs CI + compte de tests à jour.
+    (PR #154, #166)
+
+> ⚠️ **Déploiement 0.7.4 (à faire une seule fois)** : les conteneurs passant en non-root,
+> chowner les volumes prod existants — `docker compose run --rm --user root server chown -R
+> node:node /data` — puis `docker compose up -d --build`. Les migrations Prisma adoptent la
+> base héritée de `db push` automatiquement au 1er déploiement (zéro perte ; un `pg_dump`
+> par précaution reste conseillé).
+
+Release **0.7.4** publiée (pipeline `release.yml` verte, installeur signé + `latest.json`).
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
@@ -760,4 +802,7 @@ Release **0.7.3** publiée (pipeline `release.yml` verte, installeur signé + `l
 > installeur #131), **0.7.1** (mentions #135 + emojis #138, Entrée tactile #133, nav recherche
 > #94, écran noir PWA #95), **0.7.2** (mentions interactives #143, fuite de brouillon #144,
 > drag-drop Desktop #147), **0.7.3** (correctif urgent : pagination des messages — 200 derniers
-> + « charger plus anciens », fin de la timeline figée au-delà de 200 messages).
+> + « charger plus anciens », fin de la timeline figée au-delà de 200 messages),
+> **0.7.4** (CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées SHA/Dependabot,
+> migrations Prisma versionnées, brouillons par conversation #165, clic notification → conversation
+> #169, badge non-lus PWA compteur + Desktop point rouge #170, marquer une conversation non lue #164).
