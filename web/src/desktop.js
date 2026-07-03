@@ -203,6 +203,59 @@ export function setTrayBadge(unread) {
     .catch((e) => console.error("[desktop] set_tray_badge failed:", e));
 }
 
+// Desktop (Tauri) only: badge le NOMBRE de conversations non lues sur l'icône de
+// la barre des tâches Windows, via un overlay natif (setOverlayIcon). C'est le
+// pendant desktop du badge PWA (navigator.setAppBadge), que la WebView2 n'expose
+// pas de façon fiable. `count <= 0` efface l'overlay. No-op hors Tauri ; erreurs
+// avalées (un badge absent ne doit jamais casser le traitement des messages).
+// L'API setOverlayIcon est Windows-only — sur les autres OS l'appel est rejeté
+// (capté par le catch), ce qui est sans conséquence (builds Windows uniquement).
+export async function setDesktopBadge(count) {
+  if (!isTauri()) return;
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const win = getCurrentWindow();
+    if (!count || count <= 0) {
+      await win.setOverlayIcon(undefined); // efface l'overlay
+      return;
+    }
+    const { Image: TauriImage } = await import("@tauri-apps/api/image");
+    const { data, width, height } = renderBadgeRgba(count);
+    // Image.new attend du RGBA brut (pas de décodage → aucune feature Cargo
+    // image-png requise), ce que produit exactement le canvas ci-dessous.
+    const icon = await TauriImage.new(data, width, height);
+    await win.setOverlayIcon(icon);
+  } catch (e) {
+    console.error("[desktop] setOverlayIcon failed:", e);
+  }
+}
+
+// Dessine une pastille (disque jaune + nombre) sur un canvas et renvoie ses
+// octets RGBA bruts. On rend en 32×32 : Windows redimensionne vers la taille de
+// l'overlay (~16×16, plus grand en haute densité) en gardant un rendu net.
+// « 9+ » au-delà de 9 pour rester lisible dans un si petit espace.
+function renderBadgeRgba(count) {
+  const size = 32;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, size, size);
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2 - 1, 0, Math.PI * 2);
+  ctx.fillStyle = "#ECB22E"; // jaune de la charte
+  ctx.fill();
+  const label = count > 9 ? "9+" : String(count);
+  ctx.fillStyle = "#3B1D3A"; // aubergine foncé : bon contraste sur le jaune
+  ctx.font = `bold ${label.length > 1 ? 18 : 22}px system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(label, size / 2, size / 2 + 1);
+  // getImageData → RGBA droit (non prémultiplié), l'ordre d'octets attendu.
+  const rgba = ctx.getImageData(0, 0, size, size).data;
+  return { data: new Uint8Array(rgba.buffer), width: size, height: size };
+}
+
 // True when the user is actively looking at the app, so onNotif can skip the OS
 // notification + tray badge. Under Tauri, document focus/visibility are stuck at
 // "focused/visible" for a tray-hidden window (see presence tracking above), so

@@ -6,6 +6,7 @@ import {
   isWindowFocused,
   ensureReady,
   setTrayBadge,
+  setDesktopBadge,
   isAppHidden,
   isTauri,
   checkDesktopUpdate,
@@ -459,15 +460,20 @@ export default function App() {
     return () => window.removeEventListener("focus", onFocus);
   }, []);
 
-  // PWA installée : badge le nombre de conversations non lues sur l'icône de la
-  // barre des tâches via l'API Badging (#170). setAppBadge est un no-op / rejette
-  // hors PWA installée ou navigateur non compatible → on avale l'erreur. À 0, on
-  // efface le badge (y compris à la déconnexion, où `channels` repasse à []).
+  // Badge du nombre de conversations non lues sur l'icône de la barre des tâches
+  // (#170). Deux chemins mutuellement exclusifs selon l'environnement — et le
+  // chemin Desktop NE DOIT PAS être derrière la garde `setAppBadge`, que WebView2
+  // (Tauri) n'expose pas :
+  //   - PWA installée (navigateur) : API Badging `navigator.setAppBadge`.
+  //   - Desktop Tauri : overlay natif Windows via `setDesktopBadge` (no-op ailleurs).
+  // À 0, on efface (y compris à la déconnexion, où `channels` repasse à []).
   useEffect(() => {
-    if (typeof navigator === "undefined" || !("setAppBadge" in navigator)) return;
     const count = channels.reduce((n, c) => n + (c.unread ? 1 : 0), 0);
-    const p = count > 0 ? navigator.setAppBadge(count) : navigator.clearAppBadge?.();
-    p?.catch?.(() => {});
+    if (typeof navigator !== "undefined" && "setAppBadge" in navigator) {
+      const p = count > 0 ? navigator.setAppBadge(count) : navigator.clearAppBadge?.();
+      p?.catch?.(() => {});
+    }
+    setDesktopBadge(count);
   }, [channels]);
 
   const onLoggedIn = useCallback((u) => {
