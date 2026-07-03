@@ -6,6 +6,7 @@ import {
   isWindowFocused,
   ensureReady,
   setTrayBadge,
+  setDesktopBadge,
   isAppHidden,
   isTauri,
   checkDesktopUpdate,
@@ -431,10 +432,18 @@ export default function App() {
           : `#${channel?.name || ""}`;
         const title = label || "Nouveau message";
         const body = data.message.body || "(pièce jointe)";
-        setToast({ title, body });
+        // Ouvre la conversation concernée et efface son non-lu. Déclenché aussi
+        // bien au clic sur le toast in-app que sur la notification OS (#169).
+        const open = () => {
+          setActiveChannelId(data.channelId);
+          setChannels((cs) =>
+            cs.map((ch) => (ch.id === data.channelId ? { ...ch, unread: false } : ch))
+          );
+        };
+        setToast({ title, body, open });
         setTimeout(() => setToast(null), 4500);
         if (!isWindowFocused()) {
-          notify(title, body);
+          notify(title, body, open);
           setTrayBadge(true); // desktop: red dot on the tray icon (no-op on web)
         }
         return prev;
@@ -450,6 +459,24 @@ export default function App() {
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, []);
+
+  // Badge du nombre de conversations non lues sur l'icône de la barre des tâches
+  // (#170). Deux chemins mutuellement exclusifs selon l'environnement — et le
+  // chemin Desktop NE DOIT PAS être derrière la garde `setAppBadge`, que WebView2
+  // (Tauri) n'expose pas :
+  //   - PWA installée (navigateur) : API Badging `navigator.setAppBadge` — compteur
+  //     natif rendu par l'OS (aucune image à générer).
+  //   - Desktop Tauri : `setDesktopBadge` — simple point rouge « non lu » en overlay
+  //     natif Windows (présence, pas un nombre ; no-op ailleurs).
+  // À 0, on efface (y compris à la déconnexion, où `channels` repasse à []).
+  useEffect(() => {
+    const count = channels.reduce((n, c) => n + (c.unread ? 1 : 0), 0);
+    if (typeof navigator !== "undefined" && "setAppBadge" in navigator) {
+      const p = count > 0 ? navigator.setAppBadge(count) : navigator.clearAppBadge?.();
+      p?.catch?.(() => {});
+    }
+    setDesktopBadge(count);
+  }, [channels]);
 
   const onLoggedIn = useCallback((u) => {
     setUser(u);
@@ -726,10 +753,17 @@ export default function App() {
       )}
 
       {toast && (
-        <div className="fixed bottom-4 right-4 bg-aubergine-800 text-white rounded-lg shadow-xl p-3 w-72 z-40">
+        <button
+          type="button"
+          onClick={() => {
+            toast.open?.();
+            setToast(null);
+          }}
+          className="fixed bottom-4 right-4 bg-aubergine-800 hover:bg-aubergine-700 text-white text-left rounded-lg shadow-xl p-3 w-72 z-40 cursor-pointer"
+        >
           <div className="font-semibold text-sm">{toast.title}</div>
           <div className="text-sm opacity-90 truncate">{toast.body}</div>
-        </div>
+        </button>
       )}
     </div>
   );

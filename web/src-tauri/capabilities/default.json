@@ -11,6 +11,7 @@
     "core:window:allow-is-visible",
     "core:window:allow-is-minimized",
     "core:window:allow-is-focused",
+    "core:window:allow-set-overlay-icon",
     "notification:default",
     "opener:default",
     "autostart:allow-enable",

@@ -158,7 +158,11 @@ export async function ensureReady() {
   return ready;
 }
 
-export async function notify(title, body) {
+// `onClick` (optionnel) : rappel exécuté quand l'utilisateur clique la
+// notification — sert à ramener la fenêtre au premier plan et ouvrir la bonne
+// conversation (#169). Câblé sur le chemin navigateur/PWA (Notification in-page) ;
+// sous Tauri, l'activation de la fenêtre passe par le tray (hors périmètre ici).
+export async function notify(title, body, onClick) {
   await ready;
   if (mode === "tauri" && tauriNotify) {
     try {
@@ -170,7 +174,19 @@ export async function notify(title, body) {
   }
   if (mode === "browser" && Notification.permission === "granted") {
     try {
-      new Notification(title, { body });
+      const n = new Notification(title, { body });
+      // onclick s'exécute dans le contexte de la page (Notification in-page),
+      // donc window.focus() y est autorisé : on remonte la fenêtre puis on
+      // délègue la navigation (ouverture de la conversation) à l'appelant.
+      n.onclick = () => {
+        try {
+          window.focus();
+        } catch {
+          /* certains contextes interdisent focus() — la navigation suit quand même */
+        }
+        onClick?.();
+        n.close();
+      };
     } catch (e) {
       console.error("[desktop] Notification failed:", e);
     }
@@ -185,6 +201,53 @@ export function setTrayBadge(unread) {
   import("@tauri-apps/api/core")
     .then((mod) => mod.invoke("set_tray_badge", { unread: !!unread }))
     .catch((e) => console.error("[desktop] set_tray_badge failed:", e));
+}
+
+// Desktop (Tauri) only: superpose un simple POINT ROUGE « non lu » sur l'icône de
+// la barre des tâches Windows, via un overlay natif (setOverlayIcon) — une
+// présence, pas un compteur (même rouge que le point du tray, cohérence + une
+// seule image à générer). Pendant desktop du badge PWA. `count <= 0` efface
+// l'overlay. No-op hors Tauri ; erreurs avalées (un badge absent ne doit jamais
+// casser le traitement des messages). setOverlayIcon est Windows-only — ailleurs
+// l'appel est rejeté (capté par le catch), sans conséquence (builds Windows only).
+export async function setDesktopBadge(count) {
+  if (!isTauri()) return;
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    const win = getCurrentWindow();
+    if (!count || count <= 0) {
+      await win.setOverlayIcon(undefined); // efface l'overlay
+      return;
+    }
+    const { Image: TauriImage } = await import("@tauri-apps/api/image");
+    const { data, width, height } = renderDotRgba();
+    // Image.new attend du RGBA brut (pas de décodage → aucune feature Cargo
+    // image-png requise), ce que produit exactement le canvas ci-dessous.
+    const icon = await TauriImage.new(data, width, height);
+    await win.setOverlayIcon(icon);
+  } catch (e) {
+    console.error("[desktop] setOverlayIcon failed:", e);
+  }
+}
+
+// Dessine un simple disque rouge (le point « non lu ») sur un canvas et renvoie
+// ses octets RGBA bruts. Indépendant du nombre → une seule image, générée à la
+// volée. Rendu en 32×32 : Windows le redimensionne vers la taille de l'overlay
+// (~16×16, plus grand en haute densité) en gardant un rendu net.
+function renderDotRgba() {
+  const size = 32;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, size, size);
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2 - 1, 0, Math.PI * 2);
+  ctx.fillStyle = "#E02424"; // même rouge que le point du tray (main.rs)
+  ctx.fill();
+  // getImageData → RGBA droit (non prémultiplié), l'ordre d'octets attendu.
+  const rgba = ctx.getImageData(0, 0, size, size).data;
+  return { data: new Uint8Array(rgba.buffer), width: size, height: size };
 }
 
 // True when the user is actively looking at the app, so onNotif can skip the OS
