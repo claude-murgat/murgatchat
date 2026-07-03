@@ -158,7 +158,11 @@ export async function ensureReady() {
   return ready;
 }
 
-export async function notify(title, body) {
+// `onClick` (optionnel) : rappel exécuté quand l'utilisateur clique la
+// notification — sert à ramener la fenêtre au premier plan et ouvrir la bonne
+// conversation (#169). Câblé sur le chemin navigateur/PWA (Notification in-page) ;
+// sous Tauri, l'activation de la fenêtre passe par le tray (hors périmètre ici).
+export async function notify(title, body, onClick) {
   await ready;
   if (mode === "tauri" && tauriNotify) {
     try {
@@ -170,7 +174,19 @@ export async function notify(title, body) {
   }
   if (mode === "browser" && Notification.permission === "granted") {
     try {
-      new Notification(title, { body });
+      const n = new Notification(title, { body });
+      // onclick s'exécute dans le contexte de la page (Notification in-page),
+      // donc window.focus() y est autorisé : on remonte la fenêtre puis on
+      // délègue la navigation (ouverture de la conversation) à l'appelant.
+      n.onclick = () => {
+        try {
+          window.focus();
+        } catch {
+          /* certains contextes interdisent focus() — la navigation suit quand même */
+        }
+        onClick?.();
+        n.close();
+      };
     } catch (e) {
       console.error("[desktop] Notification failed:", e);
     }
