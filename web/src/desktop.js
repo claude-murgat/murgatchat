@@ -203,13 +203,13 @@ export function setTrayBadge(unread) {
     .catch((e) => console.error("[desktop] set_tray_badge failed:", e));
 }
 
-// Desktop (Tauri) only: badge le NOMBRE de conversations non lues sur l'icône de
-// la barre des tâches Windows, via un overlay natif (setOverlayIcon). C'est le
-// pendant desktop du badge PWA (navigator.setAppBadge), que la WebView2 n'expose
-// pas de façon fiable. `count <= 0` efface l'overlay. No-op hors Tauri ; erreurs
-// avalées (un badge absent ne doit jamais casser le traitement des messages).
-// L'API setOverlayIcon est Windows-only — sur les autres OS l'appel est rejeté
-// (capté par le catch), ce qui est sans conséquence (builds Windows uniquement).
+// Desktop (Tauri) only: superpose un simple POINT ROUGE « non lu » sur l'icône de
+// la barre des tâches Windows, via un overlay natif (setOverlayIcon) — une
+// présence, pas un compteur (même rouge que le point du tray, cohérence + une
+// seule image à générer). Pendant desktop du badge PWA. `count <= 0` efface
+// l'overlay. No-op hors Tauri ; erreurs avalées (un badge absent ne doit jamais
+// casser le traitement des messages). setOverlayIcon est Windows-only — ailleurs
+// l'appel est rejeté (capté par le catch), sans conséquence (builds Windows only).
 export async function setDesktopBadge(count) {
   if (!isTauri()) return;
   try {
@@ -220,7 +220,7 @@ export async function setDesktopBadge(count) {
       return;
     }
     const { Image: TauriImage } = await import("@tauri-apps/api/image");
-    const { data, width, height } = renderBadgeRgba(count);
+    const { data, width, height } = renderDotRgba();
     // Image.new attend du RGBA brut (pas de décodage → aucune feature Cargo
     // image-png requise), ce que produit exactement le canvas ci-dessous.
     const icon = await TauriImage.new(data, width, height);
@@ -230,11 +230,11 @@ export async function setDesktopBadge(count) {
   }
 }
 
-// Dessine une pastille (disque jaune + nombre) sur un canvas et renvoie ses
-// octets RGBA bruts. On rend en 32×32 : Windows redimensionne vers la taille de
-// l'overlay (~16×16, plus grand en haute densité) en gardant un rendu net.
-// « 9+ » au-delà de 9 pour rester lisible dans un si petit espace.
-function renderBadgeRgba(count) {
+// Dessine un simple disque rouge (le point « non lu ») sur un canvas et renvoie
+// ses octets RGBA bruts. Indépendant du nombre → une seule image, générée à la
+// volée. Rendu en 32×32 : Windows le redimensionne vers la taille de l'overlay
+// (~16×16, plus grand en haute densité) en gardant un rendu net.
+function renderDotRgba() {
   const size = 32;
   const canvas = document.createElement("canvas");
   canvas.width = size;
@@ -243,14 +243,8 @@ function renderBadgeRgba(count) {
   ctx.clearRect(0, 0, size, size);
   ctx.beginPath();
   ctx.arc(size / 2, size / 2, size / 2 - 1, 0, Math.PI * 2);
-  ctx.fillStyle = "#ECB22E"; // jaune de la charte
+  ctx.fillStyle = "#E02424"; // même rouge que le point du tray (main.rs)
   ctx.fill();
-  const label = count > 9 ? "9+" : String(count);
-  ctx.fillStyle = "#3B1D3A"; // aubergine foncé : bon contraste sur le jaune
-  ctx.font = `bold ${label.length > 1 ? 18 : 22}px system-ui, sans-serif`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(label, size / 2, size / 2 + 1);
   // getImageData → RGBA droit (non prémultiplié), l'ordre d'octets attendu.
   const rgba = ctx.getImageData(0, 0, size, size).data;
   return { data: new Uint8Array(rgba.buffer), width: size, height: size };

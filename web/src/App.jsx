@@ -464,8 +464,10 @@ export default function App() {
   // (#170). Deux chemins mutuellement exclusifs selon l'environnement — et le
   // chemin Desktop NE DOIT PAS être derrière la garde `setAppBadge`, que WebView2
   // (Tauri) n'expose pas :
-  //   - PWA installée (navigateur) : API Badging `navigator.setAppBadge`.
-  //   - Desktop Tauri : overlay natif Windows via `setDesktopBadge` (no-op ailleurs).
+  //   - PWA installée (navigateur) : API Badging `navigator.setAppBadge` — compteur
+  //     natif rendu par l'OS (aucune image à générer).
+  //   - Desktop Tauri : `setDesktopBadge` — simple point rouge « non lu » en overlay
+  //     natif Windows (présence, pas un nombre ; no-op ailleurs).
   // À 0, on efface (y compris à la déconnexion, où `channels` repasse à []).
   useEffect(() => {
     const count = channels.reduce((n, c) => n + (c.unread ? 1 : 0), 0);
