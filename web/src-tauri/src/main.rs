@@ -2,8 +2,14 @@
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{Manager, WindowEvent};
+use tauri::{Emitter, Manager, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
+
+// AppUserModelID de l'app : DOIT être identique à l'identifiant Tauri, à l'app_id
+// de la toast Windows et à l'AUMID posé par l'installeur NSIS sur le raccourci —
+// sinon Windows ne route pas le clic de notification vers CE process (cf. setup).
+#[cfg(windows)]
+const APP_ID: &str = "com.example.chat.desktop";
 
 // Repaint a red "unread" dot into the bottom-right corner of the app icon, so
 // the tray can show a badge without shipping a second icon asset. Works on the
@@ -61,6 +67,53 @@ fn set_tray_badge(app: tauri::AppHandle, unread: bool) {
     }
 }
 
+// Toast natif Windows pour un nouveau message (desktop). On construit la toast en
+// Rust plutôt que via tauri-plugin-notification : le chemin desktop du plugin est
+// « fire-and-forget » (il jette la toast et ne câble aucun callback d'activation),
+// si bien qu'un clic sur la notification Windows ne remonte JAMAIS à l'app (les
+// événements JS onAction/actionPerformed sont mobile-only). Ici `on_activated`
+// ramène la fenêtre au premier plan et émet `desktop:notification-click` avec l'id
+// du salon, pour que le webview ouvre la bonne conversation. Exécuté sur le thread
+// principal : les API WinRT de toast exigent l'apartment COM (STA) du process.
+#[cfg(windows)]
+#[tauri::command]
+fn notify_desktop(app: tauri::AppHandle, title: String, body: String, channel_id: Option<String>) {
+    let app_handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        use tauri_winrt_notification::Toast;
+        let on_click = app_handle.clone();
+        // app_id = APP_ID (identifiant Tauri) = AUMID fixé au démarrage (cf. setup)
+        // = AUMID du raccourci NSIS ; c'est ce qui route le clic vers ce process.
+        let toast = Toast::new(APP_ID)
+            .title(&title)
+            .text1(&body)
+            .on_activated(move |_action| {
+                if let Some(win) = on_click.get_webview_window("main") {
+                    let _ = win.unminimize();
+                    let _ = win.show();
+                    let _ = win.set_focus();
+                }
+                let _ = on_click.emit("desktop:notification-click", channel_id.clone());
+                Ok(())
+            });
+        if let Err(e) = toast.show() {
+            eprintln!("[desktop] toast show failed: {e:?}");
+        }
+    });
+}
+
+// Pas de toast natif hors Windows (les builds desktop sont Windows-only) ; on garde
+// la commande présente pour que l'invoke handler et l'appel front compilent partout.
+#[cfg(not(windows))]
+#[tauri::command]
+fn notify_desktop(
+    _app: tauri::AppHandle,
+    _title: String,
+    _body: String,
+    _channel_id: Option<String>,
+) {
+}
+
 fn main() {
     tauri::Builder::default()
         // Single instance: a second launch (e.g. clicking the icon while the app
@@ -86,8 +139,21 @@ fn main() {
         // plugin so the updater can relaunch the app after installing.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .invoke_handler(tauri::generate_handler![set_tray_badge])
+        .invoke_handler(tauri::generate_handler![set_tray_badge, notify_desktop])
         .setup(|app| {
+            // Fixe l'AppUserModelID explicite du process = app_id des toasts (et
+            // AUMID du raccourci NSIS). Sans ça, Windows ne route pas le clic d'une
+            // notification vers CE process (le callback on_activated in-process),
+            // notamment au lancement autostart `--hidden` (exe direct, hors raccourci).
+            #[cfg(windows)]
+            {
+                use windows::core::HSTRING;
+                use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
+                unsafe {
+                    let _ = SetCurrentProcessExplicitAppUserModelID(&HSTRING::from(APP_ID));
+                }
+            }
+
             // Launched at login (autostart) -> stay in the tray instead of
             // popping the window. A manual launch has no "--hidden" arg.
             if std::env::args().any(|a| a == "--hidden") {
