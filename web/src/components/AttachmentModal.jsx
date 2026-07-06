@@ -429,6 +429,28 @@ function TextView({ buffer, onError }) {
   );
 }
 
+// PDF: the backend serves it cross-origin with X-Frame-Options: SAMEORIGIN
+// (Helmet's default frameguard) and the web CSP's frame-src is effectively
+// 'self', so a direct <iframe src={backendUrl}> is refused — "… a refusé de se
+// connecter" (#176). The server address is chosen at runtime, so it can't be
+// allow-listed. We already hold the decrypted bytes, so frame a same-origin
+// blob: URL instead (allowed by the CSP's `frame-src 'self' blob:`): the browser
+// renders it with its native PDF viewer, cross-origin server and desktop alike.
+function PdfView({ buffer, attachment }) {
+  const objUrl = useMemo(
+    () => URL.createObjectURL(new Blob([buffer], { type: "application/pdf" })),
+    [buffer]
+  );
+  useEffect(() => () => URL.revokeObjectURL(objUrl), [objUrl]);
+  return (
+    <iframe
+      src={objUrl}
+      title={attachment.filename}
+      className="w-[75vw] max-w-[1700px] h-[82vh] bg-white rounded"
+    />
+  );
+}
+
 // Orchestrates a document preview: fetch bytes, then hand them to the right
 // viewer. Any fetch/parse failure falls back to the download card so a file is
 // never stranded behind a broken preview.
@@ -447,6 +469,7 @@ function DocumentPreview({ url, kind, attachment, onDownload }) {
     );
   }
   if (buf.status === "loading") return <Spinner label="Chargement du fichier…" />;
+  if (kind === "pdf") return <PdfView buffer={buf.buffer} attachment={attachment} />;
   if (kind === "docx") return <DocxView buffer={buf.buffer} onError={onError} />;
   if (kind === "xlsx") return <XlsxView buffer={buf.buffer} onError={onError} />;
   if (kind === "csv") return <CsvView buffer={buf.buffer} onError={onError} />;
@@ -461,8 +484,9 @@ export default function AttachmentModal({ attachment, onClose }) {
   const url = attachmentUrl(attachment.id); // already carries ?token=…
   const downloadUrl = `${url}&download=1`; // server → Content-Disposition: attachment
   const kind = kindOf(attachment.mimeType, attachment.filename);
+  // Everything rendered from fetched bytes (incl. PDF, framed from a blob: URL).
   const isDocument =
-    kind === "docx" || kind === "xlsx" || kind === "csv" || kind === "text";
+    kind === "docx" || kind === "xlsx" || kind === "csv" || kind === "text" || kind === "pdf";
 
   useEffect(() => {
     const onKey = (e) => {
@@ -537,13 +561,6 @@ export default function AttachmentModal({ attachment, onClose }) {
               <div className="text-5xl text-center mb-4">🎵</div>
               <audio src={url} controls className="w-full" />
             </div>
-          )}
-          {kind === "pdf" && (
-            <iframe
-              src={url}
-              title={attachment.filename}
-              className="w-[92vw] h-[82vh] bg-white rounded"
-            />
           )}
           {isDocument && (
             <DocumentPreview
