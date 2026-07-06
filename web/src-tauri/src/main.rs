@@ -11,6 +11,34 @@ use tauri_plugin_autostart::MacosLauncher;
 #[cfg(windows)]
 const APP_ID: &str = "com.example.chat.desktop";
 
+// Schéma URI d'activation par protocole des toasts. Au clic sur une notification,
+// Windows lance l'exe avec `murgatchat://channel/<id>` ; single-instance transmet
+// cet argv à l'instance en cours (cf. main) → ouverture de la conversation. Le
+// schéma est enregistré par l'installeur NSIS (installer-hooks.nsh).
+#[cfg(windows)]
+const DEEP_LINK_SCHEME: &str = "murgatchat";
+
+// Échappe le texte pour l'insérer dans du XML (contenu de toast + attribut launch).
+#[cfg(windows)]
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+// Extrait l'id de salon d'un argument `murgatchat://channel/<id>` (ou None).
+#[cfg(windows)]
+fn channel_id_from_args<I: IntoIterator<Item = String>>(args: I) -> Option<String> {
+    let prefix = format!("{DEEP_LINK_SCHEME}://channel/");
+    args.into_iter().find_map(|a| {
+        a.strip_prefix(&prefix)
+            .map(|id| id.trim_end_matches('/').to_string())
+            .filter(|id| !id.is_empty())
+    })
+}
+
 // Repaint a red "unread" dot into the bottom-right corner of the app icon, so
 // the tray can show a badge without shipping a second icon asset. Works on the
 // raw RGBA buffer (no image-crate dependency).
@@ -67,36 +95,44 @@ fn set_tray_badge(app: tauri::AppHandle, unread: bool) {
     }
 }
 
-// Toast natif Windows pour un nouveau message (desktop). On construit la toast en
-// Rust plutôt que via tauri-plugin-notification : le chemin desktop du plugin est
-// « fire-and-forget » (il jette la toast et ne câble aucun callback d'activation),
-// si bien qu'un clic sur la notification Windows ne remonte JAMAIS à l'app (les
-// événements JS onAction/actionPerformed sont mobile-only). Ici `on_activated`
-// ramène la fenêtre au premier plan et émet `desktop:notification-click` avec l'id
-// du salon, pour que le webview ouvre la bonne conversation. Exécuté sur le thread
-// principal : les API WinRT de toast exigent l'apartment COM (STA) du process.
+// Toast Windows « protocole » pour un nouveau message (desktop). Un clic sur une
+// notification NE peut PAS être reçu en in-process pour une app Win32 non-packagée
+// (Windows exigerait un activateur COM) : on émet donc une toast dont l'activation
+// est un lancement de protocole `murgatchat://channel/<id>`. Au clic, Windows
+// relance l'exe avec cette URI, captée par single-instance (app en cours) ou au
+// démarrage (main/setup) → focus + ouverture de la conversation. Construit via
+// windows-rs (le builder tauri-winrt-notification ne pose pas launch/activationType).
+// Sur le thread principal : les API WinRT exigent l'apartment COM (STA) du process.
 #[cfg(windows)]
 #[tauri::command]
 fn notify_desktop(app: tauri::AppHandle, title: String, body: String, channel_id: Option<String>) {
-    let app_handle = app.clone();
     let _ = app.run_on_main_thread(move || {
-        use tauri_winrt_notification::Toast;
-        let on_click = app_handle.clone();
-        // app_id = APP_ID (identifiant Tauri) = AUMID fixé au démarrage (cf. setup)
-        // = AUMID du raccourci NSIS ; c'est ce qui route le clic vers ce process.
-        let toast = Toast::new(APP_ID)
-            .title(&title)
-            .text1(&body)
-            .on_activated(move |_action| {
-                if let Some(win) = on_click.get_webview_window("main") {
-                    let _ = win.unminimize();
-                    let _ = win.show();
-                    let _ = win.set_focus();
-                }
-                let _ = on_click.emit("desktop:notification-click", channel_id.clone());
-                Ok(())
-            });
-        if let Err(e) = toast.show() {
+        use windows::core::HSTRING;
+        use windows::Data::Xml::Dom::XmlDocument;
+        use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
+
+        let launch = match channel_id {
+            Some(id) => format!("{}://channel/{}", DEEP_LINK_SCHEME, id),
+            None => format!("{}://open", DEEP_LINK_SCHEME),
+        };
+        let xml = format!(
+            "<toast launch=\"{}\" activationType=\"protocol\"><visual><binding \
+             template=\"ToastGeneric\"><text>{}</text><text>{}</text></binding>\
+             </visual></toast>",
+            xml_escape(&launch),
+            xml_escape(&title),
+            xml_escape(&body),
+        );
+        let show = || -> windows::core::Result<()> {
+            let doc = XmlDocument::new()?;
+            doc.LoadXml(&HSTRING::from(xml.as_str()))?;
+            let toast = ToastNotification::CreateToastNotification(&doc)?;
+            let notifier =
+                ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(APP_ID))?;
+            notifier.Show(&toast)?;
+            Ok(())
+        };
+        if let Err(e) = show() {
             eprintln!("[desktop] toast show failed: {e:?}");
         }
     });
@@ -119,12 +155,22 @@ fn main() {
         // Single instance: a second launch (e.g. clicking the icon while the app
         // already runs hidden in the tray after autostart) focuses the existing
         // window instead of spawning a new one. Registered first, as recommended.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // Second lancement : soit l'icône (on ramène juste la fenêtre), soit un
+            // clic sur une toast, que Windows relance avec `murgatchat://channel/<id>`
+            // en argv (transmis ici). On ramène la fenêtre et, si un deep-link est
+            // présent, on demande au webview d'ouvrir la conversation (#169 desktop).
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
+            #[cfg(windows)]
+            if let Some(id) = channel_id_from_args(args) {
+                let _ = app.emit("desktop:notification-click", Some(id));
+            }
+            #[cfg(not(windows))]
+            let _ = args;
         }))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
@@ -141,10 +187,10 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![set_tray_badge, notify_desktop])
         .setup(|app| {
-            // Fixe l'AppUserModelID explicite du process = app_id des toasts (et
-            // AUMID du raccourci NSIS). Sans ça, Windows ne route pas le clic d'une
-            // notification vers CE process (le callback on_activated in-process),
-            // notamment au lancement autostart `--hidden` (exe direct, hors raccourci).
+            // Fixe l'AppUserModelID explicite du process = app_id des toasts = AUMID
+            // du raccourci NSIS : c'est ce qui attribue la toast à notre app (nom +
+            // icône) et fiabilise sa remise, y compris au lancement autostart
+            // `--hidden` (exe direct, hors raccourci).
             #[cfg(windows)]
             {
                 use windows::core::HSTRING;
@@ -152,6 +198,20 @@ fn main() {
                 unsafe {
                     let _ = SetCurrentProcessExplicitAppUserModelID(&HSTRING::from(APP_ID));
                 }
+            }
+
+            // Démarrage à froid via un clic sur une notification alors que l'app
+            // était fermée (rare : elle se replie dans le tray plutôt que de quitter) :
+            // l'URI `murgatchat://…` est dans argv. On l'émet après un court délai,
+            // le temps que le front s'abonne (best-effort ; le cas « app en cours »
+            // passe par single-instance ci-dessus).
+            #[cfg(windows)]
+            if let Some(id) = channel_id_from_args(std::env::args()) {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(2000));
+                    let _ = handle.emit("desktop:notification-click", Some(id));
+                });
             }
 
             // Launched at login (autostart) -> stay in the tray instead of

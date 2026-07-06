@@ -19,14 +19,17 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [target.'cfg(windows)'.dependencies]
-# Toast Windows natif avec callback d'activation (clic → focus + deep-link), que
-# tauri-plugin-notification ne fournit pas côté desktop. Déjà présent en dépendance
-# transitive (via notify-rust en 0.7.2) ; on l'expose en direct pour main.rs.
-tauri-winrt-notification = "0.7"
-# Pour fixer l'AppUserModelID explicite du process (= app_id de la toast), sans
-# quoi Windows ne route pas le callback d'activation du clic vers notre process.
-# Aligné sur la version que tauri-winrt-notification tire déjà (0.61) → pas de doublon.
-windows = { version = "0.61", features = ["Win32_UI_Shell", "Win32_Foundation"] }
+# API Windows natives (windows-rs) :
+#  - UI_Notifications + Data_Xml_Dom : construire la toast « protocole » à la main
+#    (le clic d'une toast ne peut PAS être reçu en in-process pour une app Win32
+#    non-packagée → activation par protocole `murgatchat://…`, cf. main.rs) ;
+#  - Win32_UI_Shell : SetCurrentProcessExplicitAppUserModelID (attribution de la toast).
+windows = { version = "0.61", features = [
+    "Win32_UI_Shell",
+    "Win32_Foundation",
+    "UI_Notifications",
+    "Data_Xml_Dom",
+] }
 
 [profile.release]
 panic = "abort"
