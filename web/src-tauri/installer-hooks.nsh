@@ -51,11 +51,21 @@
   Push $0
   nsExec::Exec 'cmd /c taskkill /F /IM "chat-desktop.exe"'
   Pop $0
+  ; Retire le schéma URI enregistré au POSTINSTALL.
+  DeleteRegKey SHCTX "Software\Classes\murgatchat"
   Pop $0
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
   Push $0
+
+  ; (0) Enregistre le schéma URI `murgatchat://` pour l'activation par protocole des
+  ;     toasts : au clic sur une notification, Windows lance l'exe avec l'URI en argv
+  ;     (récupérée par single-instance → ouverture de la bonne conversation, #169).
+  ;     SHCTX est encore le contexte d'install ici (per-user → HKCU / tous → HKLM).
+  WriteRegStr SHCTX "Software\Classes\murgatchat" "" "URL:MurgatChat"
+  WriteRegStr SHCTX "Software\Classes\murgatchat" "URL Protocol" ""
+  WriteRegStr SHCTX "Software\Classes\murgatchat\shell\open\command" "" '"$INSTDIR\${MAINBINARYNAME}.exe" "%1"'
 
   ; (a) Force a correct shortcut in the context THIS install used. $SMPROGRAMS is
   ;     still the active context here (Tauri hasn't touched SetShellVarContext

@@ -443,7 +443,7 @@ export default function App() {
         setToast({ title, body, open });
         setTimeout(() => setToast(null), 4500);
         if (!isWindowFocused()) {
-          notify(title, body, open);
+          notify(title, body, open, data.channelId);
           setTrayBadge(true); // desktop: red dot on the tray icon (no-op on web)
         }
         return prev;
@@ -458,6 +458,22 @@ export default function App() {
     const onFocus = () => setTrayBadge(false);
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
+  }, []);
+
+  // Desktop : clic sur une notification native → ouvrir la conversation. La
+  // fenêtre est déjà ramenée au premier plan côté Rust ; ici on ne fait que
+  // naviguer (desktop.js relaie l'événement Tauri en CustomEvent fenêtre). #169
+  useEffect(() => {
+    const onNotifClick = (e) => {
+      const channelId = e.detail?.channelId;
+      if (!channelId) return;
+      setActiveChannelId(channelId);
+      setChannels((prev) =>
+        prev.map((ch) => (ch.id === channelId ? { ...ch, unread: false } : ch))
+      );
+    };
+    window.addEventListener("desktop:notification-click", onNotifClick);
+    return () => window.removeEventListener("desktop:notification-click", onNotifClick);
   }, []);
 
   // Badge du nombre de conversations non lues sur l'icône de la barre des tâches

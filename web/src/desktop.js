@@ -1,5 +1,4 @@
 let mode = null;
-let tauriNotify = null;
 
 export function isTauri() {
   return typeof window !== "undefined" && !!window.__TAURI_INTERNALS__;
@@ -58,6 +57,25 @@ async function initDesktopPresence() {
   }
 }
 
+// Relaie le clic sur une notification desktop : la commande Rust `notify_desktop`
+// (re)met la fenêtre au premier plan puis émet l'événement Tauri
+// `desktop:notification-click` avec l'id du salon. On le convertit en CustomEvent
+// fenêtre (même pont que desktop:presence) pour qu'App.jsx ouvre la conversation.
+async function initNotificationClicks() {
+  try {
+    const { listen } = await import("@tauri-apps/api/event");
+    await listen("desktop:notification-click", (event) => {
+      window.dispatchEvent(
+        new CustomEvent("desktop:notification-click", {
+          detail: { channelId: event.payload || null },
+        })
+      );
+    });
+  } catch (e) {
+    console.warn("[desktop] notification-click listener init failed:", e?.message || e);
+  }
+}
+
 // True when the app is NOT in the foreground (so an away/push is warranted).
 // Tauri: reflects the real native window (tray-hidden / minimised = away). In
 // the browser/PWA the Page Visibility API is reliable, so use it directly.
@@ -109,6 +127,8 @@ async function init() {
     // Track real native-window visibility (tray hide / minimise) so the away
     // heartbeat is accurate — see isAppHidden(). Independent of notifications.
     initDesktopPresence();
+    // Bridge Rust notification-click activations to a window CustomEvent (#169 desktop).
+    initNotificationClicks();
     try {
       const mod = await import("@tauri-apps/plugin-notification");
       let granted = await mod.isPermissionGranted();
@@ -119,7 +139,6 @@ async function init() {
           // Windows has no runtime prompt; treat a throw as "unknown", try anyway.
         }
       }
-      tauriNotify = mod;
       // Keep tauri mode even if `granted` reads false: on Windows the permission
       // is frequently reported false while the OS still delivers toasts, and a
       // genuine denial just makes sendNotification a caught no-op below. Falling
@@ -162,13 +181,18 @@ export async function ensureReady() {
 // notification — sert à ramener la fenêtre au premier plan et ouvrir la bonne
 // conversation (#169). Câblé sur le chemin navigateur/PWA (Notification in-page) ;
 // sous Tauri, l'activation de la fenêtre passe par le tray (hors périmètre ici).
-export async function notify(title, body, onClick) {
+export async function notify(title, body, onClick, channelId) {
   await ready;
-  if (mode === "tauri" && tauriNotify) {
+  if (mode === "tauri") {
+    // Toast natif via une commande Rust (`notify_desktop`) : le plugin
+    // tauri-plugin-notification ne remonte pas le clic côté desktop. Le clic
+    // ramène la fenêtre et émet l'événement `desktop:notification-click` (relayé
+    // en CustomEvent par initNotificationClicks) avec l'id du salon pour naviguer.
     try {
-      await tauriNotify.sendNotification({ title, body });
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("notify_desktop", { title, body, channelId: channelId ?? null });
     } catch (e) {
-      console.error("[desktop] sendNotification failed:", e);
+      console.error("[desktop] notify_desktop failed:", e);
     }
     return;
   }

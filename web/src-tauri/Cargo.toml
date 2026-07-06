@@ -18,6 +18,19 @@ tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+[target.'cfg(windows)'.dependencies]
+# API Windows natives (windows-rs) :
+#  - UI_Notifications + Data_Xml_Dom : construire la toast « protocole » à la main
+#    (le clic d'une toast ne peut PAS être reçu en in-process pour une app Win32
+#    non-packagée → activation par protocole `murgatchat://…`, cf. main.rs) ;
+#  - Win32_UI_Shell : SetCurrentProcessExplicitAppUserModelID (attribution de la toast).
+windows = { version = "0.61", features = [
+    "Win32_UI_Shell",
+    "Win32_Foundation",
+    "UI_Notifications",
+    "Data_Xml_Dom",
+] }
+
 [profile.release]
 panic = "abort"
 codegen-units = 1
