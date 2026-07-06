@@ -52,3 +52,39 @@ body {
 .md-body .hljs-tag { color: #7ee787; }
 .md-body .hljs-emphasis { font-style: italic; }
 .md-body .hljs-strong { font-weight: 700; }
+
+/* Word (.docx) preview: mammoth emits semantic HTML, which Tailwind's preflight
+   strips of default styling. Present it like a Word document — a white "page"
+   with margins and a shadow on a gray desk (.docx-page), Word-like typography
+   (Calibri, blue headings) scoped to .docx-preview so it can't leak into the app
+   chrome. Rendered from sanitized HTML (DOMPurify) in AttachmentModal.jsx. */
+.docx-page {
+  max-width: 1000px; /* a touch wider than a real 8.5in page, still readable */
+  margin: 24px auto;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 10px 28px rgba(0, 0, 0, 0.16);
+  padding: 72px 84px; /* page margins */
+}
+.docx-preview {
+  color: #1a1a1a;
+  line-height: 1.5;
+  font-size: 11pt;
+  font-family: Calibri, "Segoe UI", Candara, Optima, "Helvetica Neue", Arial, sans-serif;
+}
+.docx-preview > :first-child { margin-top: 0; }
+.docx-preview p { margin: 0 0 0.6em; }
+.docx-preview h1 { color: #2f5496; font-size: 1.7em; font-weight: 600; margin: 1.1em 0 0.3em; }
+.docx-preview h2 { color: #2f5496; font-size: 1.35em; font-weight: 600; margin: 1em 0 0.3em; }
+.docx-preview h3 { color: #1f3864; font-size: 1.12em; font-weight: 600; margin: 0.9em 0 0.3em; }
+.docx-preview h4, .docx-preview h5, .docx-preview h6 { color: #1f3864; font-weight: 600; margin: 0.9em 0 0.3em; }
+.docx-preview ul, .docx-preview ol { margin: 0 0 0.6em; padding-left: 1.5em; }
+.docx-preview ul { list-style: disc; }
+.docx-preview ol { list-style: decimal; }
+.docx-preview li { margin: 0.2em 0; }
+.docx-preview a { color: #2f5496; text-decoration: underline; }
+.docx-preview strong, .docx-preview b { font-weight: 700; }
+.docx-preview em, .docx-preview i { font-style: italic; }
+.docx-preview img { max-width: 100%; height: auto; }
+.docx-preview table { border-collapse: collapse; margin: 0.75em 0; }
+.docx-preview td, .docx-preview th { border: 1px solid #bfbfbf; padding: 4px 8px; vertical-align: top; }
+.docx-preview blockquote { border-left: 3px solid #cbd5e1; margin: 0.75em 0; padding-left: 1em; color: #475569; }
