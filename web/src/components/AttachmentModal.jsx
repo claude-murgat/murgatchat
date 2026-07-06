@@ -23,7 +23,7 @@ function extOf(name = "") {
 }
 
 const TEXT_EXTS = new Set([
-  "txt", "md", "markdown", "log", "csv", "tsv", "json", "xml",
+  "txt", "md", "markdown", "log", "json", "xml",
   "yml", "yaml", "ini", "conf", "env", "sql",
 ]);
 
@@ -46,6 +46,7 @@ function kindOf(mime = "", filename = "") {
     ext === "xlsx"
   )
     return "xlsx";
+  if (mime === "text/csv" || ext === "csv" || ext === "tsv") return "csv";
   if (mime.startsWith("text/") || TEXT_EXTS.has(ext)) return "text";
   return "other";
 }
@@ -54,6 +55,77 @@ function fmtCell(v) {
   if (v == null) return "";
   if (v instanceof Date) return v.toLocaleString();
   return String(v);
+}
+
+// Right-align numeric cells like a spreadsheet does (real numbers from xlsx, or
+// number-looking strings from csv).
+function isNumericCell(v) {
+  if (typeof v === "number") return Number.isFinite(v);
+  if (typeof v === "string") {
+    const t = v.trim();
+    return t !== "" && /^-?\d+(?:[.,]\d+)?$/.test(t);
+  }
+  return false;
+}
+
+// Spreadsheet column label: 0 -> A, 25 -> Z, 26 -> AA, …
+function colLabel(n) {
+  let s = "";
+  let x = n + 1;
+  while (x > 0) {
+    const m = (x - 1) % 26;
+    s = String.fromCharCode(65 + m) + s;
+    x = Math.floor((x - 1) / 26);
+  }
+  return s;
+}
+
+// Minimal RFC-4180 CSV parser with delimiter auto-detection (comma / semicolon /
+// tab — Excel FR exports use ";"). Handles quoted fields, "" escapes and CRLF.
+function parseCsv(text) {
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1); // strip BOM
+  const nl = text.indexOf("\n");
+  const firstLine = nl >= 0 ? text.slice(0, nl) : text;
+  const counts = { ",": 0, ";": 0, "\t": 0 };
+  let scanQ = false;
+  for (const ch of firstLine) {
+    if (ch === '"') scanQ = !scanQ;
+    else if (!scanQ && ch in counts) counts[ch]++;
+  }
+  const delim =
+    Object.entries(counts).sort((a, b) => b[1] - a[1])[0][1] > 0
+      ? Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]
+      : ",";
+
+  const rows = [];
+  let row = [];
+  let field = "";
+  let q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else q = false;
+      } else field += c;
+    } else if (c === '"') q = true;
+    else if (c === delim) {
+      row.push(field);
+      field = "";
+    } else if (c === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+    } else if (c !== "\r") field += c;
+  }
+  if (field.length || row.length) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
 }
 
 function Spinner({ label }) {
@@ -112,50 +184,56 @@ function useFetchedBuffer(url) {
   return state;
 }
 
-// Word: mammoth converts the .docx to semantic HTML; DOMPurify strips anything
-// unsafe before it's injected (the document is untrusted user content). Links are
-// forced to open externally so a click can't navigate the app away.
-function DocxView({ buffer, onError }) {
-  const [html, setHtml] = useState(null);
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const [{ default: mammoth }, { default: DOMPurify }] = await Promise.all([
-          import("mammoth"),
-          import("dompurify"),
-        ]);
-        const { value } = await mammoth.convertToHtml({ arrayBuffer: buffer });
-        DOMPurify.addHook("afterSanitizeAttributes", (node) => {
-          if (node.tagName === "A") {
-            node.setAttribute("target", "_blank");
-            node.setAttribute("rel", "noreferrer noopener");
-          }
-        });
-        const clean = DOMPurify.sanitize(value || "", { ADD_ATTR: ["target", "rel"] });
-        DOMPurify.removeHook("afterSanitizeAttributes");
-        if (alive) setHtml(clean || "<p></p>");
-      } catch {
-        if (alive) onError();
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [buffer, onError]);
-
-  if (html === null) return <Spinner label="Rendu du document…" />;
+// Spreadsheet-style grid shared by the Excel and CSV viewers: a gray frame of
+// column letters (A, B, …) and row numbers (1, 2, …) around white cells with
+// gridlines, numbers right-aligned. The frame stays put while scrolling.
+function SheetGrid({ rows }) {
+  const cols = rows.reduce((m, r) => Math.max(m, r.length), 0);
+  const headers = Array.from({ length: cols }, (_, i) => colLabel(i));
   return (
-    <div className="w-[92vw] max-w-3xl h-[82vh] overflow-auto bg-white rounded-lg scroll-thin">
-      {/* Sanitized above with DOMPurify; mammoth emits a limited, styled HTML set. */}
-      <div className="docx-preview" dangerouslySetInnerHTML={{ __html: html }} />
-    </div>
+    <table className="border-collapse text-sm text-slate-800 tabular-nums">
+      <thead>
+        <tr>
+          <th className="sticky top-0 left-0 z-20 bg-slate-200 border border-slate-300 w-10" />
+          {headers.map((h, i) => (
+            <th
+              key={i}
+              className="sticky top-0 z-10 bg-slate-200 border border-slate-300 px-2 py-0.5 font-medium text-slate-500 text-center min-w-[3.5rem]"
+            >
+              {h}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, ri) => (
+          <tr key={ri}>
+            <td className="sticky left-0 z-10 bg-slate-200 border border-slate-300 px-2 py-0.5 text-slate-500 text-center select-none">
+              {ri + 1}
+            </td>
+            {headers.map((_, ci) => {
+              const cell = row[ci];
+              return (
+                <td
+                  key={ci}
+                  className={`border border-slate-200 px-2 py-0.5 align-top whitespace-pre-wrap break-words max-w-[24rem] ${
+                    isNumericCell(cell) ? "text-right" : ""
+                  }`}
+                >
+                  {fmtCell(cell)}
+                </td>
+              );
+            })}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
 // Excel: read-excel-file parses .xlsx into rows of typed cells. Sheets become
-// tabs and are parsed lazily on selection; rows/cols are capped so a huge sheet
-// can't freeze the tab.
+// bottom tabs (like Excel) and are parsed lazily on selection; rows/cols are
+// capped so a huge sheet can't freeze the tab.
 function XlsxView({ buffer, onError }) {
   const [sheets, setSheets] = useState(null);
   const [active, setActive] = useState(0);
@@ -221,16 +299,30 @@ function XlsxView({ buffer, onError }) {
   if (!sheets) return <Spinner label="Ouverture du classeur…" />;
   return (
     <div className="w-[94vw] max-w-5xl h-[82vh] flex flex-col bg-white rounded-lg overflow-hidden">
+      <div className="flex-1 overflow-auto scroll-thin">
+        {rows === null ? (
+          <div className="p-6 text-slate-500 text-sm">Chargement de la feuille…</div>
+        ) : rows.length === 0 ? (
+          <div className="p-6 text-slate-500 text-sm">Feuille vide.</div>
+        ) : (
+          <SheetGrid rows={rows} />
+        )}
+      </div>
+      {truncated && (
+        <div className="px-3 py-1 text-xs text-amber-700 bg-amber-50 border-t border-amber-200 shrink-0">
+          Aperçu tronqué aux {MAX_ROWS} premières lignes — téléchargez le fichier pour tout voir.
+        </div>
+      )}
       {sheets.length > 1 && (
-        <div className="flex gap-1 p-2 border-b border-slate-200 overflow-x-auto shrink-0">
+        <div className="flex items-stretch gap-0.5 px-2 pt-1 border-t border-slate-300 bg-slate-100 shrink-0 overflow-x-auto scroll-thin">
           {sheets.map((s, i) => (
             <button
               key={i}
               onClick={() => setActive(i)}
-              className={`px-3 py-1 rounded text-sm whitespace-nowrap ${
+              className={`px-3 py-1 text-sm whitespace-nowrap border border-b-0 rounded-t ${
                 i === active
-                  ? "bg-aubergine-700 text-white"
-                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  ? "bg-white text-slate-900 border-slate-300 font-medium"
+                  : "bg-slate-200/60 text-slate-600 border-transparent hover:bg-slate-200"
               }`}
             >
               {s.name}
@@ -238,42 +330,84 @@ function XlsxView({ buffer, onError }) {
           ))}
         </div>
       )}
-      <div className="flex-1 overflow-auto scroll-thin">
-        {rows === null ? (
-          <div className="p-6 text-slate-500 text-sm">Chargement de la feuille…</div>
-        ) : rows.length === 0 ? (
-          <div className="p-6 text-slate-500 text-sm">Feuille vide.</div>
-        ) : (
-          <table className="border-collapse text-sm text-slate-800">
-            <tbody>
-              {rows.map((row, ri) => (
-                <tr key={ri} className={ri % 2 ? "bg-white" : "bg-slate-50/60"}>
-                  {row.map((cell, ci) => (
-                    <td
-                      key={ci}
-                      className={`border border-slate-200 px-2 py-1 align-top whitespace-pre-wrap break-words max-w-[24rem] ${
-                        ri === 0 ? "bg-slate-100 font-medium sticky top-0 z-10" : ""
-                      }`}
-                    >
-                      {fmtCell(cell)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-      {truncated && (
-        <div className="p-2 text-xs text-slate-500 border-t border-slate-200 shrink-0">
-          Aperçu tronqué aux {MAX_ROWS} premières lignes — téléchargez le fichier pour tout voir.
-        </div>
-      )}
     </div>
   );
 }
 
-// Plain text / code / csv: decode as UTF-8 and show it verbatim, capped in length.
+// CSV: parsed client-side and shown in the same spreadsheet grid as Excel.
+function CsvView({ buffer, onError }) {
+  const rows = useMemo(() => {
+    try {
+      const text = new TextDecoder("utf-8").decode(buffer);
+      return parseCsv(text)
+        .slice(0, MAX_ROWS)
+        .map((r) => r.slice(0, MAX_COLS));
+    } catch {
+      return null;
+    }
+  }, [buffer]);
+  useEffect(() => {
+    if (rows === null) onError();
+  }, [rows, onError]);
+  if (rows === null) return null;
+  return (
+    <div className="w-[94vw] max-w-5xl h-[82vh] flex flex-col bg-white rounded-lg overflow-hidden">
+      <div className="flex-1 overflow-auto scroll-thin">
+        {rows.length === 0 ? (
+          <div className="p-6 text-slate-500 text-sm">Fichier vide.</div>
+        ) : (
+          <SheetGrid rows={rows} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Word: mammoth converts the .docx to semantic HTML; DOMPurify strips anything
+// unsafe before it's injected (the document is untrusted user content). Links are
+// forced to open externally so a click can't navigate the app away. Rendered on a
+// document "page" (see .docx-page / .docx-preview in styles.css).
+function DocxView({ buffer, onError }) {
+  const [html, setHtml] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const [{ default: mammoth }, { default: DOMPurify }] = await Promise.all([
+          import("mammoth"),
+          import("dompurify"),
+        ]);
+        const { value } = await mammoth.convertToHtml({ arrayBuffer: buffer });
+        DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+          if (node.tagName === "A") {
+            node.setAttribute("target", "_blank");
+            node.setAttribute("rel", "noreferrer noopener");
+          }
+        });
+        const clean = DOMPurify.sanitize(value || "", { ADD_ATTR: ["target", "rel"] });
+        DOMPurify.removeHook("afterSanitizeAttributes");
+        if (alive) setHtml(clean || "<p></p>");
+      } catch {
+        if (alive) onError();
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [buffer, onError]);
+
+  if (html === null) return <Spinner label="Rendu du document…" />;
+  return (
+    <div className="w-[92vw] max-w-[900px] h-[82vh] overflow-auto bg-slate-300/40 rounded-lg scroll-thin">
+      <div className="docx-page">
+        {/* Sanitized above with DOMPurify; mammoth emits a limited, styled HTML set. */}
+        <div className="docx-preview" dangerouslySetInnerHTML={{ __html: html }} />
+      </div>
+    </div>
+  );
+}
+
+// Plain text / code: decode as UTF-8 and show it verbatim, capped in length.
 function TextView({ buffer, onError }) {
   const text = useMemo(() => {
     try {
@@ -315,18 +449,20 @@ function DocumentPreview({ url, kind, attachment, onDownload }) {
   if (buf.status === "loading") return <Spinner label="Chargement du fichier…" />;
   if (kind === "docx") return <DocxView buffer={buf.buffer} onError={onError} />;
   if (kind === "xlsx") return <XlsxView buffer={buf.buffer} onError={onError} />;
+  if (kind === "csv") return <CsvView buffer={buf.buffer} onError={onError} />;
   return <TextView buffer={buf.buffer} onError={onError} />;
 }
 
 // Lightbox modal for a single attachment: previews it in place (image/video/
-// audio/pdf, plus Word/Excel/text rendered client-side) and offers a reliable
+// audio/pdf, plus Word/Excel/CSV/text rendered client-side) and offers a reliable
 // download. Opened from the message list instead of navigating to the raw
 // server URL in a new tab.
 export default function AttachmentModal({ attachment, onClose }) {
   const url = attachmentUrl(attachment.id); // already carries ?token=…
   const downloadUrl = `${url}&download=1`; // server → Content-Disposition: attachment
   const kind = kindOf(attachment.mimeType, attachment.filename);
-  const isDocument = kind === "docx" || kind === "xlsx" || kind === "text";
+  const isDocument =
+    kind === "docx" || kind === "xlsx" || kind === "csv" || kind === "text";
 
   useEffect(() => {
     const onKey = (e) => {
