@@ -59,7 +59,7 @@ body {
    (Calibri, blue headings) scoped to .docx-preview so it can't leak into the app
    chrome. Rendered from sanitized HTML (DOMPurify) in AttachmentModal.jsx. */
 .docx-page {
-  max-width: 816px; /* ~8.5in at 96dpi */
+  max-width: 1000px; /* a touch wider than a real 8.5in page, still readable */
   margin: 24px auto;
   background: #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 10px 28px rgba(0, 0, 0, 0.16);

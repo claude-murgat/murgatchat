@@ -298,7 +298,7 @@ function XlsxView({ buffer, onError }) {
 
   if (!sheets) return <Spinner label="Ouverture du classeur…" />;
   return (
-    <div className="w-[94vw] max-w-5xl h-[82vh] flex flex-col bg-white rounded-lg overflow-hidden">
+    <div className="w-[75vw] max-w-[1700px] h-[82vh] flex flex-col bg-white rounded-lg overflow-hidden">
       <div className="flex-1 overflow-auto scroll-thin">
         {rows === null ? (
           <div className="p-6 text-slate-500 text-sm">Chargement de la feuille…</div>
@@ -351,7 +351,7 @@ function CsvView({ buffer, onError }) {
   }, [rows, onError]);
   if (rows === null) return null;
   return (
-    <div className="w-[94vw] max-w-5xl h-[82vh] flex flex-col bg-white rounded-lg overflow-hidden">
+    <div className="w-[75vw] max-w-[1700px] h-[82vh] flex flex-col bg-white rounded-lg overflow-hidden">
       <div className="flex-1 overflow-auto scroll-thin">
         {rows.length === 0 ? (
           <div className="p-6 text-slate-500 text-sm">Fichier vide.</div>
@@ -398,7 +398,7 @@ function DocxView({ buffer, onError }) {
 
   if (html === null) return <Spinner label="Rendu du document…" />;
   return (
-    <div className="w-[92vw] max-w-[900px] h-[82vh] overflow-auto bg-slate-300/40 rounded-lg scroll-thin">
+    <div className="w-[75vw] max-w-[1700px] h-[82vh] overflow-auto bg-slate-300/40 rounded-lg scroll-thin">
       <div className="docx-page">
         {/* Sanitized above with DOMPurify; mammoth emits a limited, styled HTML set. */}
         <div className="docx-preview" dangerouslySetInnerHTML={{ __html: html }} />
@@ -421,7 +421,7 @@ function TextView({ buffer, onError }) {
   }, [text, onError]);
   if (text === null) return null;
   return (
-    <div className="w-[92vw] max-w-3xl h-[82vh] overflow-auto bg-white rounded-lg scroll-thin">
+    <div className="w-[75vw] max-w-[1200px] h-[82vh] overflow-auto bg-white rounded-lg scroll-thin">
       <pre className="p-4 text-sm text-slate-800 whitespace-pre-wrap break-words font-mono">
         {text}
       </pre>
