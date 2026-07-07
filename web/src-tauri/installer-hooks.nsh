@@ -35,6 +35,17 @@
 ; shortcut is always kept, so we never need to know which context is "active" -
 ; a wrong guess can't delete the good shortcut.
 ;
+; ----------------------------------------------------------------------------
+; 3) POSTINSTALL (c) + PREUNINSTALL - purge stray Startup-folder autostart.
+; ----------------------------------------------------------------------------
+; A raw chat-desktop.exe (a whole old binary, NOT a shortcut) left in the
+; all-users/per-user Startup folder relaunches an OUTDATED build at every login -
+; on a Terminal Server every session then reports a bogus "new version available"
+; for a version already installed. Opt-in autostart is meant to go through the
+; registry Run key (per user), so a Startup-folder copy is always residue: (c)
+; removes it in both contexts and, if present, migrates it to a shortcut on THIS
+; install so login keeps launching the current version. PREUNINSTALL clears it.
+;
 ; Macros/vars below (IsShortcutTarget, UnpinShortcut, SetLnkAppUserModelId,
 ; ${PRODUCTNAME}, ${MAINBINARYNAME}, ${STARTMENUFOLDER}, ${INSTALLMODE},
 ; $AppStartMenuFolder, $MultiUser.InstallMode) come from Tauri's template /
@@ -53,6 +64,16 @@
   Pop $0
   ; Retire le schéma URI enregistré au POSTINSTALL.
   DeleteRegKey SHCTX "Software\Classes\murgatchat"
+  ; Retire tout résidu de démarrage auto (raccourci géré OU vieux binaire brut
+  ; déposé dans le dossier Démarrage) dans les deux contextes : l'app est
+  ; désinstallée, plus rien ne doit se lancer au login. On laisse ensuite le
+  ; contexte per-user (défaut NSIS) pour la suite de la désinstallation.
+  SetShellVarContext all
+  Delete "$SMSTARTUP\${MAINBINARYNAME}.exe"
+  Delete "$SMSTARTUP\${PRODUCTNAME}.lnk"
+  SetShellVarContext current
+  Delete "$SMSTARTUP\${MAINBINARYNAME}.exe"
+  Delete "$SMSTARTUP\${PRODUCTNAME}.lnk"
   Pop $0
 !macroend
 
@@ -98,6 +119,60 @@
     !insertmacro UnpinShortcut "$SMPROGRAMS\${PRODUCTNAME}.lnk"
     Delete "$SMPROGRAMS\${PRODUCTNAME}.lnk"
   ${EndIf}
+
+  ; (c) Purge stray autostart residue from the Startup folder(s). A whole OLD
+  ;     ${MAINBINARYNAME}.exe (a raw binary, NOT a shortcut) dropped into the
+  ;     all-users or per-user Startup folder relaunches an OUTDATED build at every
+  ;     login. On a Terminal Server that means every session boots a stale copy,
+  ;     which then reports a bogus "new version available" for a version already
+  ;     installed. The app's own opt-in autostart uses the registry Run key, never
+  ;     a Startup-folder copy, so a raw exe (or a "${PRODUCTNAME}.lnk" pointing at
+  ;     another path) there is always residue. Remove it in BOTH contexts; if it
+  ;     was present (autostart was intended), leave a shortcut to THIS install so
+  ;     login keeps launching the CURRENT version. $SMSTARTUP follows the context.
+  Push $1
+
+  SetShellVarContext all
+  StrCpy $1 "0"
+  ${If} ${FileExists} "$SMSTARTUP\${MAINBINARYNAME}.exe"
+    Delete "$SMSTARTUP\${MAINBINARYNAME}.exe"
+    StrCpy $1 "1"
+  ${EndIf}
+  ${If} ${FileExists} "$SMSTARTUP\${PRODUCTNAME}.lnk"
+    !insertmacro IsShortcutTarget "$SMSTARTUP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+    Pop $0
+    ${If} $0 <> 1
+      !insertmacro UnpinShortcut "$SMSTARTUP\${PRODUCTNAME}.lnk"
+      Delete "$SMSTARTUP\${PRODUCTNAME}.lnk"
+      StrCpy $1 "1"
+    ${EndIf}
+  ${EndIf}
+  ${If} $1 == "1"
+    CreateShortcut "$SMSTARTUP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe" "--hidden"
+    !insertmacro SetLnkAppUserModelId "$SMSTARTUP\${PRODUCTNAME}.lnk"
+  ${EndIf}
+
+  SetShellVarContext current
+  StrCpy $1 "0"
+  ${If} ${FileExists} "$SMSTARTUP\${MAINBINARYNAME}.exe"
+    Delete "$SMSTARTUP\${MAINBINARYNAME}.exe"
+    StrCpy $1 "1"
+  ${EndIf}
+  ${If} ${FileExists} "$SMSTARTUP\${PRODUCTNAME}.lnk"
+    !insertmacro IsShortcutTarget "$SMSTARTUP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe"
+    Pop $0
+    ${If} $0 <> 1
+      !insertmacro UnpinShortcut "$SMSTARTUP\${PRODUCTNAME}.lnk"
+      Delete "$SMSTARTUP\${PRODUCTNAME}.lnk"
+      StrCpy $1 "1"
+    ${EndIf}
+  ${EndIf}
+  ${If} $1 == "1"
+    CreateShortcut "$SMSTARTUP\${PRODUCTNAME}.lnk" "$INSTDIR\${MAINBINARYNAME}.exe" "--hidden"
+    !insertmacro SetLnkAppUserModelId "$SMSTARTUP\${PRODUCTNAME}.lnk"
+  ${EndIf}
+
+  Pop $1
 
   ; Best-effort: restore the shell context this install actually used, in case
   ; later template code depends on it. Guarded so it only compiles for the
