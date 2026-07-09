@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-07-03** (0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages ; 0.7.2 : mentions interactives, fuite de brouillon corrigée, drag-drop Desktop).
+Dernière mise à jour : **2026-07-09** (0.7.5 : aperçu intégré Word/Excel/CSV/texte + PDF réparé, clic notification desktop par protocole, purge du résidu de démarrage TSE, DM triés par récence + non-lus plus visibles, ouverture sur le 1er message non lu + auto-chargement des anciens, mentions surlignées à la saisie ; 0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages ; 0.7.2 : mentions interactives, fuite de brouillon corrigée, drag-drop Desktop).
 
 ---
 
@@ -791,6 +791,47 @@ Release **0.7.3** publiée (pipeline `release.yml` verte, installeur signé + `l
 
 Release **0.7.4** publiée (pipeline `release.yml` verte, installeur signé + `latest.json`).
 
+## Itération 2026-07-06 → 07-09 — aperçu bureautique, correctifs desktop/TSE & UX de conversation (0.7.5)
+
+74. **Aperçu intégré des fichiers bureautiques (0.7.5)** — clic sur une pièce jointe
+    `.docx` / `.xlsx` / `.csv` / texte → rendu **100 % côté client** dans la visionneuse
+    (mammoth, read-excel-file, DOMPurify, **lazy-loadés** → bundle initial inchangé) :
+    grille type tableur (csv/xlsx, onglets de feuilles), page Word (docx), largeur 75 %.
+    **PDF réparé** (« a refusé de se connecter ») en le framant depuis un **blob
+    same-origin** (contourne le `X-Frame-Options` du back, adresse serveur choisie au
+    runtime) + CSP nginx `frame-src blob:`. Web **et** desktop ; anciens `.doc`/`.xls` →
+    repli téléchargement. Aucune dépendance à risque (exceljs écarté). (issues #174, #176 ; PR #175, #177)
+
+75. **Clic sur notification desktop → conversation (0.7.5)** — pour une app Win32 non
+    packagée, l'événement d'activation in-process ne remonte pas : on bascule sur
+    l'**activation par protocole** `murgatchat://channel/<id>` (toast construite via
+    windows-rs, URI captée par single-instance → ouverture du bon salon). ⚠ non vérifié
+    en runtime (Smart App Control bloque l'app non signée). (issue #169 ; PR #173)
+
+76. **TSE : purge du résidu de démarrage auto (0.7.5)** — une vieille build relancée à
+    chaque login affichait une fausse « nouvelle version ». Cause : un `chat-desktop.exe`
+    **brut** (pas un raccourci) déposé dans le **dossier Démarrage** all-users (l'autre
+    mécanisme d'autostart, les clés `Run` étaient vides). L'installeur nettoie désormais ce
+    résidu (deux contextes) et le migre en raccourci sur l'install courante. (PR #178)
+
+77. **Messages directs : tri par récence + non-lus visibles (0.7.5)** — liste des DM
+    **triée par activité la plus récente** (façon SMS, ce qui fait aussi remonter les
+    non-lus), et repère « non lu » renforcé : **pastille rouge** (slackred) + halo, bien
+    plus visible que le seul gras. (issues #179, #180 ; PR #181)
+
+78. **Ouverture d'une conversation : 1er message non lu (0.7.5)** — on se cale sur le
+    **premier message non lu** (séparateur « Nouveaux messages »), à défaut en bas ;
+    **auto-chargement** des messages plus anciens au scroll près du haut ; et correction
+    du scroll qui ne descendait pas jusqu'au dernier message (images de PJ chargées après
+    coup, laissant la vue 1-6 messages trop haut). Front **+ back** (`GET messages` renvoie
+    `firstUnreadId`, calculé avant le marquage lu). (issue #179 ; PR #182)
+
+79. **Mentions surlignées dans le champ de saisie (0.7.5)** — les `@pseudo` sont mises en
+    valeur pendant la frappe (calque de surlignage sous le textarea à texte transparent,
+    même style aubergine que le fil), au lieu d'apparaître comme du texte normal. (issue #183 ; PR #184)
+
+Release **0.7.5** publiée (pipeline `release.yml`, installeur desktop signé + `latest.json`).
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
@@ -805,4 +846,7 @@ Release **0.7.4** publiée (pipeline `release.yml` verte, installeur signé + `l
 > + « charger plus anciens », fin de la timeline figée au-delà de 200 messages),
 > **0.7.4** (CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées SHA/Dependabot,
 > migrations Prisma versionnées, brouillons par conversation #165, clic notification → conversation
-> #169, badge non-lus PWA compteur + Desktop point rouge #170, marquer une conversation non lue #164).
+> #169, badge non-lus PWA compteur + Desktop point rouge #170, marquer une conversation non lue #164),
+> **0.7.5** (aperçu intégré Word/Excel/CSV/texte #174 + PDF réparé #176, clic notif desktop par
+> protocole #169, purge résidu démarrage TSE #178, DM triés par récence + non-lus visibles #179/#180,
+> ouverture sur le 1er non-lu + auto-load des anciens #179, mentions surlignées à la saisie #183).
