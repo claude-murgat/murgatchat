@@ -171,10 +171,33 @@ router.get("/:id/messages", requireAuth, async (req, res) => {
   const hasMore = rows.length > PAGE;
   const page = rows.slice(0, PAGE); // plus récent -> plus ancien
   const oldestId = page.length ? page[page.length - 1].id : null;
+
+  // Frontière de lecture : le plus ancien message non lu par l'appelant (posté
+  // après son `lastReadAt`, et pas par lui-même). Le client s'y positionne à
+  // l'ouverture (« premier message non lu »). Calculée ICI, à partir du
+  // `lastReadAt` courant, AVANT tout marquage comme lu — celui-ci passe par le
+  // socket `channel:read`, que le client n'émet qu'après avoir reçu cette réponse.
+  // Uniquement pour le chargement initial (pas la pagination `before`).
+  let firstUnreadId = null;
+  if (!before && member.lastReadAt) {
+    const fu = await prisma.message.findFirst({
+      where: {
+        channelId: id,
+        delivered: true,
+        createdAt: { gt: member.lastReadAt },
+        NOT: { authorId: req.userId },
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      select: { id: true },
+    });
+    firstUnreadId = fu?.id || null;
+  }
+
   res.json({
     messages: page.reverse().map(serializeMessage), // plus ancien -> plus récent
     hasMore,
     nextCursor: hasMore ? oldestId : null,
+    firstUnreadId,
   });
 });
 

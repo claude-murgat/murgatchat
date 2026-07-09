@@ -148,6 +148,9 @@ export default function ChannelView({
   // « charger les plus anciens » par paquets de 200 (cf. loadOlder + l'API `before`).
   const [hasMore, setHasMore] = useState(false);
   const [oldestCursor, setOldestCursor] = useState(null);
+  // Id du 1er message non lu à l'ouverture (frontière renvoyée par le serveur) :
+  // on s'y positionne, et un séparateur « Nouveaux messages » le marque.
+  const [firstUnreadId, setFirstUnreadId] = useState(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [scheduled, setScheduled] = useState([]);
   const [showScheduled, setShowScheduled] = useState(false);
@@ -170,6 +173,11 @@ export default function ChannelView({
   // se re-caler quand du contenu tardif (images de PJ, polices) agrandit la liste
   // APRÈS le scroll initial et nous laisserait 1-6 messages trop haut.
   const stickBottomRef = useRef(true);
+  // Ancre « premier non-lu » : tant que vrai, on ramène la vue sur le séparateur
+  // des nouveaux messages (le contenu au-dessus peut charger et le décaler),
+  // jusqu'à ce que l'utilisateur scrolle lui-même. unreadElRef = le séparateur.
+  const unreadAnchorRef = useRef(false);
+  const unreadElRef = useRef(null);
   const messageRefs = useRef({});
   const typingTimers = useRef({});
   // Brouillons en cours par conversation (texte + pièces jointes déjà uploadées) :
@@ -238,18 +246,29 @@ export default function ChannelView({
     setReplyingTo(null);
     setHasMore(false);
     setOldestCursor(null);
+    setFirstUnreadId(null);
     api.messages(activeChannelId).then((res) => {
       if (cancelled) return;
-      scrollModeRef.current = { type: "bottom" };
+      // Ouverture : sur le PREMIER message non lu s'il y en a un (et qu'il est
+      // dans la page chargée), sinon en bas (dernier message).
+      const fuId =
+        res.firstUnreadId && res.messages.some((m) => m.id === res.firstUnreadId)
+          ? res.firstUnreadId
+          : null;
+      setFirstUnreadId(fuId);
+      scrollModeRef.current = fuId ? { type: "unread" } : { type: "bottom" };
       setMessages(res.messages);
       setHasMore(!!res.hasMore);
       setOldestCursor(res.nextCursor || null);
+      // Marquer lu APRÈS la réponse : le serveur a calculé `firstUnreadId` à
+      // partir de l'ancien `lastReadAt` ; l'émettre avant l'aurait effacé
+      // (course entre le GET et le socket channel:read).
+      if (isWindowFocused()) socket?.emit("channel:read", { channelId: activeChannelId });
     });
     api.scheduled(activeChannelId).then((res) => {
       if (!cancelled) setScheduled(res.scheduled);
     });
     socket?.emit("channel:join", activeChannelId);
-    if (isWindowFocused()) socket?.emit("channel:read", { channelId: activeChannelId });
     return () => {
       cancelled = true;
     };
@@ -338,13 +357,28 @@ export default function ChannelView({
       // trop haut : on retient l'intention (stickBottom) et on se re-cale au frame
       // suivant + à chaque média chargé (effet "load" ci-dessous).
       stickBottomRef.current = true;
+      unreadAnchorRef.current = false;
       requestAnimationFrame(() => {
         const s = scrollRef.current;
         if (s && stickBottomRef.current) s.scrollTop = s.scrollHeight;
       });
+    } else if (mode.type === "unread") {
+      // Ouvre sur le 1er message non lu, séparateur « Nouveaux messages » en haut
+      // du viewport. On n'est PAS en bas → pas de collage bas ; on garde l'ancre
+      // le temps que le contenu au-dessus (images) se charge (effet "load").
+      stickBottomRef.current = false;
+      unreadAnchorRef.current = true;
+      if (unreadElRef.current) unreadElRef.current.scrollIntoView({ block: "start" });
+      else el.scrollTop = el.scrollHeight;
+      requestAnimationFrame(() => {
+        if (unreadAnchorRef.current && unreadElRef.current) {
+          unreadElRef.current.scrollIntoView({ block: "start" });
+        }
+      });
     } else if (mode.type === "preserve") {
       el.scrollTop = el.scrollHeight - mode.prevHeight + mode.prevTop;
       stickBottomRef.current = false;
+      unreadAnchorRef.current = false;
     }
     scrollModeRef.current = null;
   }, [messages]);
@@ -356,6 +390,9 @@ export default function ChannelView({
     const el = scrollRef.current;
     if (!el) return;
     stickBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    // Chargement auto des messages plus anciens dès qu'on approche du haut du
+    // chunk courant (loadOlder préserve la position ; le bouton reste en secours).
+    if (el.scrollTop < 200 && hasMore && !loadingOlder) loadOlder();
   }
 
   // Les images de pièces jointes (et autres médias) se chargent APRÈS le scroll
@@ -368,10 +405,27 @@ export default function ChannelView({
     if (!el) return;
     const onLoad = () => {
       const s = scrollRef.current;
-      if (s && stickBottomRef.current) s.scrollTop = s.scrollHeight;
+      if (!s) return;
+      if (stickBottomRef.current) s.scrollTop = s.scrollHeight;
+      else if (unreadAnchorRef.current && unreadElRef.current) {
+        unreadElRef.current.scrollIntoView({ block: "start" });
+      }
+    };
+    // Un scroll manuel (molette / doigt / clavier) libère l'ancre « premier
+    // non-lu » : on cesse de ramener la vue dessus.
+    const releaseAnchor = () => {
+      unreadAnchorRef.current = false;
     };
     el.addEventListener("load", onLoad, true);
-    return () => el.removeEventListener("load", onLoad, true);
+    el.addEventListener("wheel", releaseAnchor, { passive: true });
+    el.addEventListener("touchmove", releaseAnchor, { passive: true });
+    el.addEventListener("keydown", releaseAnchor);
+    return () => {
+      el.removeEventListener("load", onLoad, true);
+      el.removeEventListener("wheel", releaseAnchor);
+      el.removeEventListener("touchmove", releaseAnchor);
+      el.removeEventListener("keydown", releaseAnchor);
+    };
   }, []);
 
   // Charge les 200 messages antérieurs au plus ancien affiché et les préfixe,
@@ -723,6 +777,15 @@ export default function ChannelView({
                   <div className="flex-1 border-t border-slate-200" />
                   <div className="px-3 text-xs text-slate-500">{day}</div>
                   <div className="flex-1 border-t border-slate-200" />
+                </div>
+              )}
+              {m.id === firstUnreadId && (
+                <div ref={unreadElRef} className="flex items-center my-3">
+                  <div className="flex-1 border-t border-slackred/50" />
+                  <div className="px-3 text-xs font-semibold text-slackred uppercase tracking-wide">
+                    Nouveaux messages
+                  </div>
+                  <div className="flex-1 border-t border-slackred/50" />
                 </div>
               )}
               <MessageRow
