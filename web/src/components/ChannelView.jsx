@@ -165,6 +165,11 @@ export default function ChannelView({
   // message alors qu'on est déjà en bas), "preserve" (préfixe d'anciens messages
   // → garder la position), ou null (édition/suppression/réaction → ne pas bouger).
   const scrollModeRef = useRef({ type: "bottom" });
+  // Vrai tant qu'on est censé rester collé au dernier message : piloté par le
+  // scroll de l'utilisateur (onScrollContainer) et par le mode "bottom". Sert à
+  // se re-caler quand du contenu tardif (images de PJ, polices) agrandit la liste
+  // APRÈS le scroll initial et nous laisserait 1-6 messages trop haut.
+  const stickBottomRef = useRef(true);
   const messageRefs = useRef({});
   const typingTimers = useRef({});
   // Brouillons en cours par conversation (texte + pièces jointes déjà uploadées) :
@@ -328,11 +333,46 @@ export default function ChannelView({
     if (!el || !mode) return;
     if (mode.type === "bottom") {
       el.scrollTop = el.scrollHeight;
+      // On veut le bas (dernier message). Le contenu peut encore grandir APRÈS
+      // ce commit (images de PJ pas encore chargées, polices web) et nous laisser
+      // trop haut : on retient l'intention (stickBottom) et on se re-cale au frame
+      // suivant + à chaque média chargé (effet "load" ci-dessous).
+      stickBottomRef.current = true;
+      requestAnimationFrame(() => {
+        const s = scrollRef.current;
+        if (s && stickBottomRef.current) s.scrollTop = s.scrollHeight;
+      });
     } else if (mode.type === "preserve") {
       el.scrollTop = el.scrollHeight - mode.prevHeight + mode.prevTop;
+      stickBottomRef.current = false;
     }
     scrollModeRef.current = null;
   }, [messages]);
+
+  // Suit si l'utilisateur est (encore) au bas de la conversation. Mis à jour à
+  // chaque scroll — y compris nos scrolls programmatiques — donc dès qu'il
+  // remonte lire l'historique, on cesse de le re-caler en bas.
+  function onScrollContainer() {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+  }
+
+  // Les images de pièces jointes (et autres médias) se chargent APRÈS le scroll
+  // initial et agrandissent la liste. Tant qu'on est censé être en bas, on se
+  // re-cale à chaque `load` d'un descendant — en capture, car le `load` d'une
+  // <img> ne remonte pas. ChannelView n'étant pas remonté au changement de salon,
+  // ce listener posé une fois couvre toutes les conversations.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onLoad = () => {
+      const s = scrollRef.current;
+      if (s && stickBottomRef.current) s.scrollTop = s.scrollHeight;
+    };
+    el.addEventListener("load", onLoad, true);
+    return () => el.removeEventListener("load", onLoad, true);
+  }, []);
 
   // Charge les 200 messages antérieurs au plus ancien affiché et les préfixe,
   // en conservant la position de lecture (la hauteur grandit par le haut).
@@ -645,7 +685,11 @@ export default function ChannelView({
         </div>
       )}
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto scroll-thin px-4 py-3">
+      <div
+        ref={scrollRef}
+        onScroll={onScrollContainer}
+        className="flex-1 overflow-y-auto scroll-thin px-4 py-3"
+      >
         {hasMore && (
           <div className="flex justify-center pb-2">
             <button
