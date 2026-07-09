@@ -66,6 +66,13 @@ function dndLabel(user) {
   })}`;
 }
 
+// Timestamp (ms) of a conversation's last message, 0 if it has none yet — used
+// to sort the DM list by most-recent activity (#180). A brand-new DM with no
+// message sinks to the bottom until something is said in it.
+function lastActivity(c) {
+  return c.lastMessage?.createdAt ? new Date(c.lastMessage.createdAt).getTime() : 0;
+}
+
 export default function Sidebar({
   user,
   channels,
@@ -145,7 +152,13 @@ export default function Sidebar({
   }
 
   const groups = channels.filter((c) => !c.isDirect);
-  const dms = channels.filter((c) => c.isDirect);
+  // DMs sorted by most-recent activity (SMS-style, #180): the conversation with
+  // the latest message floats to the top — which also surfaces unread ones,
+  // since they're usually the most recent (see the coloured badge below, #179).
+  // .filter() returns a fresh array, so sorting it never mutates the channels state.
+  const dms = channels
+    .filter((c) => c.isDirect)
+    .sort((a, b) => lastActivity(b) - lastActivity(a));
 
   const dnd = dndLabel(user);
 
@@ -455,7 +468,10 @@ function SidebarItem({ active, onClick, onLongPress, prefix, label, unread }) {
       <span className="opacity-80">{prefix}</span>
       <span className="truncate flex-1">{label}</span>
       {unread && !active && (
-        <span className="w-2 h-2 rounded-full bg-white shrink-0" />
+        <span
+          className="w-2.5 h-2.5 rounded-full bg-slackred shrink-0 ring-2 ring-slackred/30"
+          title="Non lu"
+        />
       )}
     </button>
   );
@@ -514,7 +530,10 @@ function DmItem({ c, user, active, isTyping, onlineUserIds, onClick, onLongPress
       )}
       <span className="truncate flex-1">{c.displayName || "DM"}</span>
       {c.unread && !active && (
-        <span className="w-2 h-2 rounded-full bg-white shrink-0" />
+        <span
+          className="w-2.5 h-2.5 rounded-full bg-slackred shrink-0 ring-2 ring-slackred/30"
+          title="Non lu"
+        />
       )}
     </button>
   );
