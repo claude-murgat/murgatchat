@@ -58,6 +58,34 @@ function isTouchDevice() {
   return typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)")?.matches;
 }
 
+// Rend le texte du champ de saisie avec les mentions « @pseudo » surlignées, pour
+// le calque d'arrière-plan du Composer (#183). Le motif suit celui du fil
+// (MessageMarkdown : `(^|\s)@[a-z0-9_.-]+`) pour un rendu cohérent avant/après
+// envoi. ⚠ Le <span> ne doit RIEN changer à la largeur des glyphes (pas de
+// padding ni de graisse) : il est superposé sous le textarea, donc on ne joue
+// que sur la couleur et le fond, sinon le texte se désaligne.
+function renderComposerText(value) {
+  const re = /(^|\s)@([a-z0-9_.-]+)/gi;
+  const out = [];
+  let last = 0;
+  let m;
+  while ((m = re.exec(value))) {
+    const at = m.index + m[1].length; // position du « @ »
+    if (at > last) out.push(value.slice(last, at));
+    out.push(
+      <span key={at} className="rounded bg-aubergine-700/15 text-aubergine-800">
+        {"@" + m[2]}
+      </span>
+    );
+    last = re.lastIndex;
+  }
+  out.push(value.slice(last));
+  // Un textarea rend une ligne vide finale pour un « \n » terminal ; le calque
+  // (pre-wrap) l'avalerait → caractère de largeur nulle pour garder la même hauteur.
+  out.push("​");
+  return out;
+}
+
 function Composer(
   {
     onSend,
@@ -84,6 +112,9 @@ function Composer(
   const [attachments, setAttachments] = useState(() => initialDraft?.attachments ?? []);
   const [uploading, setUploading] = useState(false);
   const taRef = useRef(null);
+  // Calque d'arrière-plan qui surligne les mentions (#183) : son défilement suit
+  // celui du textarea (texte long) pour rester aligné.
+  const backdropRef = useRef(null);
   const fileRef = useRef(null);
   const [showEmoji, setShowEmoji] = useState(false);
   const emojiRef = useRef(null);
@@ -105,6 +136,7 @@ function Composer(
     if (!ta) return;
     ta.style.height = "auto";
     ta.style.height = Math.min(ta.scrollHeight, 160) + "px";
+    if (backdropRef.current) backdropRef.current.scrollTop = ta.scrollTop;
   }, [text]);
 
   // Remonte le brouillon courant (texte + pièces jointes) au parent à chaque
@@ -430,24 +462,43 @@ function Composer(
           ))}
         </div>
       )}
-      <textarea
-        ref={taRef}
-        rows={1}
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value);
-          refreshMention(e.target.value, e.target.selectionStart);
-          onTyping?.();
-          refreshEmojiMenu(e.target.value, e.target.selectionStart);
-        }}
-        onKeyDown={onKeyDown}
-        // Ferme la liste de mentions quand on quitte le champ. La sélection à la
-        // souris passe par onMouseDown+preventDefault, donc le blur n'y survient pas.
-        onBlur={() => setMention(null)}
-        onPaste={onPaste}
-        placeholder={placeholder || "Écrire un message..."}
-        className="w-full resize-none px-3 py-3 text-slate-900 outline-none rounded-t-lg"
-      />
+      <div className="relative">
+        {/* Calque d'arrière-plan : reproduit le texte avec les mentions
+            surlignées, exactement sous le textarea (même boîte : police héritée,
+            padding, retour à la ligne). Le textarea au-dessus a un texte
+            transparent et un curseur visible → on voit ce calque à travers (#183). */}
+        <div
+          ref={backdropRef}
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words px-3 py-3 text-slate-900 rounded-t-lg"
+        >
+          {renderComposerText(text)}
+        </div>
+        <textarea
+          ref={taRef}
+          rows={1}
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value);
+            refreshMention(e.target.value, e.target.selectionStart);
+            onTyping?.();
+            refreshEmojiMenu(e.target.value, e.target.selectionStart);
+          }}
+          onKeyDown={onKeyDown}
+          // Garde le calque de surlignage aligné quand le texte défile (long message).
+          onScroll={(e) => {
+            if (backdropRef.current) backdropRef.current.scrollTop = e.target.scrollTop;
+          }}
+          // Ferme la liste de mentions quand on quitte le champ. La sélection à la
+          // souris passe par onMouseDown+preventDefault, donc le blur n'y survient pas.
+          onBlur={() => setMention(null)}
+          onPaste={onPaste}
+          placeholder={placeholder || "Écrire un message..."}
+          // Texte transparent (on lit le calque en dessous) mais curseur + espace
+          // réservé visibles ; le placeholder garde sa couleur explicitement.
+          className="relative w-full resize-none px-3 py-3 text-transparent caret-slate-900 placeholder-slate-400 bg-transparent outline-none rounded-t-lg"
+        />
+      </div>
       {attachments.length > 0 && (
         <div className="px-3 py-2 border-t border-slate-200 flex flex-wrap gap-2">
           {attachments.map((a) => (
