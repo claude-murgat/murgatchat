@@ -177,10 +177,12 @@ export async function ensureReady() {
   return ready;
 }
 
-// `onClick` (optionnel) : rappel exécuté quand l'utilisateur clique la
-// notification — sert à ramener la fenêtre au premier plan et ouvrir la bonne
-// conversation (#169). Câblé sur le chemin navigateur/PWA (Notification in-page) ;
-// sous Tauri, l'activation de la fenêtre passe par le tray (hors périmètre ici).
+// `onClick` (optionnel) : rappel exécuté au clic sur la notification (ramener la
+// fenêtre + ouvrir la bonne conversation, #169). En navigateur/PWA on privilégie
+// la notification PERSISTANTE du service worker, dont le clic reste fiable même
+// depuis le Centre de notifications Windows (#190) ; `onClick` ne sert plus que
+// de repli (notification in-page) quand aucun SW n'est actif. Sous Tauri,
+// l'activation passe par le tray (hors périmètre ici).
 export async function notify(title, body, onClick, channelId) {
   await ready;
   if (mode === "tauri") {
@@ -197,11 +199,41 @@ export async function notify(title, body, onClick, channelId) {
     return;
   }
   if (mode === "browser" && Notification.permission === "granted") {
+    // Chemin privilégié : la notification PERSISTANTE du service worker.
+    // Contrairement à `new Notification()` (non-persistant), son clic est délivré
+    // par le handler `notificationclick` du SW même quand le toast a basculé dans
+    // le Centre de notifications Windows — où `Notification.onclick` ne se
+    // déclenche jamais (bug #190). Le SW refocalise la fenêtre et deep-linke via
+    // `?channel=<id>` (exactement le même chemin que le web push).
+    try {
+      const reg =
+        typeof navigator !== "undefined" && navigator.serviceWorker
+          ? await navigator.serviceWorker.getRegistration()
+          : null;
+      if (reg && typeof reg.showNotification === "function") {
+        await reg.showNotification(title, {
+          body,
+          icon: "/icons/icon-192.png",
+          badge: "/icons/badge-72.png",
+          // Même tag que le web push (socket.js) : un message déjà notifié par
+          // push ET par ce chemin premier-plan se fusionne au lieu de doubler.
+          tag: channelId ? `channel:${channelId}` : "murgat-chat",
+          renotify: !!channelId,
+          data: {
+            url: channelId ? `/?channel=${encodeURIComponent(channelId)}` : "/",
+            channelId: channelId ?? null,
+          },
+        });
+        return;
+      }
+    } catch (e) {
+      console.warn("[desktop] SW notification failed, fallback in-page:", e?.message || e);
+    }
+    // Repli : notification non-persistante (aucun SW actif — p. ex. permission
+    // accordée mais SW pas encore prêt). Le clic sur le toast vivant navigue en
+    // page ; il est perdu depuis le Centre de notifs, mais c'est mieux que rien.
     try {
       const n = new Notification(title, { body });
-      // onclick s'exécute dans le contexte de la page (Notification in-page),
-      // donc window.focus() y est autorisé : on remonte la fenêtre puis on
-      // délègue la navigation (ouverture de la conversation) à l'appelant.
       n.onclick = () => {
         try {
           window.focus();
