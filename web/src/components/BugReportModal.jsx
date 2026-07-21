@@ -13,7 +13,7 @@ import { getDiagnostics, getLogLines, dumpText, entryCount } from "../logbuffer.
 // behavior — so reporting a bug never depends on the chat being available.
 // Attachment limits (issue #96). Screenshots are the stated use case, so we
 // allow images only; the count/size caps mirror the server's MAX_ATTACHMENTS and
-// stay well under the /uploads route's 25 MiB hard limit.
+// stay well under the /uploads route's size limit (MAX_UPLOAD_MB, default 50).
 const MAX_ATTACHMENTS = 3;
 const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 Mo
 

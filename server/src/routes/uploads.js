@@ -10,12 +10,32 @@ import { encryptBufferToFile, decryptFile } from "../cryptoFile.js";
 const UPLOAD_DIR = process.env.UPLOAD_DIR || "/data/uploads";
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
+// Taille maximale d'une pièce jointe. Configurable via l'env MAX_UPLOAD_MB
+// (défaut 50 Mo), borné à >= 1 Mo. Exporté pour que la route GIF
+// (routes/gifs.js) reflète la même limite et que la réponse d'erreur puisse
+// annoncer le plafond au client.
+const MAX_UPLOAD_MB = Math.max(1, Math.floor(Number(process.env.MAX_UPLOAD_MB) || 50));
+export const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
+
 // Memory storage so the upload never touches disk until it's been encrypted.
-// 25 MiB cap stays in line with the previous behavior.
+// La RAM par upload en cours = la taille du fichier ; le plafond ci-dessus la borne.
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024 },
+  limits: { fileSize: MAX_UPLOAD_BYTES },
 });
+
+// Enveloppe multer : traduit un dépassement de taille en 413 explicite (avec le
+// plafond, pour l'UI) au lieu du 500 générique du handler d'erreur par défaut.
+function uploadSingle(req, res, next) {
+  upload.single("file")(req, res, (err) => {
+    if (!err) return next();
+    if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({ error: "file_too_large", maxMb: MAX_UPLOAD_MB });
+    }
+    console.error("[uploads] multer error:", err.message);
+    return res.status(400).json({ error: "upload_failed" });
+  });
+}
 
 const router = Router();
 
@@ -68,7 +88,7 @@ export async function storeEncryptedAttachment(buffer, { filename, mimeType, upl
   });
 }
 
-router.post("/", requireAuth, upload.single("file"), async (req, res) => {
+router.post("/", requireAuth, uploadSingle, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "no_file" });
   const filename = Buffer.from(req.file.originalname, "latin1").toString("utf8");
   try {
@@ -141,8 +161,8 @@ router.get("/:id", async (req, res) => {
   );
 
   if (att.encrypted) {
-    // Buffered decrypt: cap is 25 MiB, so RAM cost is bounded; in exchange we
-    // can fail cleanly (and skip writing partial bytes) if the GCM tag is bad.
+    // Buffered decrypt: the upload cap bounds RAM cost; in exchange we can fail
+    // cleanly (and skip writing partial bytes) if the GCM tag is bad.
     try {
       const plaintext = await decryptFile(filePath);
       res.end(plaintext);

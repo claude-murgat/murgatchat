@@ -29,6 +29,8 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       MESSAGE_ENCRYPTION_KEY: ${MESSAGE_ENCRYPTION_KEY}
       UPLOAD_DIR: /data/uploads
+      # Taille max d'une pièce jointe en Mo (défaut 50). Voir .env.example.
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-50}
       # VAPID keys for Web Push (PWA). On first start, the server generates and
       # persists them here; the volume mount survives container restarts so
       # subscriptions don't break. Override via VAPID_PUBLIC_KEY/PRIVATE_KEY env.

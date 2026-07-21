@@ -197,7 +197,8 @@ function Composer(
         setAttachments((prev) => [...prev, att]);
       }
     } catch (err) {
-      alert(err.message || "Upload échoué");
+      const mb = err?.data?.maxMb;
+      alert(mb ? `Fichier trop volumineux (max ${mb} Mo).` : err.message || "Upload échoué");
     } finally {
       setUploading(false);
     }

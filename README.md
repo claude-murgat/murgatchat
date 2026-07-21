@@ -60,7 +60,7 @@ Au démarrage, le serveur applique les **migrations versionnées** (`prisma migr
 2. `+` à côté de *Salons* → créer un salon, inviter des membres.
 3. `+` à côté de *Messages directs* → démarrer un DM.
 4. Composer :
-   - `📎 Fichier` ou Cmd/Ctrl+V → joindre un fichier (jusqu'à 25 Mo)
+   - `📎 Fichier` ou Cmd/Ctrl+V → joindre un fichier (jusqu'à 50 Mo)
    - `⏰ Planifier` → choisir date/heure d'envoi
    - *Entrée* envoie, *Shift+Entrée* retour à la ligne
 5. Header du salon → `Planifiés (N)` → liste éditable de tes messages programmés.
@@ -234,7 +234,7 @@ E2E (le serveur ne peut pas lire) a été écarté pour cette itération car inc
 À reprendre quand on aura clarifié quels canaux veulent quelle garantie (ex. : E2E uniquement pour les DM, planification désactivée dans ce cas).
 
 ### Pièces jointes
-- Upload `multipart/form-data` via `POST /uploads` (multer, **25 Mo max** par fichier).
+- Upload `multipart/form-data` via `POST /uploads` (multer, **50 Mo max** par fichier, configurable via `MAX_UPLOAD_MB`).
 - Stockage disque dans `UPLOAD_DIR` (volume Docker `uploads-data` monté sur `/data/uploads`).
 - Téléchargement / aperçu `GET /uploads/:id?token=<jwt>` — auth + check d'appartenance au salon du message lié (ou être l'uploader si pas encore attaché). `?download=1` force le téléchargement (`Content-Disposition: attachment`) au lieu de l'inline.
 - UI Composer : bouton `📎 Fichier`, picker multi-sélection, **collage Cmd/Ctrl+V** (capture d'écran ou n'importe quel fichier dans le presse-papier).
@@ -291,7 +291,7 @@ Génère une clé prod avec : `openssl rand -hex 32`.
 | GET     | `/channels/:id/scheduled`          | mes messages planifiés dans le salon         |
 | PATCH   | `/channels/scheduled/:id`          | modifier un planifié (body, scheduledAt)     |
 | DELETE  | `/channels/scheduled/:id`          | annuler une planification                    |
-| POST    | `/uploads`                         | upload multipart (champ `file`, ≤ 25 Mo)     |
+| POST    | `/uploads`                         | upload multipart (champ `file`, ≤ 50 Mo)     |
 | GET     | `/uploads/:id?token=<jwt>`         | aperçu (inline) d'une PJ ; `&download=1` force le téléchargement |
 | POST    | `/bug-reports`                     | signaler un bug (`{ message, logs?, diagnostics?, appVersion?, platform? }`) |
 | GET     | `/bug-reports?status=&page=`       | lister les rapports (admin)                  |
@@ -442,7 +442,7 @@ Récap des choix faits pendant le build (et pourquoi), pour qu'on puisse les rem
 - **Pas de Push API** (nécessiterait service worker + VAPID + push service) : couvert par Tauri qui reste vivant via la tray.
 
 ### Pièces jointes
-- **Max 25 Mo par fichier** (multer).
+- **Max 50 Mo par fichier** (multer, configurable via `MAX_UPLOAD_MB`).
 - **Stockage disque local** (volume Docker `uploads-data`) plutôt que S3 : zéro dépendance externe. À migrer si on veut du multi-instance.
 - **Filename UTF-8 explicite** : multer décode en latin1 par défaut, on reconvertit côté serveur pour préserver accents/apostrophes.
 - **Paste support** (Cmd/Ctrl+V) en plus du picker : indispensable pour les captures d'écran.

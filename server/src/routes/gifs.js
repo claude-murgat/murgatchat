@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { requireAuth } from "../auth.js";
-import { storeEncryptedAttachment } from "./uploads.js";
+import { storeEncryptedAttachment, MAX_UPLOAD_BYTES } from "./uploads.js";
 
 // GIPHY proxy. The API key lives only on the server (never in the client bundle)
 // and is read per-request so deployments can set it without a code change (and
@@ -8,7 +8,7 @@ import { storeEncryptedAttachment } from "./uploads.js";
 // leaking a broken provider call.
 const GIPHY_BASE = "https://api.giphy.com/v1/gifs";
 const PAGE = 24;
-const MAX_GIF_BYTES = 25 * 1024 * 1024; // mirror the upload cap
+const MAX_GIF_BYTES = MAX_UPLOAD_BYTES; // reflète le plafond d'upload (MAX_UPLOAD_MB)
 
 function giphyKey() {
   return process.env.GIPHY_API_KEY || "";
