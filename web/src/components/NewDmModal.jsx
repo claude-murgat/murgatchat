@@ -65,7 +65,7 @@ export default function NewDmModal({ onClose, onOpened, currentUserId }) {
       onClick={onClose}
     >
       <div
-        className="bg-white text-slate-900 sm:rounded-xl shadow-2xl w-full h-full sm:h-auto sm:max-w-md sm:max-h-[90vh] flex flex-col"
+        className="bg-white text-slate-900 sm:rounded-xl shadow-2xl w-full h-dvh sm:h-auto sm:max-w-md sm:max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-5 border-b border-slate-200 flex items-center justify-between">
