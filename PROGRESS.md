@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-07-09** (0.7.5 : aperçu intégré Word/Excel/CSV/texte + PDF réparé, clic notification desktop par protocole, purge du résidu de démarrage TSE, DM triés par récence + non-lus plus visibles, ouverture sur le 1er message non lu + auto-chargement des anciens, mentions surlignées à la saisie ; 0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages ; 0.7.2 : mentions interactives, fuite de brouillon corrigée, drag-drop Desktop).
+Dernière mise à jour : **2026-07-21** (0.7.6 : modales plein écran lisibles sur mobile (bouton de validation visible), clic sur notification web qui ouvre la conversation, pièces jointes jusqu'à 50 Mo configurables via `.env` + fix du crash desktop sur fichier trop lourd ; 0.7.5 : aperçu intégré Word/Excel/CSV/texte + PDF réparé, clic notification desktop par protocole, purge du résidu de démarrage TSE, DM triés par récence + non-lus plus visibles, ouverture sur le 1er message non lu + auto-chargement des anciens, mentions surlignées à la saisie ; 0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages).
 
 ---
 
@@ -832,6 +832,33 @@ Release **0.7.4** publiée (pipeline `release.yml` verte, installeur signé + `l
 
 Release **0.7.5** publiée (pipeline `release.yml`, installeur desktop signé + `latest.json`).
 
+## Itération 2026-07-21 — modales mobile, clic notification web, upload 50 Mo (0.7.6)
+
+80. **Modales plein écran plus fiables sur mobile (0.7.6)** — le bouton de validation en
+    pied des modales (« Créer le groupe », « Démarrer »…) passait **sous la barre du
+    navigateur mobile** dès que la liste était longue, donc inatteignable, et la liste ne
+    défilait pas jusqu'à lui. Cause : les 11 modales plein écran étaient dimensionnées en
+    `h-full` (100 % du viewport de mise en page) ; elles passent à **`h-dvh`** (hauteur du
+    viewport réellement visible) → le pied reste toujours à l'écran. Aucun impact desktop
+    (surchargé à ≥ 640 px). (PR #192)
+
+81. **Clic sur notification web → conversation (0.7.6)** — sur le web (Windows, Chrome/Edge),
+    cliquer une notification **depuis le Centre de notifications** n'ouvrait rien. La notif de
+    premier plan était un `new Notification()` **non-persistant** dont le `onclick` n'est
+    délivré que sur le toast « vivant » (perdu dès qu'il bascule dans le centre de notifs).
+    Elle passe désormais par la **notification persistante du service worker** (handler
+    `notificationclick` déjà utilisé par le web push → refocus fenêtre + deep-link
+    `?channel=<id>`). (issue #190 ; PR #193)
+
+82. **Pièces jointes jusqu'à 50 Mo, configurables (0.7.6)** — limite d'upload portée de 25 à
+    **50 Mo** et réglable via **`MAX_UPLOAD_MB`** dans le `.env` (miroir sur le cap GIF). Un
+    dépassement renvoie un **413 JSON explicite** (« Fichier trop volumineux (max N Mo) ») au
+    lieu de la page d'erreur HTML par défaut — ce qui corrige aussi le crash **`Unexpected
+    token '<'`** du desktop Tauri (le client tolère désormais toute réponse non-JSON, même
+    d'un reverse-proxy). ⚠ en prod, relever aussi `client_max_body_size` (nginx) à ≥ 50 Mo. (PR #194)
+
+Release **0.7.6** publiée (pipeline `release.yml`, installeur desktop signé + `latest.json`).
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
@@ -849,4 +876,7 @@ Release **0.7.5** publiée (pipeline `release.yml`, installeur desktop signé + 
 > #169, badge non-lus PWA compteur + Desktop point rouge #170, marquer une conversation non lue #164),
 > **0.7.5** (aperçu intégré Word/Excel/CSV/texte #174 + PDF réparé #176, clic notif desktop par
 > protocole #169, purge résidu démarrage TSE #178, DM triés par récence + non-lus visibles #179/#180,
-> ouverture sur le 1er non-lu + auto-load des anciens #179, mentions surlignées à la saisie #183).
+> ouverture sur le 1er non-lu + auto-load des anciens #179, mentions surlignées à la saisie #183),
+> **0.7.6** (modales plein écran mobile en `dvh` — bouton de validation visible #192, clic notif
+> web via service worker #190/#193, pièces jointes 50 Mo configurable via `MAX_UPLOAD_MB` + fix du
+> crash `Unexpected token '<'` du desktop #194).
