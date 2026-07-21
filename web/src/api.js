@@ -114,8 +114,25 @@ export async function uploadFile(file) {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: fd,
   });
-  const data = await res.json();
-  if (!res.ok) throw Object.assign(new Error(errorMessage(data.error, res.statusText)), { data });
+  // Parse défensif : un upload trop lourd rejeté par un reverse-proxy (nginx
+  // client_max_body_size) ou une passerelle revient en page d'erreur HTML, pas
+  // en JSON — un res.json() aveugle jetterait « Unexpected token '<' » (l'erreur
+  // que voyait le desktop). On tolère donc un corps non-JSON.
+  let data = {};
+  try {
+    data = await res.json();
+  } catch {
+    data = {};
+  }
+  if (!res.ok) {
+    // 413 (notre API ou un proxy) = fichier trop lourd ; normalise le code pour
+    // que l'UI affiche un message clair même quand le corps n'est pas du JSON.
+    if (res.status === 413 && !data.error) data.error = "file_too_large";
+    throw Object.assign(new Error(errorMessage(data.error, res.statusText)), {
+      data,
+      status: res.status,
+    });
+  }
   return data.attachment;
 }
 
