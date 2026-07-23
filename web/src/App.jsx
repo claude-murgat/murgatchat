@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { api, getToken, setToken } from "./api.js";
+import { api, getToken, setToken, checkContract } from "./api.js";
+import { NotificationEventSchema } from "./contracts.js";
 import { getSocket, closeSocket } from "./socket.js";
 import {
   notify,
@@ -424,6 +425,8 @@ export default function App() {
   useEffect(() => {
     if (!socket) return;
     const onNotif = (data) => {
+      // Frontière : on valide le payload reçu contre le contrat (non bloquant).
+      checkContract(NotificationEventSchema, data, "socket 'notification'");
       if (data.channelId === activeChannelId && isWindowFocused()) return;
       setChannels((prev) => {
         const channel = prev.find((c) => c.id === data.channelId);
