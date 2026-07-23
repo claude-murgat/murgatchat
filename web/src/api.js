@@ -1,4 +1,5 @@
 import { logEvent } from "./logbuffer.js";
+import { MessagesResponseSchema } from "./contracts.js";
 
 // The server address is configurable at runtime from the login screen and
 // persisted in localStorage, so the same build can point at any server.
@@ -141,6 +142,22 @@ export function attachmentUrl(id) {
   return `${getApiBaseUrl()}/uploads/${id}?token=${encodeURIComponent(token || "")}`;
 }
 
+// Vérif non-bloquante d'un contrat de données à une frontière : valide `data`,
+// journalise un avertissement compact en cas d'écart (capté par le ring buffer de
+// diagnostic), et RENVOIE toujours `data` tel quel — un décalage de schéma ne doit
+// jamais casser l'UI. Schémas dans web/src/contracts.js (feuille de route typage, phase 1).
+export function checkContract(schema, data, label) {
+  const res = schema.safeParse(data);
+  if (!res.success) {
+    const issues = res.error.issues
+      .slice(0, 4)
+      .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+      .join(" | ");
+    logEvent("warn", `[contract] ${label} — ${res.error.issues.length} écart(s): ${issues}`);
+  }
+  return data;
+}
+
 export const api = {
   get url() {
     return getApiBaseUrl();
@@ -214,7 +231,7 @@ export const api = {
     request(
       `/channels/${channelId}/messages` +
         (before ? `?before=${encodeURIComponent(before)}` : "")
-    ),
+    ).then((d) => checkContract(MessagesResponseSchema, d, "GET /channels/:id/messages")),
   react: (id, emoji) =>
     request(`/channels/messages/${id}/reactions`, { method: "POST", body: { emoji } }),
   editMessage: (id, body) =>
