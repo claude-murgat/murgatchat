@@ -21,12 +21,29 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.ver.outputs.version }}
+      prerelease: ${{ steps.ver.outputs.prerelease }}
       id: ${{ steps.create.outputs.id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Un tag SUFFIXÉ (ex. v0.7.7-rc.1) ouvre un canal de PRÉ-RELEASE : la release
+      # GitHub porte le drapeau `prerelease`, donc elle est EXCLUE de
+      # /releases/latest — l'endpoint que interroge l'auto-updater. Les postes en
+      # production ne la voient pas, ce qui permet d'éprouver un build complet
+      # (installeur signé + latest.json) sans risque, puis de promouvoir la release
+      # en décochant « pre-release » si tout est bon.
+      #
+      # Le suffixe n'est PAS répercuté dans les fichiers de version : ils gardent un
+      # semver propre (0.7.7). L'installeur porte donc la vraie version, et on évite
+      # tout souci de bundler Windows avec un numéro de version pré-release.
       - id: ver
         shell: bash
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          RAW="${GITHUB_REF_NAME#v}"
+          echo "version=${RAW%%-*}" >> "$GITHUB_OUTPUT"
+          case "$RAW" in
+            *-*) echo "prerelease=true"  >> "$GITHUB_OUTPUT" ;;
+            *)   echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
       # Fail fast if the committed version files disagree with the tag. These
       # files are the source of truth, bumped before tagging. (Mobile is now
       # PWA-only — mobile/package.json + mobile/app.json are no longer built or
@@ -47,6 +64,7 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           draft: true
+          prerelease: ${{ steps.ver.outputs.prerelease == 'true' }}
           generate_release_notes: true
 
   # Windows installer via the official Tauri action (MSVC toolchain).
@@ -88,10 +106,14 @@ jobs:
 
   # Flip the draft to a published release once the installer is attached.
   publish:
-    needs: [desktop]
+    needs: [desktop, release]
     runs-on: ubuntu-latest
     steps:
       - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
           tag_name: ${{ github.ref_name }}
           draft: false
+          # Conserve le drapeau au moment où l'on sort du brouillon : sans lui, une
+          # pré-release deviendrait la « latest » et serait proposée à tous les
+          # postes installés — exactement ce que ce canal cherche à éviter.
+          prerelease: ${{ needs.release.outputs.prerelease == 'true' }}
