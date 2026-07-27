@@ -146,13 +146,33 @@ Le workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) se 
 
 Pipeline : `test` (réutilise [`tests.yml`](.github/workflows/tests.yml)) → `release` (crée une release *draft* + valide que les **3 fichiers de version == tag**) → `desktop` (`windows-latest`, MSVC, `tauri-action` : build, **signature** de l'installeur NSIS et génération de `latest.json` pour l'auto-updater) → `publish` (passe la release en *live*).
 
+**Versionnage — SemVer strict depuis la 1.0.0.** Le tag doit respecter
+`vMAJEUR.MINEUR.CORRECTIF` ; la CI **rejette tout tag mal formé** (`v1.0`, `v2`,
+`v01.0.0`…) avant de construire quoi que ce soit — un numéro invalide fausserait
+la comparaison de versions de l'auto-updater.
+
+| Incrément | Quand |
+|---|---|
+| **MAJEUR** | changement cassant : API, format de données, migration non rétro-compatible, prérequis de déploiement |
+| **MINEUR** | nouvelle fonctionnalité rétro-compatible |
+| **CORRECTIF** | correction de bug sans changement d'API |
+
+**Canal de pré-release.** Un tag **suffixé** (`v1.0.1-rc.1`) publie la release avec
+le drapeau `prerelease`. GitHub l'exclut alors de `/releases/latest` — l'endpoint
+interrogé par l'auto-updater — donc **aucun poste installé ne la voit**. Cela permet
+d'éprouver un build complet (installeur signé **et** `latest.json`) puis de le
+promouvoir en décochant « pre-release ». Le suffixe reste sur le **tag seul** : les
+fichiers de version gardent un semver propre.
+
 **Couper une release :**
 ```bash
 # 1. bumper la version dans les 3 fichiers : web/package.json,
 #    web/src-tauri/tauri.conf.json, web/src-tauri/Cargo.toml
-#    (le job `release` échoue si l'un d'eux != tag).
+#    (le job `release` échoue si l'un d'eux != tag, suffixe de pré-release exclu).
 # 2. merger sur main, puis :
-git tag v0.7.4 && git push origin v0.7.4
+git tag v1.0.0 && git push origin v1.0.0
+# …ou, pour valider sans exposer les postes :
+git tag v1.0.0-rc.1 && git push origin v1.0.0-rc.1
 ```
 Le build desktop ne bake **aucun serveur** (pas de `VITE_API_URL` → l'adresse du serveur se configure sur l'écran de login).
 
