@@ -714,6 +714,17 @@ function Composer(
           Envoyer
         </button>
       </div>
+      {/* Rappel du raccourci clavier — la remontée disait que ce n'était pas
+          évident. Affiché UNIQUEMENT là où « Entrée » envoie réellement.
+          ⚠ Le critère est le TYPE DE POINTEUR (`pointer: fine`), pas la largeur
+          d'écran : c'est exactement la condition qu'applique onKeyDown via
+          isTouchDevice(). Une variante `sm:` mentirait sur une fenêtre desktop
+          étroite (astuce cachée alors qu'Entrée envoie) comme sur une tablette
+          large (astuce affichée alors qu'Entrée va à la ligne). */}
+      <div className="hidden [@media(pointer:fine)]:block px-3 pb-1.5 text-[11px] leading-none text-slate-400 text-right">
+        <kbd className="font-sans">Maj</kbd> + <kbd className="font-sans">Entrée</kbd> pour
+        aller à la ligne
+      </div>
     </div>
   );
 }
