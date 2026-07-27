@@ -18,8 +18,13 @@ updates:
   # (mobile/ et e2e/ sont volontairement hors périmètre : mobile est gelé depuis
   # le pivot PWA, e2e n'est que de l'outillage de test.)
   #
-  # Les mises à jour sont GROUPÉES (une PR « prod » + une PR « dev » par projet
-  # au maximum) pour éviter de noyer le dépôt sous les PR unitaires.
+  # Les mises à jour MINEURES/PATCH sont GROUPÉES (une PR « prod » + une PR « dev »
+  # par projet) pour éviter de noyer le dépôt sous les PR unitaires.
+  #
+  # Les MAJORS en sont volontairement exclus (`update-types`) : groupés, un seul
+  # major cassant rendait toute la PR rouge et donc immergeable — c'est ce qui est
+  # arrivé au premier lot (Express 5 + Prisma 7 + zod 4 dans une même PR). Hors
+  # groupe, chaque major arrive en PR individuelle, relisible et testable seule.
   - package-ecosystem: "npm"
     directory: "/web"
     schedule:
@@ -32,8 +37,10 @@ updates:
     groups:
       web-production:
         dependency-type: "production"
+        update-types: ["minor", "patch"]
       web-development:
         dependency-type: "development"
+        update-types: ["minor", "patch"]
     ignore:
       # TypeScript reste en 6.x. La 7.x est la réécriture native (port Go) : on
       # n'y va pas tant que notre outillage ne la couvre pas — et `latest` sur npm
@@ -53,8 +60,10 @@ updates:
     groups:
       server-production:
         dependency-type: "production"
+        update-types: ["minor", "patch"]
       server-development:
         dependency-type: "development"
+        update-types: ["minor", "patch"]
     ignore:
       # Même garde-fou TS 7.x que pour /web (voir ci-dessus).
       - dependency-name: "typescript"
