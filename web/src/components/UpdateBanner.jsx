@@ -44,7 +44,7 @@ export default function UpdateBanner({ info, onDismiss, onDesktopInstall }) {
   // `md` up. Under Tauri it stays at the top. Border flips to match the edge.
   const layout = desktop
     ? "border-b"
-    : "order-last md:order-none border-t md:border-b";
+    : "order-last md:order-0 border-t md:border-b";
 
   async function action() {
     if (canAutoUpdate) {

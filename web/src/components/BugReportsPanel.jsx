@@ -13,11 +13,11 @@ function fmtDate(iso) {
 
 function StatusBadge({ status }) {
   return status === "closed" ? (
-    <span className="text-[11px] font-semibold text-slate-600 bg-slate-200 rounded px-1.5 py-0.5">
+    <span className="text-[11px] font-semibold text-slate-600 bg-slate-200 rounded-sm px-1.5 py-0.5">
       Résolu
     </span>
   ) : (
-    <span className="text-[11px] font-semibold text-amber-700 bg-amber-100 rounded px-1.5 py-0.5">
+    <span className="text-[11px] font-semibold text-amber-700 bg-amber-100 rounded-sm px-1.5 py-0.5">
       Ouvert
     </span>
   );
@@ -25,7 +25,7 @@ function StatusBadge({ status }) {
 
 function PlatformBadge({ platform }) {
   return (
-    <span className="text-[11px] font-medium text-blue-700 bg-blue-50 rounded px-1.5 py-0.5">
+    <span className="text-[11px] font-medium text-blue-700 bg-blue-50 rounded-sm px-1.5 py-0.5">
       {platform}
     </span>
   );
@@ -62,7 +62,7 @@ function ReportDetail({ report }) {
 
   return (
     <div className="mt-2 space-y-3">
-      <div className="text-sm whitespace-pre-wrap break-words bg-slate-50 border border-slate-200 rounded p-2">
+      <div className="text-sm whitespace-pre-wrap wrap-break-word bg-slate-50 border border-slate-200 rounded-sm p-2">
         {report.message}
       </div>
 
@@ -85,7 +85,7 @@ function ReportDetail({ report }) {
                   <img
                     src={attachmentUrl(a.id)}
                     alt={a.filename}
-                    className="h-20 w-20 object-cover rounded border border-slate-200"
+                    className="h-20 w-20 object-cover rounded-sm border border-slate-200"
                   />
                 ) : (
                   <span className="text-[12px] underline text-blue-700 break-all">
@@ -103,11 +103,11 @@ function ReportDetail({ report }) {
           <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1">
             Diagnostic
           </div>
-          <dl className="text-[12px] grid grid-cols-[auto,1fr] gap-x-3 gap-y-0.5">
+          <dl className="text-[12px] grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
             {Object.entries(diag).map(([k, v]) => (
               <div key={k} className="contents">
                 <dt className="text-slate-400">{k}</dt>
-                <dd className="text-slate-700 break-words min-w-0">{String(v)}</dd>
+                <dd className="text-slate-700 wrap-break-word min-w-0">{String(v)}</dd>
               </div>
             ))}
           </dl>
@@ -122,12 +122,12 @@ function ReportDetail({ report }) {
             </span>
             <button
               onClick={copyAll}
-              className="text-[11px] px-2 py-0.5 rounded border border-slate-300 hover:bg-slate-50"
+              className="text-[11px] px-2 py-0.5 rounded-sm border border-slate-300 hover:bg-slate-50"
             >
               {copied ? "Copié ✓" : "Copier le rapport"}
             </button>
           </div>
-          <pre className="text-[11px] leading-snug bg-slate-50 border border-slate-200 rounded p-2 max-h-48 overflow-auto whitespace-pre-wrap break-words text-slate-700">
+          <pre className="text-[11px] leading-snug bg-slate-50 border border-slate-200 rounded-sm p-2 max-h-48 overflow-auto whitespace-pre-wrap wrap-break-word text-slate-700">
             {report.logs}
           </pre>
         </div>
@@ -295,7 +295,7 @@ export default function BugReportsPanel() {
                           <button
                             disabled={busyId === r.id}
                             onClick={() => changeStatus(r, "closed")}
-                            className="text-xs px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                            className="text-xs px-2 py-1 rounded-sm border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                           >
                             Marquer résolu
                           </button>
@@ -303,7 +303,7 @@ export default function BugReportsPanel() {
                           <button
                             disabled={busyId === r.id}
                             onClick={() => changeStatus(r, "open")}
-                            className="text-xs px-2 py-1 rounded border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                            className="text-xs px-2 py-1 rounded-sm border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                           >
                             Rouvrir
                           </button>
@@ -311,7 +311,7 @@ export default function BugReportsPanel() {
                         <button
                           disabled={busyId === r.id}
                           onClick={() => setConfirmDelete(r)}
-                          className="text-xs px-2 py-1 rounded border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50"
+                          className="text-xs px-2 py-1 rounded-sm border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50"
                         >
                           Supprimer
                         </button>
@@ -338,7 +338,7 @@ export default function BugReportsPanel() {
 
       {confirmDelete && (
         <div
-          className="fixed inset-0 bg-black/50 grid place-items-stretch sm:place-items-center z-[60] p-0 sm:p-4"
+          className="fixed inset-0 bg-black/50 grid place-items-stretch sm:place-items-center z-60 p-0 sm:p-4"
           onClick={() => setConfirmDelete(null)}
         >
           <div

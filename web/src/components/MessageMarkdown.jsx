@@ -58,7 +58,7 @@ function mentionNode(name) {
           "mention",
           "text-aubergine-800",
           "bg-aubergine-700/10",
-          "rounded",
+          "rounded-sm",
           "px-1",
           "font-medium",
         ],
@@ -84,7 +84,7 @@ const COMPONENTS = {
       className="text-aubergine-700 underline hover:text-aubergine-800"
     />
   ),
-  p: ({ node, ...props }) => <p {...props} className="whitespace-pre-wrap break-words" />,
+  p: ({ node, ...props }) => <p {...props} className="whitespace-pre-wrap wrap-break-word" />,
   ul: ({ node, ...props }) => <ul {...props} className="list-disc ml-5 my-1" />,
   ol: ({ node, ...props }) => <ol {...props} className="list-decimal ml-5 my-1" />,
   li: ({ node, ...props }) => <li {...props} className="my-0.5" />,
@@ -101,7 +101,7 @@ const COMPONENTS = {
     inline ? (
       <code
         {...props}
-        className="bg-slate-100 text-aubergine-800 rounded px-1 py-0.5 text-[0.85em] font-mono"
+        className="bg-slate-100 text-aubergine-800 rounded-sm px-1 py-0.5 text-[0.85em] font-mono"
       >
         {children}
       </code>

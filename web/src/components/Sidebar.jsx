@@ -302,7 +302,7 @@ export default function Sidebar({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Rechercher ou créer…"
-            className="w-full bg-aubergine-800 text-white placeholder-aubergine-400 rounded-md pl-8 pr-8 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-slackblue"
+            className="w-full bg-aubergine-800 text-white placeholder-aubergine-400 rounded-md pl-8 pr-8 py-2 text-sm focus:outline-hidden focus:ring-1 focus:ring-slackblue"
           />
           {query && (
             <button
@@ -498,21 +498,21 @@ function DmItem({ c, user, active, isTyping, onlineUserIds, onClick, onLongPress
     >
       {isTyping ? (
         <span
-          className="w-5 h-5 shrink-0 rounded grid place-items-center bg-aubergine-500 text-white text-[11px] font-bold animate-pulse"
+          className="w-5 h-5 shrink-0 rounded-sm grid place-items-center bg-aubergine-500 text-white text-[11px] font-bold animate-pulse"
           title="En train d'écrire…"
         >
           …
         </span>
       ) : isSelf ? (
         <span
-          className="w-5 h-5 shrink-0 rounded grid place-items-center bg-aubergine-500 text-white text-[12px]"
+          className="w-5 h-5 shrink-0 rounded-sm grid place-items-center bg-aubergine-500 text-white text-[12px]"
           title="Notes pour vous-même"
         >
           📝
         </span>
       ) : isGroup ? (
         <span
-          className="w-5 h-5 shrink-0 rounded grid place-items-center bg-aubergine-500 text-white text-[11px] font-semibold"
+          className="w-5 h-5 shrink-0 rounded-sm grid place-items-center bg-aubergine-500 text-white text-[11px] font-semibold"
           title={`Groupe · ${c.members.length} personnes`}
         >
           {c.members.length}

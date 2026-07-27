@@ -30,12 +30,12 @@ function Attachments({ attachments }) {
                 key={a.id}
                 type="button"
                 onClick={() => setSelected(a)}
-                className="block rounded overflow-hidden focus:outline-none focus:ring-2 focus:ring-aubergine-400"
+                className="block rounded-sm overflow-hidden focus:outline-hidden focus:ring-2 focus:ring-aubergine-400"
               >
                 <img
                   src={attachmentUrl(a.id)}
                   alt={a.filename}
-                  className="max-h-56 max-w-xs rounded border border-slate-200 object-cover"
+                  className="max-h-56 max-w-xs rounded-sm border border-slate-200 object-cover"
                 />
               </button>
             );
@@ -45,7 +45,7 @@ function Attachments({ attachments }) {
               key={a.id}
               type="button"
               onClick={() => setSelected(a)}
-              className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 rounded px-2 py-1.5 text-sm text-slate-800 max-w-xs text-left"
+              className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 rounded-sm px-2 py-1.5 text-sm text-slate-800 max-w-xs text-left"
             >
               <span className="text-lg">📄</span>
               <span className="flex-1 truncate">{a.filename}</span>
@@ -592,7 +592,7 @@ export default function ChannelView({
       onDrop={onDrop}
     >
       {dragging && (
-        <div className="absolute inset-0 z-40 grid place-items-center bg-aubergine-700/10 backdrop-blur-sm pointer-events-none">
+        <div className="absolute inset-0 z-40 grid place-items-center bg-aubergine-700/10 backdrop-blur-xs pointer-events-none">
           <div className="flex flex-col items-center gap-3 rounded-xl border-2 border-dashed border-aubergine-700 bg-white/90 px-8 py-6 shadow-lg">
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-aubergine-700" aria-hidden="true">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -614,7 +614,7 @@ export default function ChannelView({
           <button
             type="button"
             onClick={onBackToList}
-            className="md:hidden -ml-1 w-11 h-11 grid place-items-center rounded text-slate-600 hover:bg-slate-100"
+            className="md:hidden -ml-1 w-11 h-11 grid place-items-center rounded-sm text-slate-600 hover:bg-slate-100"
             aria-label="Retour à la liste des conversations"
           >
             <svg viewBox="0 0 24 24" className="w-6 h-6" aria-hidden="true">
@@ -655,7 +655,7 @@ export default function ChannelView({
           {!channel.isDirect && (
             <button
               onClick={onAddMembers}
-              className="text-xs px-2 py-1.5 rounded border border-slate-300 hover:bg-slate-100 hidden sm:inline-block"
+              className="text-xs px-2 py-1.5 rounded-sm border border-slate-300 hover:bg-slate-100 hidden sm:inline-block"
               title="Ajouter des membres"
             >
               + Membres
@@ -665,7 +665,7 @@ export default function ChannelView({
           {!channel.isDirect && (
             <button
               onClick={onAddMembers}
-              className="sm:hidden w-10 h-10 grid place-items-center rounded text-slate-600 hover:bg-slate-100"
+              className="sm:hidden w-10 h-10 grid place-items-center rounded-sm text-slate-600 hover:bg-slate-100"
               aria-label="Ajouter des membres"
             >
               <span className="text-xl leading-none">+</span>
@@ -685,7 +685,7 @@ export default function ChannelView({
           <div className="relative" ref={notifyMenuRef}>
             <button
               onClick={() => setShowNotifyMenu((v) => !v)}
-              className="w-10 h-10 sm:w-auto sm:h-auto sm:px-2 sm:py-1.5 grid place-items-center sm:inline-block text-xs rounded text-slate-600 hover:bg-slate-100 sm:border sm:border-slate-300"
+              className="w-10 h-10 sm:w-auto sm:h-auto sm:px-2 sm:py-1.5 grid place-items-center sm:inline-block text-xs rounded-sm text-slate-600 hover:bg-slate-100 sm:border sm:border-slate-300"
               title={`Notifications : ${currentNotifyOption.label}`}
               aria-label={`Notifications du salon : ${currentNotifyOption.label}`}
             >
@@ -822,7 +822,7 @@ export default function ChannelView({
             `${typingLabel(typingUserIds, channel, currentUser)}…`}
         </div>
         {replyingTo && (
-          <div className="mb-1 flex items-center gap-2 px-2 py-1.5 rounded bg-aubergine-700/10 border border-aubergine-700/30 text-xs">
+          <div className="mb-1 flex items-center gap-2 px-2 py-1.5 rounded-sm bg-aubergine-700/10 border border-aubergine-700/30 text-xs">
             <span className="text-aubergine-700 font-semibold">↩ Réponse à</span>
             <span className="font-medium text-slate-900">
               {replyingTo.author?.displayName || "?"}
@@ -923,19 +923,19 @@ function ScheduledRow({ message, onCancel, onSave }) {
           value={body}
           onChange={(e) => setBody(e.target.value)}
           rows={2}
-          className="w-full border border-amber-300 rounded px-2 py-1 text-slate-900 resize-none"
+          className="w-full border border-amber-300 rounded-sm px-2 py-1 text-slate-900 resize-none"
         />
         <div className="flex items-center gap-2">
           <input
             type="datetime-local"
             value={when}
             onChange={(e) => setWhen(e.target.value)}
-            className="border border-amber-300 rounded px-2 py-1"
+            className="border border-amber-300 rounded-sm px-2 py-1"
           />
           <button
             onClick={save}
             disabled={saving || !body.trim()}
-            className="bg-slackgreen text-white px-3 py-1 rounded font-medium disabled:opacity-50"
+            className="bg-slackgreen text-white px-3 py-1 rounded-sm font-medium disabled:opacity-50"
           >
             Enregistrer
           </button>
@@ -1051,13 +1051,13 @@ function MessageRow({
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={onKeyDown}
         rows={2}
-        className="w-full border border-slate-300 rounded px-2 py-1 text-slate-900 resize-none outline-none focus:border-aubergine-700"
+        className="w-full border border-slate-300 rounded-sm px-2 py-1 text-slate-900 resize-none outline-hidden focus:border-aubergine-700"
       />
       <div className="flex items-center gap-2 mt-1 text-xs">
         <button
           onClick={save}
           disabled={!draft.trim()}
-          className="bg-slackgreen text-white px-2 py-1 rounded font-medium disabled:opacity-50"
+          className="bg-slackgreen text-white px-2 py-1 rounded-sm font-medium disabled:opacity-50"
         >
           Enregistrer
         </button>
@@ -1069,7 +1069,7 @@ function MessageRow({
     </div>
   ) : (
     message.body && (
-      <div className="text-slate-900 break-words">
+      <div className="text-slate-900 wrap-break-word">
         <MessageMarkdown>{message.body}</MessageMarkdown>
         {message.editedAt && (
           <span
@@ -1087,7 +1087,7 @@ function MessageRow({
   // sans corps (pièce jointe / GIF seul) qui n'aurait rien à transférer (#124).
   const canForward = onForward && !!message.body;
   const actions = !editing && (onReact || onReply || canForward || isOwn) && (
-    <div className="absolute right-2 top-1 hidden group-hover:flex items-center gap-1 bg-white border border-slate-200 rounded shadow-sm">
+    <div className="absolute right-2 top-1 hidden group-hover:flex items-center gap-1 bg-white border border-slate-200 rounded-sm shadow-xs">
       {onReact && (
         <button
           ref={reactBtnRef}
@@ -1138,7 +1138,7 @@ function MessageRow({
   );
 
   const picker = showPicker && onReact && (
-    <div ref={pickerRef} className="absolute right-2 top-8 z-50 shadow-xl rounded">
+    <div ref={pickerRef} className="absolute right-2 top-8 z-50 shadow-xl rounded-sm">
       <EmojiPicker
         onEmojiClick={(e) => {
           onReact(message.id, e.emoji);
@@ -1180,7 +1180,7 @@ function MessageRow({
 
   if (grouped) {
     return (
-      <div ref={rowRef} className="relative pl-12 pr-4 py-0.5 hover:bg-slate-50 group rounded">
+      <div ref={rowRef} className="relative pl-12 pr-4 py-0.5 hover:bg-slate-50 group rounded-sm">
         {actions}
         {picker}
         <div className="flex items-start gap-2">
@@ -1197,7 +1197,7 @@ function MessageRow({
     );
   }
   return (
-    <div ref={rowRef} className="relative px-2 py-1.5 hover:bg-slate-50 rounded group">
+    <div ref={rowRef} className="relative px-2 py-1.5 hover:bg-slate-50 rounded-sm group">
       {actions}
       {picker}
       <div className="flex items-start gap-2">

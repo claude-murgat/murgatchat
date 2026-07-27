@@ -267,7 +267,7 @@ function Row({ active, onClick, busy, prefix, avatar, online, label, sub, action
         {sub && <span className="block truncate text-xs text-aubergine-400">{sub}</span>}
       </span>
       {action && (
-        <span className="text-xs px-2 py-0.5 rounded bg-aubergine-600 text-white shrink-0">
+        <span className="text-xs px-2 py-0.5 rounded-sm bg-aubergine-600 text-white shrink-0">
           {busy ? "…" : action}
         </span>
       )}

@@ -198,7 +198,7 @@ function SheetGrid({ rows }) {
           {headers.map((h, i) => (
             <th
               key={i}
-              className="sticky top-0 z-10 bg-slate-200 border border-slate-300 px-2 py-0.5 font-medium text-slate-500 text-center min-w-[3.5rem]"
+              className="sticky top-0 z-10 bg-slate-200 border border-slate-300 px-2 py-0.5 font-medium text-slate-500 text-center min-w-14"
             >
               {h}
             </th>
@@ -216,7 +216,7 @@ function SheetGrid({ rows }) {
               return (
                 <td
                   key={ci}
-                  className={`border border-slate-200 px-2 py-0.5 align-top whitespace-pre-wrap break-words max-w-[24rem] ${
+                  className={`border border-slate-200 px-2 py-0.5 align-top whitespace-pre-wrap wrap-break-word max-w-[24rem] ${
                     isNumericCell(cell) ? "text-right" : ""
                   }`}
                 >
@@ -422,7 +422,7 @@ function TextView({ buffer, onError }) {
   if (text === null) return null;
   return (
     <div className="w-[75vw] max-w-[1200px] h-[82vh] overflow-auto bg-white rounded-lg scroll-thin">
-      <pre className="p-4 text-sm text-slate-800 whitespace-pre-wrap break-words font-mono">
+      <pre className="p-4 text-sm text-slate-800 whitespace-pre-wrap wrap-break-word font-mono">
         {text}
       </pre>
     </div>
@@ -446,7 +446,7 @@ function PdfView({ buffer, attachment }) {
     <iframe
       src={objUrl}
       title={attachment.filename}
-      className="w-[75vw] max-w-[1700px] h-[82vh] bg-white rounded"
+      className="w-[75vw] max-w-[1700px] h-[82vh] bg-white rounded-sm"
     />
   );
 }
@@ -514,7 +514,7 @@ export default function AttachmentModal({ attachment, onClose }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/80 z-[60] flex flex-col" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/80 z-60 flex flex-col" onClick={onClose}>
       <div
         className="flex items-center gap-2 p-3 text-white"
         onClick={(e) => e.stopPropagation()}
@@ -545,7 +545,7 @@ export default function AttachmentModal({ attachment, onClose }) {
             <img
               src={url}
               alt={attachment.filename}
-              className="max-w-[92vw] max-h-[82vh] object-contain rounded"
+              className="max-w-[92vw] max-h-[82vh] object-contain rounded-sm"
             />
           )}
           {kind === "video" && (
@@ -553,7 +553,7 @@ export default function AttachmentModal({ attachment, onClose }) {
               src={url}
               controls
               autoPlay
-              className="max-w-[92vw] max-h-[82vh] rounded bg-black"
+              className="max-w-[92vw] max-h-[82vh] rounded-sm bg-black"
             />
           )}
           {kind === "audio" && (

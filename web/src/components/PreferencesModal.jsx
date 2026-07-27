@@ -90,7 +90,7 @@ export default function PreferencesModal({ onClose }) {
         </div>
 
         <div className="p-3 border-t border-slate-200 text-right">
-          <button onClick={onClose} className="px-3 py-1.5 rounded border">
+          <button onClick={onClose} className="px-3 py-1.5 rounded-sm border">
             Fermer
           </button>
         </div>
