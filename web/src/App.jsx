@@ -79,6 +79,9 @@ export default function App() {
   const [typingByChannel, setTypingByChannel] = useState({});
   const typingTimers = useRef({});
   const activeChannelIdRef = useRef(null);
+  // Miroir de `channels` lisible depuis un gestionnaire d'évènement, sans passer
+  // par un updater d'état (voir le gestionnaire "notification" plus bas).
+  const channelsRef = useRef([]);
   // Tracks whether a History sentinel is pushed for the open conversation, so the
   // phone's back button closes it instead of leaving the app (mobile layout only).
   const backSentinelRef = useRef(false);
@@ -99,6 +102,10 @@ export default function App() {
       .catch(() => setToken(null))
       .finally(() => setBootstrapped(true));
   }, []);
+
+  useEffect(() => {
+    channelsRef.current = channels;
+  }, [channels]);
 
   useEffect(() => {
     activeChannelIdRef.current = activeChannelId;
@@ -428,29 +435,31 @@ export default function App() {
       // Frontière : on valide le payload reçu contre le contrat (non bloquant).
       checkContract(NotificationEventSchema, data, "socket 'notification'");
       if (data.channelId === activeChannelId && isWindowFocused()) return;
-      setChannels((prev) => {
-        const channel = prev.find((c) => c.id === data.channelId);
-        const label = channel?.isDirect
-          ? data.message.author?.displayName
-          : `#${channel?.name || ""}`;
-        const title = label || "Nouveau message";
-        const body = data.message.body || "(pièce jointe)";
-        // Ouvre la conversation concernée et efface son non-lu. Déclenché aussi
-        // bien au clic sur le toast in-app que sur la notification OS (#169).
-        const open = () => {
-          setActiveChannelId(data.channelId);
-          setChannels((cs) =>
-            cs.map((ch) => (ch.id === data.channelId ? { ...ch, unread: false } : ch))
-          );
-        };
-        setToast({ title, body, open });
-        setTimeout(() => setToast(null), 4500);
-        if (!isWindowFocused()) {
-          notify(title, body, open, data.channelId);
-          setTrayBadge(true); // desktop: red dot on the tray icon (no-op on web)
-        }
-        return prev;
-      });
+      // ⚠ Ces effets (toast, notification OS, badge) doivent rester HORS d'un
+      // updater d'état. Ils vivaient auparavant dans un `setChannels(prev => …)`
+      // qui ne servait qu'à LIRE la liste et renvoyait `prev` inchangé : React
+      // peut rejouer un updater (StrictMode, rendu concurrent), ce qui produisait
+      // une notification et un toast EN DOUBLE. On lit donc la liste via un ref.
+      const channel = channelsRef.current.find((c) => c.id === data.channelId);
+      const label = channel?.isDirect
+        ? data.message.author?.displayName
+        : `#${channel?.name || ""}`;
+      const title = label || "Nouveau message";
+      const body = data.message.body || "(pièce jointe)";
+      // Ouvre la conversation concernée et efface son non-lu. Déclenché aussi
+      // bien au clic sur le toast in-app que sur la notification OS (#169).
+      const open = () => {
+        setActiveChannelId(data.channelId);
+        setChannels((cs) =>
+          cs.map((ch) => (ch.id === data.channelId ? { ...ch, unread: false } : ch))
+        );
+      };
+      setToast({ title, body, open });
+      setTimeout(() => setToast(null), 4500);
+      if (!isWindowFocused()) {
+        notify(title, body, open, data.channelId);
+        setTrayBadge(true); // desktop: red dot on the tray icon (no-op on web)
+      }
     };
     socket.on("notification", onNotif);
     return () => socket.off("notification", onNotif);
