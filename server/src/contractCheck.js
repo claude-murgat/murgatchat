@@ -3,10 +3,10 @@
 // journalise un écart compact via console.warn (capté par les logs serveur), et
 // renvoie toujours `data` telle quelle — un décalage de schéma ne doit jamais casser
 // le serveur. Pendant côté serveur de web/src/api.js#checkContract ; les schémas
-// vivent dans le mini-package partagé (../../shared/contracts.js).
+// vivent dans le mini-package partagé (../../shared/contracts.ts).
 /**
  * @template T
- * @param {import("zod").ZodType<T>} schema Schéma partagé (shared/contracts.js).
+ * @param {import("zod").ZodType<T>} schema Schéma partagé (shared/contracts.ts).
  * @param {unknown} data Charge utile à contrôler.
  * @param {string} label Libellé de la frontière, pour le log.
  * @returns {unknown} `data`, inchangée (vérif non bloquante).

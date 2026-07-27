@@ -12,6 +12,9 @@
     "allowJs": true,
     "checkJs": false,
     "noEmit": true,
+    // Voir web/tsconfig.json : l'import du contrat partagé porte l'extension
+    // `.ts` explicite, requise par la résolution de Node 24.
+    "allowImportingTsExtensions": true,
 
     "strict": true,
     "skipLibCheck": true,
@@ -19,5 +22,5 @@
     "forceConsistentCasingInFileNames": true
   },
   // `../shared` : les contrats zod partagés, d'où sont inférés les types (z.infer).
-  "include": ["src/**/*", "../shared/contracts.js"]
+  "include": ["src/**/*", "../shared/contracts.ts"]
 }
