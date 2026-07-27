@@ -3,9 +3,9 @@ import multer from "multer";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { prisma } from "../db.js";
-import { requireAuth, verifyToken } from "../auth.js";
-import { encryptBufferToFile, decryptFile } from "../cryptoFile.js";
+import { prisma } from "../db.ts";
+import { requireAuth, verifyToken } from "../auth.ts";
+import { encryptBufferToFile, decryptFile } from "../cryptoFile.ts";
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || "/data/uploads";
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });

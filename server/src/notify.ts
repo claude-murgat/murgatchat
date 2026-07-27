@@ -8,9 +8,9 @@
 // path (encrypted body + searchable plaintext), so they render like any message.
 
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { prisma } from "./db.js";
-import { encryptBody } from "./crypto.js";
-import { serializeMessage } from "./routes/channels.js";
+import { prisma } from "./db.ts";
+import { encryptBody } from "./crypto.ts";
+import { serializeMessage } from "./routes/channels.ts";
 
 const BOT_USERNAME = "claude";
 

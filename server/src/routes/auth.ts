@@ -2,11 +2,11 @@ import { Router } from "express";
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { prisma } from "../db.js";
-import { signToken, requireAuth } from "../auth.js";
-import { broadcastMembers } from "./channels.js";
-import { sendInvitationEmail, sendPasswordResetEmail, inviteLink } from "../mail.js";
-import { getVapidPublicKey } from "../webpush.js";
+import { prisma } from "../db.ts";
+import { signToken, requireAuth } from "../auth.ts";
+import { broadcastMembers } from "./channels.ts";
+import { sendInvitationEmail, sendPasswordResetEmail, inviteLink } from "../mail.ts";
+import { getVapidPublicKey } from "../webpush.ts";
 
 const router = Router();
 

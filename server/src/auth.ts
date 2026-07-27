@@ -1,5 +1,5 @@
 import jwt from "jsonwebtoken";
-import { prisma } from "./db.js";
+import { prisma } from "./db.ts";
 
 const SECRET = process.env.JWT_SECRET || "dev-secret";
 

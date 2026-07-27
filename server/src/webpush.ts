@@ -12,7 +12,7 @@
 import webpush from "web-push";
 import fs from "node:fs";
 import path from "node:path";
-import { prisma } from "./db.js";
+import { prisma } from "./db.ts";
 
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "mailto:admin@murgat-chat.local";
 const VAPID_FILE = process.env.VAPID_FILE || path.join(process.cwd(), "data", "vapid.json");

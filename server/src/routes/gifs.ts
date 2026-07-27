@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { requireAuth } from "../auth.js";
-import { storeEncryptedAttachment, MAX_UPLOAD_BYTES } from "./uploads.js";
+import { requireAuth } from "../auth.ts";
+import { storeEncryptedAttachment, MAX_UPLOAD_BYTES } from "./uploads.ts";
 
 // GIPHY proxy. The API key lives only on the server (never in the client bundle)
 // and is read per-request so deployments can set it without a code change (and

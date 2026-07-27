@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { z } from "zod";
-import { prisma } from "../db.js";
-import { requireAuth } from "../auth.js";
-import { githubEnabled, createIssueFromBugReport } from "../github.js";
-import { ownedUnlinkedAttachments, MAX_ATTACHMENTS } from "./uploads.js";
+import { prisma } from "../db.ts";
+import { requireAuth } from "../auth.ts";
+import { githubEnabled, createIssueFromBugReport } from "../github.ts";
+import { ownedUnlinkedAttachments, MAX_ATTACHMENTS } from "./uploads.ts";
 
 const router = Router();
 

@@ -1,12 +1,12 @@
 import { Server } from "socket.io";
-import { verifyToken } from "./auth.js";
-import { prisma } from "./db.js";
-import { serializeMessage } from "./routes/channels.js";
-import { encryptBody } from "./crypto.js";
-import { sendExpoPush } from "./push.js";
-import { sendWebPush } from "./webpush.js";
+import { verifyToken } from "./auth.ts";
+import { prisma } from "./db.ts";
+import { serializeMessage } from "./routes/channels.ts";
+import { encryptBody } from "./crypto.ts";
+import { sendExpoPush } from "./push.ts";
+import { sendWebPush } from "./webpush.ts";
 import { NotificationEventSchema } from "../../shared/contracts.ts";
-import { checkContract } from "./contractCheck.js";
+import { checkContract } from "./contractCheck.ts";
 
 // DnD actif si fenêtre ponctuelle (dndUntil) OU plage quotidienne (heure serveur)
 export function isUserDnd(user, now = new Date()) {

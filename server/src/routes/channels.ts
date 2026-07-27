@@ -1,10 +1,10 @@
 import { Router } from "express";
 import { z } from "zod";
-import { prisma } from "../db.js";
-import { requireAuth } from "../auth.js";
-import { publicUser } from "./auth.js";
-import { encryptBody, decryptBody } from "../crypto.js";
-import { safeUnlink } from "../storage.js";
+import { prisma } from "../db.ts";
+import { requireAuth } from "../auth.ts";
+import { publicUser } from "./auth.ts";
+import { encryptBody, decryptBody } from "../crypto.ts";
+import { safeUnlink } from "../storage.ts";
 
 const router = Router();
 

@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { prisma } from "../db.js";
-import { requireAuth } from "../auth.js";
-import { publicUser } from "./auth.js";
+import { prisma } from "../db.ts";
+import { requireAuth } from "../auth.ts";
+import { publicUser } from "./auth.ts";
 
 const router = Router();
 

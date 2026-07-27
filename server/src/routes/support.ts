@@ -1,12 +1,12 @@
 import { Router } from "express";
 import { z } from "zod";
-import { prisma } from "../db.js";
-import { requireAuth } from "../auth.js";
-import { anthropicEnabled, runSupportTurn, MAX_TURNS } from "../anthropic.js";
-import { githubEnabled, createIssueFromBugReport } from "../github.js";
-import { ownedUnlinkedAttachments, MAX_ATTACHMENTS } from "./uploads.js";
-import { notifyEnabled, tokenMatches, postPipelineMessage } from "../notify.js";
-import { notifyMembers } from "../socket.js";
+import { prisma } from "../db.ts";
+import { requireAuth } from "../auth.ts";
+import { anthropicEnabled, runSupportTurn, MAX_TURNS } from "../anthropic.ts";
+import { githubEnabled, createIssueFromBugReport } from "../github.ts";
+import { ownedUnlinkedAttachments, MAX_ATTACHMENTS } from "./uploads.ts";
+import { notifyEnabled, tokenMatches, postPipelineMessage } from "../notify.ts";
+import { notifyMembers } from "../socket.ts";
 
 const router = Router();
 
