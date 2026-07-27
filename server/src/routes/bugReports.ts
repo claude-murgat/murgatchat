@@ -1,4 +1,6 @@
 import { Router } from "express";
+import type { NextFunction, Request, Response } from "express";
+import type { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../db.ts";
 import { requireAuth } from "../auth.ts";
@@ -10,7 +12,7 @@ const router = Router();
 // Local admin gate — mirrors the one in routes/auth.js. Duplicated (one-liner on
 // the already-loaded req.user) rather than shared, to keep the two routers
 // decoupled.
-function requireAdmin(req, res, next) {
+function requireAdmin(req: Request, res: Response, next: NextFunction) {
   if (!req.user?.isAdmin) return res.status(403).json({ error: "admin_required" });
   next();
 }
@@ -32,7 +34,10 @@ const createSchema = z.object({
   attachmentIds: z.array(z.string().max(60)).max(MAX_ATTACHMENTS).optional(),
 });
 
-function serialize(r) {
+/** Ligne BugReport telle que chargée par ces routes (voir `reportInclude`). */
+type ReportRow = Prisma.BugReportGetPayload<{ include: typeof reportInclude }>;
+
+function serialize(r: ReportRow) {
   return {
     id: r.id,
     message: r.message,
@@ -91,7 +96,7 @@ router.post("/", requireAuth, async (req, res) => {
     diag = null; // non-serializable payload → drop it rather than 500
   }
 
-  const data = {
+  const data: Prisma.BugReportUncheckedCreateInput = {
     userId: req.userId,
     message,
     logs: logs || null,
@@ -140,10 +145,12 @@ router.post("/", requireAuth, async (req, res) => {
 
 // Admin: paginated backlog, newest first, optional status filter.
 router.get("/", requireAuth, requireAdmin, async (req, res) => {
-  const page = Math.max(1, parseInt(req.query.page || "1", 10) || 1);
+  // `req.query.*` est typé `string | ParsedQs | (…)[]` par Express : assertions
+  // (le code lit ces paramètres comme des scalaires, comportement inchangé).
+  const page = Math.max(1, parseInt((req.query.page as string) || "1", 10) || 1);
   const pageSize = Math.min(
     100,
-    Math.max(1, parseInt(req.query.pageSize || "30", 10) || 30)
+    Math.max(1, parseInt((req.query.pageSize as string) || "30", 10) || 30)
   );
   const status =
     req.query.status === "open" || req.query.status === "closed"
@@ -181,7 +188,9 @@ router.patch("/:id", requireAuth, requireAdmin, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: "invalid_status" });
   try {
     const r = await prisma.bugReport.update({
-      where: { id: req.params.id },
+      // `req.params.id` est typé `string | string[]` par Express : assertion,
+      // le segment `:id` d'une route non répétée est toujours une chaîne.
+      where: { id: req.params.id as string },
       data: { status: parsed.data.status },
       include: reportInclude,
     });
@@ -194,7 +203,7 @@ router.patch("/:id", requireAuth, requireAdmin, async (req, res) => {
 // Admin: delete a report once handled.
 router.delete("/:id", requireAuth, requireAdmin, async (req, res) => {
   try {
-    await prisma.bugReport.delete({ where: { id: req.params.id } });
+    await prisma.bugReport.delete({ where: { id: req.params.id as string } });
     res.json({ ok: true });
   } catch {
     res.status(404).json({ error: "not_found" });

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { encryptBufferToFile, decryptFile, BLOB_VERSION } from "../../src/cryptoFile.js";
+import { encryptBufferToFile, decryptFile, BLOB_VERSION } from "../../src/cryptoFile.ts";
 
 function tmp() {
   return path.join(os.tmpdir(), `mc-${Date.now()}-${Math.random().toString(36).slice(2)}`);

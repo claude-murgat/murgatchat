@@ -1,6 +1,6 @@
 import request from "supertest";
 import { prisma } from "./db.js";
-import { signToken } from "../../src/auth.js";
+import { signToken } from "../../src/auth.ts";
 
 let seq = 0;
 

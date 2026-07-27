@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { sweepOrphanAttachments } from "../../src/sweep.js";
-import { UPLOAD_DIR } from "../../src/storage.js";
+import { sweepOrphanAttachments } from "../../src/sweep.ts";
+import { UPLOAD_DIR } from "../../src/storage.ts";
 import { prisma } from "../helpers/db.js";
 import { registerUser } from "../helpers/api.js";
-import { createServer } from "../../src/index.js";
+import { createServer } from "../../src/index.ts";
 
 const { app } = createServer();
 

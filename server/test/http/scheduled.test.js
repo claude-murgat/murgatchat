@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createServer } from "../../src/index.js";
-import { dispatchScheduledMessages } from "../../src/socket.js";
+import { createServer } from "../../src/index.ts";
+import { dispatchScheduledMessages } from "../../src/socket.ts";
 import { registerUser, authed } from "../helpers/api.js";
 import { seedMessage } from "../helpers/seed.js";
 

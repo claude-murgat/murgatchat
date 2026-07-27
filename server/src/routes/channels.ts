@@ -1,14 +1,45 @@
 import { Router } from "express";
 import { z } from "zod";
+import type { Server } from "socket.io";
+import type {
+  Attachment,
+  Channel,
+  Membership,
+  Message,
+  Prisma,
+  Reaction,
+  User,
+} from "@prisma/client";
 import { prisma } from "../db.ts";
 import { requireAuth } from "../auth.ts";
 import { publicUser } from "./auth.ts";
 import { encryptBody, decryptBody } from "../crypto.ts";
 import { safeUnlink } from "../storage.ts";
 
+// Formes « hydratées » renvoyées par nos requêtes Prisma. Les relations sont
+// déclarées OPTIONNELLES parce que chaque appelant choisit son `include` : un
+// message peut arriver avec ou sans réactions, un channel avec ou sans son
+// dernier message. Les sérialiseurs ci-dessous gèrent déjà l'absence (`|| []`).
+type ReactionWithUser = Reaction & { user?: User | null };
+
+type MessageWithRelations = Message & {
+  author?: User | null;
+  attachments?: Attachment[] | null;
+  reactions?: ReactionWithUser[] | null;
+  parent?: (Message & { author?: User | null }) | null;
+};
+
+type ChannelWithRelations = Channel & {
+  memberships?: (Membership & { user: User })[] | null;
+  messages?: Message[] | null;
+};
+
 const router = Router();
 
-export async function broadcastMembers(io, channelId) {
+export async function broadcastMembers(
+  io: Server | null | undefined,
+  channelId: string
+) {
   const memberships = await prisma.membership.findMany({
     where: { channelId },
     include: { user: true },
@@ -74,7 +105,9 @@ router.post("/", requireAuth, async (req, res) => {
 
 router.post("/dm", requireAuth, async (req, res) => {
   const body = req.body || {};
-  let ids = Array.isArray(body.userIds)
+  // `req.body` n'est pas typé (JSON arbitraire) : on annote la cible attendue,
+  // le filtre `id && id !== req.userId` ci-dessous reste la vraie validation.
+  let ids: string[] = Array.isArray(body.userIds)
     ? body.userIds
     : body.userId
     ? [body.userId]
@@ -100,10 +133,13 @@ router.post("/dm", requireAuth, async (req, res) => {
 
   // Always include the caller. For a self-DM, that's the *only* member.
   const targetIds = [...new Set([req.userId, ...ids])];
+  // `satisfies` (et non une annotation) : on veut la VÉRIFICATION contre le
+  // type Prisma tout en gardant les littéraux (`"desc"`), sans quoi Prisma ne
+  // peut plus inférer la forme du résultat (`channel.memberships`).
   const include = {
     memberships: { include: { user: true } },
     messages: { orderBy: { createdAt: "desc" }, take: 1 },
-  };
+  } satisfies Prisma.ChannelInclude;
 
   // Réutiliser un DM existant avec exactement le même ensemble de membres
   const candidates = await prisma.channel.findMany({
@@ -118,7 +154,7 @@ router.post("/dm", requireAuth, async (req, res) => {
   )?.id;
   if (existingId) {
     const full = await prisma.channel.findUnique({ where: { id: existingId }, include });
-    return res.json({ channel: serializeChannel(full, req.userId) });
+    return res.json({ channel: serializeChannel(full!, req.userId) });
   }
 
   const channel = await prisma.channel.create({
@@ -242,7 +278,7 @@ router.patch("/scheduled/:messageId", requireAuth, async (req, res) => {
     return res.status(404).json({ error: "not_found" });
   }
 
-  const data = {};
+  const data: Prisma.MessageUpdateInput = {};
   if (typeof body === "string") {
     const trimmed = body.trim();
     if (!trimmed) return res.status(400).json({ error: "empty_body" });
@@ -402,7 +438,7 @@ router.post("/:id/join", requireAuth, async (req, res) => {
       messages: { orderBy: { createdAt: "desc" }, take: 1 },
     },
   });
-  const personalized = serializeChannel(full, req.userId);
+  const personalized = serializeChannel(full!, req.userId);
   req.io?.to(`user:${req.userId}`).emit("channel:created", personalized);
   req.io?.in(`user:${req.userId}`).socketsJoin(`channel:${id}`);
   await broadcastMembers(req.io, id);
@@ -438,12 +474,12 @@ router.post("/:id/members", requireAuth, async (req, res) => {
     },
   });
   for (const u of valid) {
-    const personalized = serializeChannel(full, u.id);
+    const personalized = serializeChannel(full!, u.id);
     req.io?.to(`user:${u.id}`).emit("channel:created", personalized);
     req.io?.in(`user:${u.id}`).socketsJoin(`channel:${id}`);
   }
   await broadcastMembers(req.io, id);
-  res.json({ channel: serializeChannel(full, req.userId) });
+  res.json({ channel: serializeChannel(full!, req.userId) });
 });
 
 router.post("/:id/leave", requireAuth, async (req, res) => {
@@ -496,7 +532,7 @@ router.patch("/:id/notifications", requireAuth, async (req, res) => {
   res.json({ ok: true, notifyLevel: parsed.data.level });
 });
 
-export function serializeChannel(channel, viewerId) {
+export function serializeChannel(channel: ChannelWithRelations, viewerId: string) {
   const members = (channel.memberships || []).map((m) => publicUser(m.user));
   let displayName = channel.name;
   if (channel.isDirect) {
@@ -545,7 +581,7 @@ export function serializeChannel(channel, viewerId) {
   };
 }
 
-export function serializeAttachment(a) {
+export function serializeAttachment(a: Attachment) {
   return {
     id: a.id,
     filename: a.filename,
@@ -554,7 +590,7 @@ export function serializeAttachment(a) {
   };
 }
 
-export function groupReactions(reactions) {
+export function groupReactions(reactions?: ReactionWithUser[] | null) {
   const map = new Map();
   for (const r of reactions || []) {
     if (!map.has(r.emoji)) map.set(r.emoji, []);
@@ -567,7 +603,7 @@ export function groupReactions(reactions) {
   }));
 }
 
-export function serializeMessage(m) {
+export function serializeMessage(m: MessageWithRelations) {
   return {
     id: m.id,
     channelId: m.channelId,
@@ -591,7 +627,7 @@ export function serializeMessage(m) {
   };
 }
 
-export function serializeScheduled(m) {
+export function serializeScheduled(m: MessageWithRelations) {
   return {
     id: m.id,
     channelId: m.channelId,

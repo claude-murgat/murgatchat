@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
-import { createServer } from "../../src/index.js";
+import { createServer } from "../../src/index.ts";
 import { registerUser } from "../helpers/api.js";
 import { prisma } from "../helpers/db.js";
 import { findEmail } from "../helpers/mail.js";

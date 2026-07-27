@@ -3,7 +3,7 @@ import {
   githubEnabled,
   buildIssueBody,
   createIssueFromBugReport,
-} from "../../src/github.js";
+} from "../../src/github.ts";
 
 const baseReport = {
   id: "rep_123",

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createServer } from "../../src/index.js";
+import { createServer } from "../../src/index.ts";
 import { registerUser, authed } from "../helpers/api.js";
 import { seedMessage } from "../helpers/seed.js";
 

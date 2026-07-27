@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isMentioned } from "../../src/socket.js";
+import { isMentioned } from "../../src/socket.ts";
 
 const user = { username: "adrienc", displayName: "Adrien" };
 

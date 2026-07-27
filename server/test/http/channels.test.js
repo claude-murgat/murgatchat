@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createServer } from "../../src/index.js";
-import { ensureDefaultChannel } from "../../src/routes/channels.js";
+import { createServer } from "../../src/index.ts";
+import { ensureDefaultChannel } from "../../src/routes/channels.ts";
 import { registerUser, authed } from "../helpers/api.js";
 
 let app, io;

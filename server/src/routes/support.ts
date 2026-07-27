@@ -1,4 +1,6 @@
 import { Router } from "express";
+import type { Request } from "express";
+import type { Prisma, SupportConversation } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../db.ts";
 import { requireAuth } from "../auth.ts";
@@ -16,6 +18,31 @@ const MAX_MESSAGE = 5000;
 const MAX_LOGS = 100_000;
 const MAX_DIAG = 20_000;
 
+// Un tour de conversation tel qu'il est écrit dans la colonne Json `messages`.
+// Prisma la relit en `JsonValue` : ce type dit la forme réellement stockée.
+type SupportMessage = { role: string; content: string };
+
+// Entrée de l'outil `submit_ticket` (voir SUBMIT_TOOL dans anthropic.ts). Tout
+// est optionnel ici : le modèle est la source, on ne présume rien de ce qu'il
+// renvoie — le code amont gère déjà les champs absents (`|| ""`, ternaires).
+type FinalizeInput = {
+  title?: string;
+  body?: string;
+  severity?: string;
+  domain?: string;
+};
+
+// Colonnes portées par la conversation. `diagnostics` reste une clé OPTIONNELLE
+// (et non `| null`) : elle n'est posée que si un snapshot existe, sinon la
+// colonne Json de Prisma refuserait un `undefined` explicite.
+type ConversationBase = {
+  userId: string;
+  appVersion: string | null;
+  platform: string | null;
+  logs: string | null;
+  diagnostics?: Prisma.InputJsonValue;
+};
+
 const startSchema = z.object({
   message: z.string().trim().min(1).max(MAX_MESSAGE),
   logs: z.string().max(MAX_LOGS).optional(),
@@ -32,8 +59,10 @@ const turnSchema = z.object({
 });
 
 // Bound the JSON column (zod's .any() doesn't), mirroring bugReports.js.
-function boundDiagnostics(diagnostics) {
-  let diag = diagnostics ?? null;
+function boundDiagnostics(
+  diagnostics: Prisma.InputJsonValue | null | undefined
+): Prisma.InputJsonValue | null {
+  let diag: Prisma.InputJsonValue | null = diagnostics ?? null;
   try {
     if (diag && JSON.stringify(diag).length > MAX_DIAG) diag = { truncated: true };
   } catch {
@@ -43,7 +72,7 @@ function boundDiagnostics(diagnostics) {
 }
 
 // Expose just what the client needs to render the chat.
-function serialize(c) {
+function serialize(c: SupportConversation) {
   return {
     id: c.id,
     status: c.status,
@@ -56,13 +85,20 @@ function serialize(c) {
 // Finalize a conversation: create the BugReport (refined body as message) and
 // mirror it to GitHub as an already-triaged issue (labels carried from the
 // conversation). Returns the issue link fields to store back on the conversation.
-async function finalize(conv, finalizeInput, req) {
+// `req` reste générique sur les paramètres de route (même raison que dans
+// routes/auth.ts) : le figer sur `Request` — donc `ParamsDictionary` — priverait
+// les routes appelantes de l'inférence de `req.params` depuis leur chemin.
+async function finalize<P>(
+  conv: SupportConversation,
+  finalizeInput: FinalizeInput,
+  req: Request<P>
+) {
   const severity = finalizeInput.severity
     ? `**Sévérité estimée :** ${finalizeInput.severity}\n\n`
     : "";
   const message = (severity + (finalizeInput.body || "")).slice(0, MAX_MESSAGE);
 
-  const data = {
+  const data: Prisma.BugReportUncheckedCreateInput = {
     userId: conv.userId,
     message,
     logs: conv.logs || null,
@@ -125,7 +161,7 @@ router.post("/conversations", requireAuth, async (req, res) => {
   // Bound the diagnostics up front so the very first model turn already gets the
   // environment (and Claude doesn't re-ask for it).
   const diag = boundDiagnostics(diagnostics);
-  const base = {
+  const base: ConversationBase = {
     userId: req.userId,
     appVersion: appVersion || null,
     platform: platform || null,
@@ -179,7 +215,9 @@ router.post("/conversations", requireAuth, async (req, res) => {
 // Continue an existing conversation.
 router.post("/conversations/:id/messages", requireAuth, async (req, res) => {
   const conv = await prisma.supportConversation.findUnique({
-    where: { id: req.params.id },
+    // `req.params.id` est typé `string | string[]` par Express : assertion,
+    // le segment `:id` d'une route non répétée est toujours une chaîne.
+    where: { id: req.params.id as string },
   });
   if (!conv || conv.userId !== req.userId) {
     return res.status(404).json({ error: "not_found" });
@@ -194,7 +232,9 @@ router.post("/conversations/:id/messages", requireAuth, async (req, res) => {
   const parsed = turnSchema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: "invalid_message" });
 
-  const prior = Array.isArray(conv.messages) ? conv.messages : [];
+  // La colonne Json ne porte aucun type : on réaffirme la forme écrite par ces
+  // mêmes routes (l'expression évaluée est inchangée).
+  const prior = (Array.isArray(conv.messages) ? conv.messages : []) as SupportMessage[];
   const userTurns = prior.filter((m) => m.role === "user").length;
   if (userTurns >= MAX_TURNS) {
     return res.status(409).json({ error: "too_many_turns" });
@@ -265,7 +305,7 @@ router.post("/notify", async (req, res) => {
     }
     res.json({ ok: true });
   } catch (e) {
-    console.error("[notify] failed:", e.message);
+    console.error("[notify] failed:", e instanceof Error ? e.message : e);
     res.status(500).json({ error: "notify_failed" });
   }
 });

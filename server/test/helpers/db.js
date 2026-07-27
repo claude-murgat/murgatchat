@@ -1,4 +1,4 @@
-import { prisma } from "../../src/db.js";
+import { prisma } from "../../src/db.ts";
 
 export { prisma };
 

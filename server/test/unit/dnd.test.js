@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isUserDnd } from "../../src/socket.js";
+import { isUserDnd } from "../../src/socket.ts";
 
 // Local-time Date for a given hour/minute (isUserDnd reads getHours/getMinutes).
 const at = (hh, mm = 0) => new Date(2026, 0, 1, hh, mm, 0);

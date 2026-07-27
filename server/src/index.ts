@@ -103,7 +103,7 @@ export function createServer() {
   if (process.env.E2E_TEST_MODE === "1") {
     app.post("/test/reset", async (_req, res) => {
       try {
-        const rows = await prisma.$queryRaw`
+        const rows = await prisma.$queryRaw<{ tablename: string }[]>`
           SELECT tablename FROM pg_tables
           WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'`;
         const names = rows.map((r) => `"${r.tablename}"`).join(", ");
@@ -113,7 +113,9 @@ export function createServer() {
         await ensureDefaultChannel();
         res.json({ ok: true });
       } catch (e) {
-        res.status(500).json({ error: String(e?.message || e) });
+        // `e` est `unknown` (catch strict) : cast d'accès uniquement, l'expression
+        // et son comportement à l'exécution sont strictement inchangés.
+        res.status(500).json({ error: String((e as { message?: string })?.message || e) });
       }
     });
   }

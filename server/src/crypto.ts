@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 
 const RAW = process.env.MESSAGE_ENCRYPTION_KEY || "";
-let KEY;
+let KEY: Buffer;
 
 if (RAW && /^[0-9a-fA-F]{64}$/.test(RAW)) {
   KEY = Buffer.from(RAW, "hex");
@@ -19,7 +19,10 @@ if (RAW && /^[0-9a-fA-F]{64}$/.test(RAW)) {
 
 const PREFIX = "enc1:";
 
-export function encryptBody(plain) {
+// `plain` reste `unknown` : la coercition ci-dessous accepte délibérément
+// n'importe quelle valeur (les appelants passent des strings, mais la fonction
+// ne le suppose pas).
+export function encryptBody(plain: unknown): string {
   const text = typeof plain === "string" ? plain : String(plain ?? "");
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv("aes-256-gcm", KEY, iv);
@@ -28,7 +31,10 @@ export function encryptBody(plain) {
   return PREFIX + Buffer.concat([iv, tag, ct]).toString("base64");
 }
 
-export function decryptBody(stored) {
+// `Message.body` est un `String` non nul côté Prisma : tous les appelants
+// passent bien une string. Les deux gardes ci-dessous restent en place pour les
+// lignes historiques non chiffrées.
+export function decryptBody(stored: string): string {
   if (typeof stored !== "string") return stored;
   if (!stored.startsWith(PREFIX)) return stored;
   try {
@@ -41,7 +47,7 @@ export function decryptBody(stored) {
     const pt = Buffer.concat([decipher.update(ct), decipher.final()]);
     return pt.toString("utf8");
   } catch (e) {
-    console.error("[crypto] decrypt failed:", e.message);
+    console.error("[crypto] decrypt failed:", e instanceof Error ? e.message : e);
     return "[message non déchiffrable]";
   }
 }

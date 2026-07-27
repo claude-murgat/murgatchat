@@ -1,4 +1,6 @@
 import { Server } from "socket.io";
+import type { Server as HttpServer } from "node:http";
+import type { User } from "@prisma/client";
 import { verifyToken } from "./auth.ts";
 import { prisma } from "./db.ts";
 import { serializeMessage } from "./routes/channels.ts";
@@ -8,8 +10,16 @@ import { sendWebPush } from "./webpush.ts";
 import { NotificationEventSchema } from "../../shared/contracts.ts";
 import { checkContract } from "./contractCheck.ts";
 
+// Sous-ensemble des colonnes `User` que le calcul DnD lit vraiment. En
+// production l'appelant passe une ligne Prisma complète, mais les tests
+// unitaires lui passent un objet partiel (`{}`, `{ dndUntil }`…) : le `Partial`
+// décrit ce contrat tolérant sans dupliquer les types de colonnes.
+type DndUser = Partial<
+  Pick<User, "dndUntil" | "dndScheduleEnabled" | "dndStart" | "dndEnd">
+>;
+
 // DnD actif si fenêtre ponctuelle (dndUntil) OU plage quotidienne (heure serveur)
-export function isUserDnd(user, now = new Date()) {
+export function isUserDnd(user: DndUser, now = new Date()) {
   if (user.dndUntil && user.dndUntil > now) return true;
   if (user.dndScheduleEnabled && user.dndStart && user.dndEnd) {
     const cur = now.getHours() * 60 + now.getMinutes();
@@ -35,9 +45,9 @@ const AWAY_AFTER_MS = 150 * 1000;
 // client also signals "away" the instant the page is hidden (fast path), and a
 // disconnect removes the socket too. Per-socket so one focused device doesn't
 // suppress pushes meant for another (a desktop in front shouldn't mute the phone).
-const webActivity = new Map();
+const webActivity = new Map<string, Map<string, number>>();
 
-function markWebActivity(userId, socketId) {
+function markWebActivity(userId: string, socketId: string) {
   let sockets = webActivity.get(userId);
   if (!sockets) {
     sockets = new Map();
@@ -45,7 +55,7 @@ function markWebActivity(userId, socketId) {
   }
   sockets.set(socketId, Date.now());
 }
-function markWebInactive(userId, socketId) {
+function markWebInactive(userId: string, socketId: string) {
   const sockets = webActivity.get(userId);
   if (!sockets) return;
   sockets.delete(socketId);
@@ -53,7 +63,7 @@ function markWebInactive(userId, socketId) {
 }
 // True when the user has no visible/recent web/desktop socket — i.e. away from
 // their computer, so a push is warranted.
-function webDesktopInactive(userId) {
+function webDesktopInactive(userId: string) {
   const sockets = webActivity.get(userId);
   if (!sockets || sockets.size === 0) return true;
   const now = Date.now();
@@ -63,16 +73,29 @@ function webDesktopInactive(userId) {
   return true;
 }
 
+// Les seuls champs utilisateur consultés pour la détection de mention ; `Partial`
+// pour la même raison que `DndUser` (appels de test avec un objet partiel).
+type MentionUser = Partial<Pick<User, "username" | "displayName">>;
+
 // Le membre est-il mentionné dans `body` ? Faute de système d'autocomplétion de
 // mentions, on reconnaît un simple "@pseudo" (username ou displayName), insensible
 // à la casse. Sert au niveau de notification "mentions" par channel.
-export function isMentioned(user, body) {
+export function isMentioned(user: MentionUser, body: unknown) {
   if (!body) return false;
   const text = String(body).toLowerCase();
   return [user.username, user.displayName]
     .filter(Boolean)
     .some((handle) => text.includes("@" + String(handle).toLowerCase()));
 }
+
+// Ce que `notifyMembers` lit du message sérialisé (`serializeMessage`, contrat
+// `MessageSchema` de shared/contracts.ts) : le reste du payload est relayé tel
+// quel dans l'évènement socket, donc inutile de le décrire ici. `author` peut se
+// réduire à `{ id }` quand la relation n'a pas été chargée (cf. publicUser).
+type NotifiableMessage = {
+  body: string | null;
+  author?: { id: string; displayName?: string | null } | null;
+};
 
 // Notify channel members (except author) who aren't in DnD: in-app "notification"
 // event, plus a push (Expo for native, Web Push for browser PWAs) for those
@@ -83,12 +106,17 @@ export function isMentioned(user, body) {
 // coupe toute notification (le badge non-lu reste, façon Slack/Discord), "mentions"
 // ne notifie que s'il est cité, "all" notifie tout. DnD reste prioritaire et
 // suppressif par-dessus.
-export async function notifyMembers(io, channelId, authorId, serialized) {
+export async function notifyMembers(
+  io: Server,
+  channelId: string,
+  authorId: string,
+  serialized: NotifiableMessage
+) {
   const members = await prisma.membership.findMany({
     where: { channelId },
     include: { user: true },
   });
-  const awayUserIds = [];
+  const awayUserIds: string[] = [];
   // Frontière serveur : on valide le payload de notification contre le contrat
   // partagé (non bloquant), une seule fois — il est identique pour tous les membres.
   const notifPayload = { channelId, message: serialized };
@@ -140,13 +168,13 @@ export async function notifyMembers(io, channelId, authorId, serialized) {
   }
 }
 
-export function setupSocket(httpServer, corsOrigin) {
+export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
   const io = new Server(httpServer, {
     cors: { origin: corsOrigin || "*", credentials: false },
   });
 
   // userId -> number of active sockets (a user can have several tabs/devices)
-  const online = new Map();
+  const online = new Map<string, number>();
 
   io.use((socket, next) => {
     const token =
@@ -342,7 +370,7 @@ export function setupSocket(httpServer, corsOrigin) {
   return io;
 }
 
-export async function dispatchScheduledMessages(io) {
+export async function dispatchScheduledMessages(io: Server) {
   const now = new Date();
   const due = await prisma.message.findMany({
     where: { delivered: false, scheduledAt: { lte: now } },
@@ -352,7 +380,10 @@ export async function dispatchScheduledMessages(io) {
   for (const msg of due) {
     const updated = await prisma.message.update({
       where: { id: msg.id },
-      data: { delivered: true, createdAt: msg.scheduledAt },
+      // `scheduledAt` est non-null par construction ici : le `where` ci-dessus ne
+      // remonte que les messages dont `scheduledAt <= now`, ce que le type Prisma
+      // (`Date | null`) ne peut pas exprimer — d'où l'assertion.
+      data: { delivered: true, createdAt: msg.scheduledAt! },
       include: { author: true, attachments: true },
     });
     const serialized = serializeMessage(updated);
