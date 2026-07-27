@@ -18,7 +18,7 @@ export default defineConfig({
       // manifest into our SW via `self.__WB_MANIFEST`.
       strategies: "injectManifest",
       srcDir: "src",
-      filename: "sw.js",
+      filename: "sw.ts",
       // The SW must live at /sw.js so it can control the whole origin scope.
       // PWA SW URL is `/sw.js`; the dist build copies it to dist/sw.js.
       injectRegister: false, // we register manually from src/pwa.js (better

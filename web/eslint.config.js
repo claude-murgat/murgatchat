@@ -12,6 +12,7 @@ import js from "@eslint/js";
 import globals from "globals";
 import eslintReact from "@eslint-react/eslint-plugin";
 import reactHooks from "eslint-plugin-react-hooks";
+import tseslint from "typescript-eslint";
 
 const react = eslintReact.configs.recommended;
 
@@ -27,9 +28,13 @@ export default [
   },
   js.configs.recommended,
 
+  // Parseur TypeScript : sans lui, ESLint ignore SILENCIEUSEMENT les .ts/.tsx
+  // et le gate CI passerait à vide (piège rencontré côté serveur).
+  ...tseslint.configs.recommended.map((c) => ({ ...c, files: ["**/*.{ts,tsx}"] })),
+
   // Application source: browser runtime + JSX.
   {
-    files: ["src/**/*.{js,jsx}"],
+    files: ["src/**/*.{js,jsx,ts,tsx}"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "module",
@@ -60,7 +65,15 @@ export default [
       // Allow intentionally-unused args and PascalCase/UPPER imports (components,
       // constants) ESLint can't always see used in JSX; ignoreRestSiblings covers
       // the `{ node, ...props }` pattern that deliberately drops a prop.
-      "no-unused-vars": [
+      // Ternaire utilisé comme instruction (`cond ? a() : b()`) : idiome présent
+      // dans le dépôt, volontairement toléré.
+      "@typescript-eslint/no-unused-expressions": ["error", { allowTernary: true }],
+      // Signalé sans bloquer : les rares `any` restants sont commentés sur place.
+      "@typescript-eslint/no-explicit-any": "warn",
+      // Sur du TypeScript, la règle de base fait doublon et compte mal (imports
+      // de type, surcharges) : c'est la version typescript-eslint qui s'applique.
+      "no-unused-vars": "off",
+      "@typescript-eslint/no-unused-vars": [
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^[A-Z_]", ignoreRestSiblings: true },
       ],
@@ -69,7 +82,7 @@ export default [
 
   // Service worker: its own global scope (self, caches, clients, …).
   {
-    files: ["src/sw.js"],
+    files: ["src/sw.ts"],
     languageOptions: {
       globals: { ...globals.serviceworker, ...globals.browser },
     },

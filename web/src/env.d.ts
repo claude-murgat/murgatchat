@@ -18,4 +18,6 @@ interface Navigator {
 interface Window {
   /** Présent uniquement dans le webview Tauri (build desktop). */
   __TAURI__?: unknown;
+  /** Idem, injecté par le runtime Tauri v2 (détection dans desktop.ts). */
+  __TAURI_INTERNALS__?: unknown;
 }
