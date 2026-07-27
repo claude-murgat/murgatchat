@@ -98,16 +98,29 @@ jobs:
           cache-dependency-path: |
             server/package-lock.json
             web/package-lock.json
+      # Les contrats partagés sont inclus dans les deux programmes TypeScript
+      # (web + server) ; `zod` doit donc être résoluble depuis shared/.
+      - name: Install shared contracts deps
+        run: npm ci --prefix shared
       - name: Lint server
         working-directory: server
         run: |
           npm ci
           npm run lint
+      # Analyse de types (phase 2) : seuls les fichiers portant `// @ts-check`
+      # sont contrôlés, donc ce gate ne peut pas se déclencher tout seul sur du
+      # code non annoté.
+      - name: Typecheck server
+        working-directory: server
+        run: npm run typecheck
       - name: Lint web
         working-directory: web
         run: |
           npm ci
           npm run lint
+      - name: Typecheck web
+        working-directory: web
+        run: npm run typecheck
 
   sast:
     name: sast (semgrep)

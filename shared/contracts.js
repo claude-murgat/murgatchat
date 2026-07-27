@@ -1,3 +1,4 @@
+// @ts-check
 // Contrats de données aux frontières (phase 1 de la feuille de route typage).
 //
 // Schémas zod décrivant EXACTEMENT ce que le serveur sérialise, pour valider au
@@ -20,6 +21,14 @@ import { z } from "zod";
 
 const zId = z.string().min(1);
 const zDate = z.coerce.date();
+
+// Chaque forme est déclarée en DEUX temps :
+//   - `…Base`  : l'objet strict — sert de source aux TYPES (z.infer), pour que
+//                les fautes de frappe soient détectées à l'analyse ;
+//   - exporté  : la version `.passthrough()` — sert à la VALIDATION runtime, qui
+//                doit rester tolérante à un champ ajouté côté serveur.
+// Sans cette séparation, `.passthrough()` ajoute une signature d'index au type
+// inféré et `msg.bodyy` passerait silencieusement.
 
 // Un utilisateur embarqué dans un message : en général le publicUser complet,
 // parfois juste { id } (repli quand la relation n'a pas été chargée). On n'exige
@@ -46,39 +55,55 @@ const ReactionGroupSchema = z.object({
   users: z.array(z.object({ id: zId, displayName: z.string().optional() })),
 });
 
-export const MessageSchema = z
-  .object({
-    id: zId,
-    channelId: zId,
-    parentId: zId.nullable(),
-    parent: z
-      .object({ id: zId, body: z.string(), author: UserRefSchema })
-      .nullable(),
-    body: z.string(),
-    createdAt: zDate,
-    editedAt: zDate.nullable(),
-    scheduledAt: zDate.nullable(),
-    reactions: z.array(ReactionGroupSchema),
-    author: UserRefSchema,
-    attachments: z.array(AttachmentSchema),
-  })
-  .passthrough();
+const MessageBase = z.object({
+  id: zId,
+  channelId: zId,
+  parentId: zId.nullable(),
+  parent: z.object({ id: zId, body: z.string(), author: UserRefSchema }).nullable(),
+  body: z.string(),
+  createdAt: zDate,
+  editedAt: zDate.nullable(),
+  scheduledAt: zDate.nullable(),
+  reactions: z.array(ReactionGroupSchema),
+  author: UserRefSchema,
+  attachments: z.array(AttachmentSchema),
+});
+export const MessageSchema = MessageBase.passthrough();
 
 // Réponse de GET /channels/:id/messages (firstUnreadId n'est renseigné qu'au
 // chargement initial — null en pagination `before`).
-export const MessagesResponseSchema = z
-  .object({
-    messages: z.array(MessageSchema),
-    hasMore: z.boolean(),
-    nextCursor: zId.nullable(),
-    firstUnreadId: zId.nullable(),
-  })
-  .passthrough();
+// `…Base` porte le message STRICT (pour les types) ; la version exportée réinjecte
+// le message tolérant (`.extend`) pour la validation runtime.
+const MessagesResponseBase = z.object({
+  messages: z.array(MessageBase),
+  hasMore: z.boolean(),
+  nextCursor: zId.nullable(),
+  firstUnreadId: zId.nullable(),
+});
+export const MessagesResponseSchema = MessagesResponseBase.extend({
+  messages: z.array(MessageSchema),
+}).passthrough();
 
 // Évènement socket "notification" : { channelId, message }.
-export const NotificationEventSchema = z
-  .object({
-    channelId: zId,
-    message: MessageSchema,
-  })
-  .passthrough();
+const NotificationEventBase = z.object({
+  channelId: zId,
+  message: MessageBase,
+});
+export const NotificationEventSchema = NotificationEventBase.extend({
+  message: MessageSchema,
+}).passthrough();
+
+// ── Types dérivés (phase 2) ───────────────────────────────────────────────
+//
+// Les types sont INFÉRÉS des schémas ci-dessus : une seule source de vérité, et
+// impossible qu'ils divergent du contrôle runtime. À consommer depuis un fichier
+// JS annoté, sans rien renommer en .ts :
+//
+//   /** @type {import("../../shared/contracts.js").Message} */
+//
+// (voir web/src/api.js pour un exemple câblé).
+
+/** @typedef {z.infer<typeof AttachmentSchema>} Attachment */
+/** @typedef {z.infer<typeof MessageBase>} Message */
+/** @typedef {z.infer<typeof MessagesResponseBase>} MessagesResponse */
+/** @typedef {z.infer<typeof NotificationEventBase>} NotificationEvent */

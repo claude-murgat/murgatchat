@@ -404,6 +404,20 @@ Récap des choix faits pendant le build (et pourquoi), pour qu'on puisse les rem
 - **Expo pour le mobile** : codebase React Native cross-platform, ciblant **Android**. **iOS** passe désormais par la **PWA** (le build natif a été abandonné — pivot PWA, la VM macOS x86_64 ne peut pas faire tourner Xcode 26 arm64-only).
 - **Prisma + Postgres** plutôt que Mongo/SQLite : relations natives (messages × channels × users × attachments), index, robuste pour l'historique.
 
+### Typage & contrats de données
+Le code est **100 % JS/JSX** — TypeScript sert d'**analyseur**, jamais de compilateur (`noEmit`) : rien n'est renommé en `.ts`, Vite et Node continuent d'exécuter le JS tel quel.
+
+- **Contrats zod partagés** (`shared/`) : les schémas décrivent ce que le serveur sérialise. Le client valide ce qu'il **reçoit**, le serveur ce qu'il **émet** — une seule source de vérité. La vérification est **non bloquante** : en cas d'écart elle journalise un avertissement et laisse passer la donnée, un décalage de schéma ne peut jamais casser l'app.
+- **Strict pour les types, tolérant à l'exécution** : chaque forme existe en version stricte (source des types) et en `.passthrough()` (validation). Un champ ajouté côté serveur ne casse rien au runtime, mais une faute de frappe (`msg.bodyy`) est bien détectée à l'analyse.
+- **Types inférés des schémas** (`z.infer`), donc impossible qu'ils divergent du contrôle runtime :
+  ```js
+  /** @type {import("../../shared/contracts.js").Message} */
+  ```
+- **Adoption incrémentale** : `checkJs: false` — un fichier n'est analysé que s'il porte `// @ts-check` en tête. Ajouter un fichier ne peut donc **jamais** casser le gate. Pour élargir la couverture : ajouter le commentaire, lancer `npm run typecheck`, annoter les paramètres signalés.
+- **TypeScript épinglé en 6.x** (`^6`) : la 7.x est la réécriture native (port Go), pas encore couverte par l'outillage — et `latest` sur npm pointe déjà dessus, d'où le garde-fou dans [dependabot.yml](.github/dependabot.yml).
+
+`npm run typecheck` (dans `web/` et `server/`) ; le job **lint** de la CI le lance sur chaque PR.
+
 ### Auth & sécurité
 - **JWT 30j sans refresh token** pour la simplicité MVP. À ajouter dès qu'on veut une vraie politique d'expiration.
 - **CORS `*`** : OK en dev, à restreindre en prod.

@@ -1,3 +1,4 @@
+// @ts-check
 // Autocomplétion d'emojis par shortcode `:nom:` dans le composer (issue #138).
 //
 // On garde une table curée des emojis les plus courants plutôt que d'embarquer
@@ -170,6 +171,11 @@ export const EMOJI_SHORTCODES = {
 // n'est pas un shortcode actif (pas de `:`, `:` non précédé d'un espace, espace
 // dans la requête, etc.). Le `:` doit débuter le texte ou suivre une espace,
 // pour ne pas se déclencher au milieu d'une URL (`http://`) par exemple.
+/**
+ * @param {string} text Contenu courant du champ de saisie.
+ * @param {number} caret Position du curseur dans `text`.
+ * @returns {{ start: number, query: string } | null}
+ */
 export function emojiTokenAt(text, caret) {
   const upto = text.slice(0, caret);
   const colon = upto.lastIndexOf(":");
@@ -183,6 +189,11 @@ export function emojiTokenAt(text, caret) {
 // Renvoie jusqu'à `limit` suggestions pour une requête de shortcode.
 // Priorité aux noms qui commencent par la requête (triés du plus court au plus
 // long, puis alphabétiquement), suivis des noms qui la contiennent.
+/**
+ * @param {string | undefined | null} query
+ * @param {number} [limit]
+ * @returns {{ name: string, char: string }[]}
+ */
 export function queryEmojiShortcodes(query, limit = 8) {
   const q = String(query || "").toLowerCase();
   if (!q) return [];
