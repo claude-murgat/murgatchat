@@ -350,10 +350,8 @@ workflows GitHub Actions (`.github/workflows/`) :
    lui permet de joindre le chat sur `localhost`. Dès la PR ouverte, une étape appelle
    `POST /support/notify` du serveur, qui **poste un message dans le salon d'équipe**
    (défaut `support-dev`) pour notifier directement dans MurgaChat.
-3. **Revue** — un humain relit la PR ; il peut ensuite demander une **seconde passe
-   IA** en posant le tag **`revue-ia`**, qui déclenche **`claude-review.yml`** : Claude
-   poste une revue consultative (sans jamais approuver ni merger). Le merge en prod
-   reste une décision humaine. (`claude.yml` permet aussi d'itérer via `@claude`.)
+3. **Revue** — un humain relit la PR et décide du merge. Pour une seconde paire d'yeux,
+   `claude.yml` permet d'itérer avec Claude en commentant **`@claude`** sur la PR.
 
 Mise en service (une fois, **en tant que propriétaire du dépôt** — droits admin requis
 pour les secrets) :
@@ -384,11 +382,10 @@ pour les secrets) :
   compose, et un accès au chat sur `http://localhost:4000` (l'app via `docker compose
   up`). ⚠️ Un runner self-hosted exécute du code — il n'agit qu'après
   le gate humain `claude:fix`, garde-le sur une machine de confiance.
-- **Labels** à créer : `claude:fix`, `revue-ia` (le domaine et la sévérité ne sont
-  pas des labels — ils figurent dans le corps de l'issue ; aucun label n'est posé à
-  la création, le gate est implicite ; `wontfix`/`duplicate`/`bug` existent déjà). Ex. :
-  `gh label create "claude:fix" -c "#0e8a16" -d "Autorise le développement par Claude"`,
-  `gh label create "revue-ia" -c "#5319e7" -d "Demande une revue IA de la PR"`.
+- **Label** à créer : `claude:fix` (le domaine et la sévérité ne sont pas des labels —
+  ils figurent dans le corps de l'issue ; aucun label n'est posé à la création, le gate
+  est implicite ; `wontfix`/`duplicate`/`bug` existent déjà). Ex. :
+  `gh label create "claude:fix" -c "#0e8a16" -d "Autorise le développement par Claude"`.
 
 ## Événements Socket.IO
 
