@@ -1,3 +1,4 @@
+// @ts-check
 import { api } from "./api.js";
 
 // Version baked at build time (see vite.config.js `define`). Guarded so a stray
@@ -6,6 +7,10 @@ export const LOCAL_VERSION =
   typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "0.0.0";
 
 // Parse "1.2.3" / "1.2.3-rc.1" → [1,2,3] (suffix ignored — alpha cadence).
+/**
+ * @param {string | undefined | null} v
+ * @returns {number[]}
+ */
 function parts(v) {
   return String(v || "0")
     .split("-")[0]
@@ -14,6 +19,11 @@ function parts(v) {
 }
 
 // True if `remote` is strictly greater than `local` (major→minor→patch).
+/**
+ * @param {string | undefined | null} remote
+ * @param {string | undefined | null} local
+ * @returns {boolean}
+ */
 export function isNewer(remote, local) {
   const a = parts(remote);
   const b = parts(local);

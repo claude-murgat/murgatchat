@@ -1,0 +1,27 @@
+{
+  // Phase 2 de la feuille de route typage : TypeScript sert d'ANALYSEUR, jamais de
+  // compilateur (`noEmit`) — le code reste 100 % JS/JSX, Vite continue de builder.
+  //
+  // Adoption INCRÉMENTALE : `checkJs: false` => par défaut aucun fichier .js n'est
+  // vérifié. Un fichier est contrôlé uniquement s'il porte `// @ts-check` en tête.
+  // Conséquence : ajouter un fichier ne peut JAMAIS casser `npm run typecheck`, et
+  // on élargit la couverture fichier par fichier, sans big-bang.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  // `../shared` : les contrats zod partagés, d'où sont inférés les types (z.infer).
+  "include": ["src/**/*", "../shared/contracts.js"]
+}

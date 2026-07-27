@@ -13,3 +13,62 @@ updates:
       default-days: 7
     commit-message:
       prefix: "ci"
+
+  # ── npm : les trois projets réellement déployés ────────────────────────────
+  # (mobile/ et e2e/ sont volontairement hors périmètre : mobile est gelé depuis
+  # le pivot PWA, e2e n'est que de l'outillage de test.)
+  #
+  # Les mises à jour sont GROUPÉES (une PR « prod » + une PR « dev » par projet
+  # au maximum) pour éviter de noyer le dépôt sous les PR unitaires.
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+    groups:
+      web-production:
+        dependency-type: "production"
+      web-development:
+        dependency-type: "development"
+    ignore:
+      # TypeScript reste en 6.x. La 7.x est la réécriture native (port Go) : on
+      # n'y va pas tant que notre outillage ne la couvre pas — et `latest` sur npm
+      # pointe DÉJÀ sur la 7.x, donc sans ce garde-fou Dependabot la proposerait.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "npm"
+    directory: "/server"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+    groups:
+      server-production:
+        dependency-type: "production"
+      server-development:
+        dependency-type: "development"
+    ignore:
+      # Même garde-fou TS 7.x que pour /web (voir ci-dessus).
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+
+  # Mini-package de contrats partagés : sa seule dépendance est zod, mais elle est
+  # dupliquée avec celle du serveur — il faut donc la suivre ici aussi pour ne pas
+  # laisser les deux diverger.
+  - package-ecosystem: "npm"
+    directory: "/shared"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore"

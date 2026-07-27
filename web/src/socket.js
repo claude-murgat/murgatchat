@@ -1,11 +1,16 @@
+// @ts-check
 import { io } from "socket.io-client";
 import { getApiBaseUrl } from "./api.js";
 import { logEvent, setLogContext } from "./logbuffer.js";
 
+/** @typedef {import("socket.io-client").Socket} Socket */
+
+/** @type {Socket | null} */
 let socket = null;
 
 // Record connection lifecycle into the diagnostic ring + keep the "socket"
 // diagnostic field in sync. Bound once per socket instance.
+/** @param {Socket} s */
 function instrument(s) {
   setLogContext({ socket: "connecting" });
   s.on("connect", () => {
@@ -23,6 +28,7 @@ function instrument(s) {
   s.io?.on("reconnect", (n) => logEvent("info", `socket reconnected after ${n} attempt(s)`));
 }
 
+/** @param {string} token */
 export function getSocket(token) {
   if (socket && socket.connected) return socket;
   if (socket) socket.disconnect();
