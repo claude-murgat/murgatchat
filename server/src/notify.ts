@@ -8,9 +8,9 @@
 // path (encrypted body + searchable plaintext), so they render like any message.
 
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { prisma } from "./db.js";
-import { encryptBody } from "./crypto.js";
-import { serializeMessage } from "./routes/channels.js";
+import { prisma } from "./db.ts";
+import { encryptBody } from "./crypto.ts";
+import { serializeMessage } from "./routes/channels.ts";
 
 const BOT_USERNAME = "claude";
 
@@ -26,7 +26,7 @@ export function notifyEnabled() {
 }
 
 // Constant-time comparison so the shared secret can't be guessed by timing.
-export function tokenMatches(provided) {
+export function tokenMatches(provided: string): boolean {
   const expected = token();
   if (!expected || !provided) return false;
   const a = Buffer.from(provided);
@@ -114,7 +114,7 @@ async function ensureChannel() {
 
 // Post `text` into the team channel as the bot. Returns the serialized message
 // + channel/author ids so the caller can broadcast it over Socket.IO.
-export async function postPipelineMessage(text) {
+export async function postPipelineMessage(text: string) {
   const bot = await ensureBot();
   const channel = await ensureChannel();
   const msg = await prisma.message.create({

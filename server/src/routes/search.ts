@@ -1,12 +1,26 @@
 import { Router } from "express";
-import { prisma } from "../db.js";
-import { requireAuth } from "../auth.js";
+import { prisma } from "../db.ts";
+import { requireAuth } from "../auth.ts";
 
 const router = Router();
 
 const FTS_CONFIG = "french"; // matches the GIN index built in ensureSearchIndex()
 const DEFAULT_LIMIT = 30;
 const MAX_LIMIT = 100;
+
+// Forme d'une ligne renvoyée par la requête FTS brute ci-dessous. Déclarée à la
+// main : le SQL est opaque pour Prisma, `$queryRawUnsafe` ne peut rien inférer.
+type SearchRow = {
+  id: string;
+  channelId: string;
+  authorId: string;
+  createdAt: Date;
+  editedAt: Date | null;
+  parentId: string | null;
+  snippet_src: string | null;
+  snippet: string;
+  rank: number;
+};
 
 // Search messages within the channels the caller is a member of.
 //   GET /search?q=hello world&channelId=optional&limit=30
@@ -19,7 +33,10 @@ router.get("/", requireAuth, async (req, res) => {
   const channelId = typeof req.query.channelId === "string" ? req.query.channelId : null;
   const limit = Math.min(
     MAX_LIMIT,
-    Math.max(1, parseInt(req.query.limit, 10) || DEFAULT_LIMIT)
+    // Express type `req.query.limit` en `string | ParsedQs | (…)[] | undefined` ;
+    // l'assertion ne fait qu'annoncer la forme attendue, `parseInt` reçoit très
+    // exactement la même valeur qu'avant (NaN -> DEFAULT_LIMIT via le `||`).
+    Math.max(1, parseInt(req.query.limit as string, 10) || DEFAULT_LIMIT)
   );
 
   // Channels the caller can see (memberships). If a specific channel was
@@ -35,7 +52,7 @@ router.get("/", requireAuth, async (req, res) => {
   // parameter (no SQL injection); the IN(...) list comes from validated IDs.
   // `ts_headline` returns an HTML snippet with <mark> around matches.
   const placeholders = channelIds.map((_, i) => `$${i + 3}`).join(",");
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await prisma.$queryRawUnsafe<SearchRow[]>(
     `
     SELECT
       m.id,
@@ -98,7 +115,7 @@ router.get("/", requireAuth, async (req, res) => {
 });
 
 // Safety: only literal SQL identifiers/regconfigs accepted (no user input).
-function literal(s) {
+function literal(s: string): string {
   if (!/^[a-z_][a-z0-9_]*$/i.test(s)) throw new Error(`bad literal: ${s}`);
   return `'${s}'`;
 }

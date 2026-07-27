@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
-import { createServer } from "../../src/index.js";
-import { ensureOwner } from "../../src/routes/auth.js";
+import { createServer } from "../../src/index.ts";
+import { ensureOwner } from "../../src/routes/auth.ts";
 import { registerUser, authed } from "../helpers/api.js";
 import { prisma } from "../helpers/db.js";
 

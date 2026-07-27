@@ -1,4 +1,9 @@
 import nodemailer from "nodemailer";
+import type { Transporter } from "nodemailer";
+
+// Ce que renvoient les fonctions d'envoi : `link` est null quand APP_URL n'est
+// pas configuré (voir inviteLink/resetLink).
+type MailResult = { sent: boolean; link: string | null };
 
 // SMTP is configured entirely via env so the same image can target Mailpit in dev,
 // Brevo / SendGrid / any provider in prod, or run "log-only" (SMTP_HOST empty).
@@ -15,12 +20,14 @@ const MAIL_FROM = process.env.MAIL_FROM || "Chat <no-reply@murgat-chat.local>";
 // Web app URL used to build invite/reset links (opens the app with ?invite=… or ?reset=…).
 const APP_URL = (process.env.APP_URL || "").replace(/\/$/, "");
 
-function parseBool(v, fallback) {
+// `v` accepte null en plus de string|undefined pour garder le test `v === null`
+// ci-dessous valide (les valeurs viennent de process.env, donc string|undefined).
+function parseBool(v: string | null | undefined, fallback: boolean): boolean {
   if (v === undefined || v === null || v === "") return fallback;
   return /^(1|true|yes|on)$/i.test(String(v));
 }
 
-let transporter = null;
+let transporter: Transporter | null = null;
 if (SMTP_HOST) {
   transporter = nodemailer.createTransport({
     host: SMTP_HOST,
@@ -33,17 +40,25 @@ if (SMTP_HOST) {
   console.warn("[mail] SMTP_HOST not set — invitation / reset emails are logged, not sent.");
 }
 
-export function inviteLink(token) {
+export function inviteLink(token: string): string | null {
   return APP_URL ? `${APP_URL}/?invite=${encodeURIComponent(token)}` : null;
 }
 
-export function resetLink(token) {
+export function resetLink(token: string): string | null {
   return APP_URL ? `${APP_URL}/?reset=${encodeURIComponent(token)}` : null;
 }
 
 // Returns { sent, link }. The caller already has a row in DB so a send failure
 // is non-fatal: the admin can still copy/paste the link/code from the UI.
-export async function sendInvitationEmail({ to, token, inviterName }) {
+export async function sendInvitationEmail({
+  to,
+  token,
+  inviterName,
+}: {
+  to: string;
+  token: string;
+  inviterName?: string | null;
+}): Promise<MailResult> {
   const link = inviteLink(token);
   const who = inviterName || "Un membre";
   const subject = "Invitation à rejoindre Chat";
@@ -65,7 +80,15 @@ export async function sendInvitationEmail({ to, token, inviterName }) {
   return sendMail({ to, subject, text, html, link });
 }
 
-export async function sendPasswordResetEmail({ to, token, displayName }) {
+export async function sendPasswordResetEmail({
+  to,
+  token,
+  displayName,
+}: {
+  to: string;
+  token: string;
+  displayName?: string | null;
+}): Promise<MailResult> {
   const link = resetLink(token);
   const who = displayName || "Bonjour";
   const subject = "Réinitialisation de votre mot de passe";
@@ -91,7 +114,19 @@ export async function sendPasswordResetEmail({ to, token, displayName }) {
   return sendMail({ to, subject, text, html, link });
 }
 
-async function sendMail({ to, subject, text, html, link }) {
+async function sendMail({
+  to,
+  subject,
+  text,
+  html,
+  link,
+}: {
+  to: string;
+  subject: string;
+  text: string;
+  html: string;
+  link: string | null;
+}): Promise<MailResult> {
   if (!transporter) {
     console.log(`[mail] (no SMTP) to=${to} subject="${subject}" link=${link}`);
     return { sent: false, link };

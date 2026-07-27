@@ -1,4 +1,4 @@
-import { createServer } from "../../src/index.js";
+import { createServer } from "../../src/index.ts";
 import { io as ioClient } from "socket.io-client";
 
 // Boot the real HTTP + Socket.IO server on an ephemeral port for WS tests.

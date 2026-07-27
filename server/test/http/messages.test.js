@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { createServer } from "../../src/index.js";
+import { createServer } from "../../src/index.ts";
 import { registerUser, authed } from "../helpers/api.js";
 import { prisma } from "../helpers/db.js";
 import { seedMessage } from "../helpers/seed.js";
-import { UPLOAD_DIR } from "../../src/storage.js";
+import { UPLOAD_DIR } from "../../src/storage.ts";
 
 let app, io;
 beforeAll(() => {

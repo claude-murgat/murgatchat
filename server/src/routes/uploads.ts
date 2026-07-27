@@ -1,11 +1,12 @@
 import { Router } from "express";
+import type { NextFunction, Request, Response } from "express";
 import multer from "multer";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { prisma } from "../db.js";
-import { requireAuth, verifyToken } from "../auth.js";
-import { encryptBufferToFile, decryptFile } from "../cryptoFile.js";
+import { prisma } from "../db.ts";
+import { requireAuth, verifyToken } from "../auth.ts";
+import { encryptBufferToFile, decryptFile } from "../cryptoFile.ts";
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || "/data/uploads";
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -26,7 +27,7 @@ const upload = multer({
 
 // Enveloppe multer : traduit un dépassement de taille en 413 explicite (avec le
 // plafond, pour l'UI) au lieu du 500 générique du handler d'erreur par défaut.
-function uploadSingle(req, res, next) {
+function uploadSingle(req: Request, res: Response, next: NextFunction) {
   upload.single("file")(req, res, (err) => {
     if (!err) return next();
     if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
@@ -49,7 +50,12 @@ export const MAX_ATTACHMENTS = 3;
 // them at the target via prisma.attachment.updateMany. Filtering by ownership
 // here is the guard that stops a client from attaching someone else's upload by
 // guessing its id.
-export async function ownedUnlinkedAttachments(ids, uploadedBy) {
+export async function ownedUnlinkedAttachments(
+  // `unknown[]` et pas `string[]` : les ids viennent du client, le filtre
+  // `typeof s === "string"` ci-dessous est la garde d'exécution correspondante.
+  ids: readonly unknown[] | null | undefined,
+  uploadedBy: string
+) {
   const unique = [...new Set((ids || []).filter((s) => typeof s === "string"))].slice(
     0,
     MAX_ATTACHMENTS
@@ -65,7 +71,14 @@ export async function ownedUnlinkedAttachments(ids, uploadedBy) {
 // upload route and the GIF import route (routes/gifs.js) so both go through the
 // same AES-256-GCM-at-rest path. `size` is the plaintext length; the on-disk
 // blob is larger (header + tag). Cleans up the partial blob if encryption throws.
-export async function storeEncryptedAttachment(buffer, { filename, mimeType, uploadedBy }) {
+export async function storeEncryptedAttachment(
+  buffer: Buffer,
+  {
+    filename,
+    mimeType,
+    uploadedBy,
+  }: { filename?: string | null; mimeType?: string | null; uploadedBy: string }
+) {
   const safeName = filename || "fichier";
   const ext = path.extname(safeName).slice(0, 20);
   const storageName = crypto.randomBytes(16).toString("hex") + ext;
@@ -101,7 +114,7 @@ router.post("/", requireAuth, uploadSingle, async (req, res) => {
       attachment: { id: att.id, filename: att.filename, mimeType: att.mimeType, size: att.size },
     });
   } catch (e) {
-    console.error("[uploads] store failed:", e.message);
+    console.error("[uploads] store failed:", e instanceof Error ? e.message : e);
     res.status(500).json({ error: "encrypt_failed" });
   }
 });
@@ -109,10 +122,12 @@ router.post("/", requireAuth, uploadSingle, async (req, res) => {
 router.get("/:id", async (req, res) => {
   const token =
     (req.headers.authorization || "").replace(/^Bearer /, "") ||
-    req.query.token;
+    (req.query.token as string | undefined);
   const payload = token ? verifyToken(token) : null;
   if (!payload) return res.status(401).json({ error: "unauthorized" });
-  const userId = payload.sub;
+  // `sub` d'un JWT est typé `string | undefined` (et `String.prototype.sub` si le
+  // payload est une chaîne) : nos tokens y mettent toujours l'id utilisateur.
+  const userId = payload.sub as string;
 
   const att = await prisma.attachment.findUnique({
     where: { id: req.params.id },
@@ -167,7 +182,7 @@ router.get("/:id", async (req, res) => {
       const plaintext = await decryptFile(filePath);
       res.end(plaintext);
     } catch (e) {
-      console.error("[uploads] decrypt failed:", e.message);
+      console.error("[uploads] decrypt failed:", e instanceof Error ? e.message : e);
       res.status(500).json({ error: "decrypt_failed" });
     }
   } else {

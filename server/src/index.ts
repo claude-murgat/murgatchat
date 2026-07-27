@@ -5,18 +5,18 @@ import { dirname, join } from "node:path";
 import express from "express";
 import helmet from "helmet";
 import cors from "cors";
-import authRouter, { ensureOwner, ensureLowercaseIdentifiers } from "./routes/auth.js";
-import usersRouter from "./routes/users.js";
-import channelsRouter, { ensureDefaultChannel } from "./routes/channels.js";
-import uploadsRouter from "./routes/uploads.js";
-import searchRouter, { ensureSearchIndex } from "./routes/search.js";
-import bugReportsRouter from "./routes/bugReports.js";
-import supportRouter from "./routes/support.js";
-import gifsRouter from "./routes/gifs.js";
-import { setupSocket, dispatchScheduledMessages } from "./socket.js";
-import { prisma } from "./db.js";
-import { sweepOrphanAttachments } from "./sweep.js";
-import { initWebPush } from "./webpush.js";
+import authRouter, { ensureOwner, ensureLowercaseIdentifiers } from "./routes/auth.ts";
+import usersRouter from "./routes/users.ts";
+import channelsRouter, { ensureDefaultChannel } from "./routes/channels.ts";
+import uploadsRouter from "./routes/uploads.ts";
+import searchRouter, { ensureSearchIndex } from "./routes/search.ts";
+import bugReportsRouter from "./routes/bugReports.ts";
+import supportRouter from "./routes/support.ts";
+import gifsRouter from "./routes/gifs.ts";
+import { setupSocket, dispatchScheduledMessages } from "./socket.ts";
+import { prisma } from "./db.ts";
+import { sweepOrphanAttachments } from "./sweep.ts";
+import { initWebPush } from "./webpush.ts";
 
 const PORT = parseInt(process.env.PORT || "4000", 10);
 const CORS_ORIGIN = process.env.CORS_ORIGIN || "*";
@@ -103,7 +103,7 @@ export function createServer() {
   if (process.env.E2E_TEST_MODE === "1") {
     app.post("/test/reset", async (_req, res) => {
       try {
-        const rows = await prisma.$queryRaw`
+        const rows = await prisma.$queryRaw<{ tablename: string }[]>`
           SELECT tablename FROM pg_tables
           WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'`;
         const names = rows.map((r) => `"${r.tablename}"`).join(", ");
@@ -113,7 +113,9 @@ export function createServer() {
         await ensureDefaultChannel();
         res.json({ ok: true });
       } catch (e) {
-        res.status(500).json({ error: String(e?.message || e) });
+        // `e` est `unknown` (catch strict) : cast d'accès uniquement, l'expression
+        // et son comportement à l'exécution sont strictement inchangés.
+        res.status(500).json({ error: String((e as { message?: string })?.message || e) });
       }
     });
   }

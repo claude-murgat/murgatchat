@@ -76,6 +76,44 @@ const SUBMIT_TOOL = {
   },
 };
 
+/**
+ * Snapshot d'environnement joint au ticket. Les champs viennent soit du corps de
+ * la requête, soit d'une ligne SupportConversation : d'où les `null` admis.
+ * `diagnostics` est un objet libre (colonne Json côté Prisma), donc `unknown`.
+ */
+export interface SupportContext {
+  appVersion?: string | null;
+  platform?: string | null;
+  diagnostics?: unknown;
+  logs?: string | null;
+}
+
+/**
+ * Entrée de l'outil `submit_ticket` telle que produite par le modèle. Tous les
+ * champs sont optionnels : c'est du JSON généré, jamais garanti (le code appelant
+ * lit d'ailleurs déjà `finalizeInput.body || ""`).
+ */
+export interface SubmitTicketInput {
+  title?: string;
+  body?: string;
+  severity?: string;
+  domain?: string;
+}
+
+/** Bloc de contenu renvoyé par l'API Messages (texte ou appel d'outil). */
+interface ContentBlock {
+  type?: string;
+  text?: string;
+  name?: string;
+  input?: SubmitTicketInput;
+}
+
+/** Résultat d'un tour d'assistant (voir `runSupportTurn`). */
+export interface SupportTurn {
+  reply: string;
+  finalize: SubmitTicketInput | null;
+}
+
 // Truncate the logs we feed the model: recent breadcrumbs are the useful part,
 // and the full buffer (≤100 KB) would bloat every turn's context.
 const MAX_LOG_CONTEXT = 4000;
@@ -84,8 +122,13 @@ const MAX_LOG_CONTEXT = 4000;
 // knows the environment (platform, version, recent logs) and doesn't re-ask.
 // Returns "" when nothing is attached. Goes in the system prompt — not the
 // messages — so it never shows up in the transcript rendered to the user.
-export function diagnosticContext({ appVersion, platform, diagnostics, logs } = {}) {
-  const lines = [];
+export function diagnosticContext({
+  appVersion,
+  platform,
+  diagnostics,
+  logs,
+}: SupportContext = {}): string {
+  const lines: string[] = [];
   if (platform) lines.push(`Plateforme : ${platform}`);
   if (appVersion) lines.push(`Version de l'app : ${appVersion}`);
   if (diagnostics && typeof diagnostics === "object") {
@@ -114,18 +157,20 @@ export function diagnosticContext({ appVersion, platform, diagnostics, logs } = 
 }
 
 // Pull the assistant's visible text out of a content array.
-function textFrom(content) {
+// `content` arrive tel quel de la réponse HTTP : `unknown` en entrée, l'assertion
+// après le garde `Array.isArray` décrit le contrat de l'API.
+function textFrom(content: unknown): string {
   if (!Array.isArray(content)) return "";
-  return content
+  return (content as ContentBlock[])
     .filter((b) => b && b.type === "text" && typeof b.text === "string")
     .map((b) => b.text)
     .join("\n")
     .trim();
 }
 
-function toolFrom(content) {
+function toolFrom(content: unknown): SubmitTicketInput | null {
   if (!Array.isArray(content)) return null;
-  const block = content.find(
+  const block = (content as ContentBlock[]).find(
     (b) => b && b.type === "tool_use" && b.name === SUBMIT_TOOL.name
   );
   return block ? block.input || {} : null;
@@ -136,7 +181,13 @@ function toolFrom(content) {
 //   { reply, finalize } — finalize is the submit_ticket input when Claude chose
 //   to finalize this turn, otherwise null. Returns null on disabled/error so the
 //   route can fall back gracefully (mirrors github.js's swallow-and-log).
-export async function runSupportTurn(messages, context = {}) {
+// `messages` n'est que re-sérialisé ici, jamais lu champ par champ : `unknown[]`
+// couvre aussi bien le tableau construit par la route que celui relu depuis la
+// colonne Json de SupportConversation.
+export async function runSupportTurn(
+  messages: unknown[],
+  context: SupportContext = {}
+): Promise<SupportTurn | null> {
   if (!anthropicEnabled()) return null;
   // Diagnostics ride in the system prompt (stable across a conversation's turns,
   // so the prompt cache still hits) — not in `messages`, which is the transcript
@@ -163,7 +214,9 @@ export async function runSupportTurn(messages, context = {}) {
       console.error(`[anthropic] turn failed: ${res.status} ${detail.slice(0, 300)}`);
       return null;
     }
-    const data = await res.json();
+    // `Response.json()` est typé `unknown` : l'assertion décrit le contrat de
+    // l'API Messages (seul `content` est lu ici).
+    const data = (await res.json()) as { content?: unknown };
     const finalize = toolFrom(data.content);
     let reply = textFrom(data.content);
     if (finalize && !reply) {
@@ -172,7 +225,10 @@ export async function runSupportTurn(messages, context = {}) {
     }
     return { reply, finalize };
   } catch (e) {
-    console.error("[anthropic] turn error:", e.message);
+    // Assertion plutôt que garde `instanceof Error` : une garde imposerait une
+    // branche de repli, donc un comportement d'exécution différent (même choix
+    // que src/push.ts et src/storage.ts).
+    console.error("[anthropic] turn error:", (e as Error).message);
     return null;
   }
 }

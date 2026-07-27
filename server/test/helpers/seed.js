@@ -1,5 +1,5 @@
 import { prisma } from "./db.js";
-import { encryptBody } from "../../src/crypto.js";
+import { encryptBody } from "../../src/crypto.ts";
 
 // Insert a message row directly (bypassing the socket send path) so HTTP tests
 // for edit/delete/thread/list/scheduled can set up state deterministically.

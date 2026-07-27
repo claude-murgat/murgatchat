@@ -1,12 +1,14 @@
 import { Router } from "express";
+import type { NextFunction, Request, Response } from "express";
+import type { Invitation, Prisma, User } from "@prisma/client";
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { prisma } from "../db.js";
-import { signToken, requireAuth } from "../auth.js";
-import { broadcastMembers } from "./channels.js";
-import { sendInvitationEmail, sendPasswordResetEmail, inviteLink } from "../mail.js";
-import { getVapidPublicKey } from "../webpush.js";
+import { prisma } from "../db.ts";
+import { signToken, requireAuth } from "../auth.ts";
+import { broadcastMembers } from "./channels.ts";
+import { sendInvitationEmail, sendPasswordResetEmail, inviteLink } from "../mail.ts";
+import { getVapidPublicKey } from "../webpush.ts";
 
 const router = Router();
 
@@ -171,10 +173,13 @@ router.patch("/me", requireAuth, async (req, res) => {
   const user = await prisma.user.findUnique({ where: { id: req.userId } });
   if (!user) return res.status(404).json({ error: "not_found" });
 
-  const data = {};
+  const data: Prisma.UserUpdateInput = {};
   if (displayName !== undefined) data.displayName = displayName;
   if (newPassword) {
-    const ok = await bcrypt.compare(currentPassword, user.passwordHash);
+    // `currentPassword` est forcément renseigné ici : le refine du schéma impose
+    // `!d.newPassword || !!d.currentPassword`. TypeScript ne peut pas relier les
+    // deux champs, d'où l'assertion (aucun effet à l'exécution).
+    const ok = await bcrypt.compare(currentPassword as string, user.passwordHash);
     if (!ok) return res.status(403).json({ error: "invalid_current_password" });
     data.passwordHash = await bcrypt.hash(newPassword, 10);
   }
@@ -216,7 +221,7 @@ router.post("/forgot-password", async (req, res) => {
         displayName: user.displayName,
       });
     } catch (e) {
-      console.error("[reset] email send failed:", e.message);
+      console.error("[reset] email send failed:", e instanceof Error ? e.message : e);
     }
   }
   res.json({ ok: true });
@@ -268,7 +273,7 @@ router.post("/reset-password", async (req, res) => {
   res.json({ token: authToken, user: publicUser(user) });
 });
 
-function maskEmail(email) {
+function maskEmail(email: string) {
   const [local, domain] = String(email).split("@");
   if (!domain) return email;
   const head = local.slice(0, Math.min(2, local.length));
@@ -383,14 +388,21 @@ router.delete("/web-push/subscribe", requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-function requireAdmin(req, res, next) {
+// `requireAdmin` pose `req.adminUser`, propriété absente de l'augmentation
+// globale d'Express (src/types/express.d.ts) : on l'exprime localement, en
+// intersection avec le `Request` du point d'appel. Elle est déclarée non
+// optionnelle pour la même raison que `userId` là-bas — toutes les routes qui la
+// lisent passent par `requireAdmin`.
+type AdminExtras = { adminUser: User };
+
+function requireAdmin(req: Request, res: Response, next: NextFunction) {
   if (!req.user?.isAdmin) return res.status(403).json({ error: "admin_required" });
   // Back-compat with older code that read req.adminUser.
-  req.adminUser = req.user;
+  (req as typeof req & AdminExtras).adminUser = req.user;
   next();
 }
 
-function requireOwner(req, res, next) {
+function requireOwner(req: Request, res: Response, next: NextFunction) {
   if (!req.user?.isOwner) return res.status(403).json({ error: "owner_required" });
   next();
 }
@@ -425,10 +437,10 @@ router.post("/invitations", requireAuth, requireAdmin, async (req, res) => {
     ({ sent: emailSent } = await sendInvitationEmail({
       to: email,
       token,
-      inviterName: req.adminUser.displayName,
+      inviterName: (req as typeof req & AdminExtras).adminUser.displayName,
     }));
   } catch (e) {
-    console.error("[invitations] email send failed:", e.message);
+    console.error("[invitations] email send failed:", e instanceof Error ? e.message : e);
   }
   res.json({ invitation: serializeInvitation(inv), token, link: inviteLink(token), emailSent });
 });
@@ -458,11 +470,14 @@ router.get("/invitations/:token", async (req, res) => {
 // (matches displayName / username / email; OR-combined). `pageSize` is
 // clamped to [1, 100] so a misbehaving client can't ask for everything.
 router.get("/users", requireAuth, requireAdmin, async (req, res) => {
-  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
-  const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || 50));
+  // Express type `req.query.*` très largement (string | tableau | objet imbriqué) ;
+  // l'assertion se contente de refléter le cas nominal, `parseInt` renvoyant NaN
+  // — donc la valeur par défaut — pour tout le reste, exactement comme avant.
+  const page = Math.max(1, parseInt(req.query.page as string, 10) || 1);
+  const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string, 10) || 50));
   const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
 
-  const where = q
+  const where: Prisma.UserWhereInput = q
     ? {
         OR: [
           { displayName: { contains: q, mode: "insensitive" } },
@@ -510,15 +525,20 @@ router.patch("/users/:id", requireAuth, requireAdmin, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const { isAdmin, status } = parsed.data;
 
-  const target = await prisma.user.findUnique({ where: { id: req.params.id } });
+  // Les middlewares de cette route sont typés avec le `Request` par défaut, ce qui
+  // fait retomber `req.params` sur l'index signature `ParamsDictionary`
+  // (`string | string[]`) au lieu du `{ id: string }` déduit du chemin. Un segment
+  // `:id` ne produit jamais de tableau côté Express, d'où l'assertion.
+  const target = await prisma.user.findUnique({ where: { id: req.params.id as string } });
   if (!target) return res.status(404).json({ error: "not_found" });
 
-  const me = req.user;
+  // `requireAuth` + `requireAdmin` garantissent `req.user` sur cette route.
+  const me = req.user!;
   if (target.isOwner) {
     return res.status(403).json({ error: "owner_protected" });
   }
 
-  const data = {};
+  const data: Prisma.UserUpdateInput = {};
 
   if (isAdmin !== undefined) {
     if (!me.isOwner) return res.status(403).json({ error: "owner_required" });
@@ -551,7 +571,8 @@ router.post("/transfer-ownership", requireAuth, requireOwner, async (req, res) =
   const parsed = transferSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const { targetUserId } = parsed.data;
-  const me = req.user;
+  // `requireAuth` + `requireOwner` garantissent `req.user` sur cette route.
+  const me = req.user!;
 
   if (targetUserId === me.id) return res.status(400).json({ error: "already_owner" });
   const target = await prisma.user.findUnique({ where: { id: targetUserId } });
@@ -598,20 +619,22 @@ export async function ensureLowercaseIdentifiers() {
   const users = await prisma.user.findMany({
     select: { id: true, username: true, email: true },
   });
-  const counts = { username: new Map(), email: new Map() };
+  const counts = { username: new Map<string, number>(), email: new Map<string, number>() };
   for (const u of users) {
-    for (const field of ["username", "email"]) {
+    for (const field of ["username", "email"] as const) {
       const lc = u[field].toLowerCase();
       counts[field].set(lc, (counts[field].get(lc) || 0) + 1);
     }
   }
   let fixed = 0;
   for (const u of users) {
-    const data = {};
-    for (const field of ["username", "email"]) {
+    const data: Prisma.UserUpdateInput = {};
+    for (const field of ["username", "email"] as const) {
       const lc = u[field].toLowerCase();
       if (u[field] === lc) continue; // already normalized
-      if (counts[field].get(lc) > 1) {
+      // La clé a forcément été comptée par la boucle précédente (mêmes `users`,
+      // même `lc`), donc `get` ne peut pas renvoyer `undefined` ici.
+      if ((counts[field].get(lc) as number) > 1) {
         console.warn(`[auth-ci] ${field} "${u[field]}" collides in lowercase — left as-is`);
         continue;
       }
@@ -622,13 +645,15 @@ export async function ensureLowercaseIdentifiers() {
       await prisma.user.update({ where: { id: u.id }, data });
       fixed += 1;
     } catch (e) {
-      console.warn(`[auth-ci] could not normalize user ${u.id}: ${e.message}`);
+      console.warn(
+        `[auth-ci] could not normalize user ${u.id}: ${e instanceof Error ? e.message : e}`
+      );
     }
   }
   if (fixed) console.log(`[auth-ci] normalized ${fixed} user identifier(s) to lowercase`);
 }
 
-function serializeInvitation(inv) {
+function serializeInvitation(inv: Invitation) {
   return {
     id: inv.id,
     email: inv.email,
@@ -640,7 +665,7 @@ function serializeInvitation(inv) {
   };
 }
 
-export function publicUser(u) {
+export function publicUser(u: User) {
   return {
     id: u.id,
     email: u.email,

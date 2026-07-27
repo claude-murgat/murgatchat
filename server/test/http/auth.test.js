@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import request from "supertest";
-import { createServer } from "../../src/index.js";
-import { ensureDefaultChannel } from "../../src/routes/channels.js";
-import { ensureLowercaseIdentifiers } from "../../src/routes/auth.js";
+import { createServer } from "../../src/index.ts";
+import { ensureDefaultChannel } from "../../src/routes/channels.ts";
+import { ensureLowercaseIdentifiers } from "../../src/routes/auth.ts";
 import { registerUser, authed } from "../helpers/api.js";
 import { prisma } from "../helpers/db.js";
 

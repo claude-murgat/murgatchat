@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { encryptBody, decryptBody } from "../../src/crypto.js";
+import { encryptBody, decryptBody } from "../../src/crypto.ts";
 
 describe("crypto", () => {
   it("round-trips an encrypted message", () => {

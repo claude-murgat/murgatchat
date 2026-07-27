@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import request from "supertest";
 import fs from "node:fs";
 import path from "node:path";
-import { createServer } from "../../src/index.js";
+import { createServer } from "../../src/index.ts";
 import { registerUser } from "../helpers/api.js";
 import { prisma } from "../helpers/db.js";
 

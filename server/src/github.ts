@@ -23,20 +23,54 @@ const MAX_BODY = 60_000;
 
 // Human-readable triage, rendered in the body instead of as labels. Unknown or
 // missing values are simply skipped (one-shot reports carry no triage).
-const DOMAIN_NAMES = {
+// `Record<string, string>` (plutôt que le type littéral inféré) parce que la
+// clé lue vient du client / de la conversation de support : c'est une chaîne
+// quelconque, et un domaine inconnu doit simplement retomber sur `undefined`.
+const DOMAIN_NAMES: Record<string, string> = {
   server: "Serveur",
   web: "Web",
   mobile: "Mobile",
   desktop: "Desktop",
 };
-const SEVERITY_NAMES = {
+const SEVERITY_NAMES: Record<string, string> = {
   faible: "Faible",
   moyenne: "Moyenne",
   élevée: "Élevée",
 };
 
+/** Classement posé par la conversation de support (absent des signalements directs). */
+type Triage = {
+  domain?: string | null;
+  severity?: string | null;
+};
+
+/** Pièce jointe du signalement — seuls les champs lus ici sont décrits. */
+type ReportAttachment = {
+  filename?: string | null;
+  mimeType?: string | null;
+  size?: number | null;
+};
+
+/**
+ * Signalement à miroiter : la ligne `BugReport` (Prisma) enrichie par les
+ * routes appelantes — pièces jointes, auteur, titre affiné et triage.
+ */
+export type IssueReport = Triage & {
+  id: string;
+  message: string;
+  /** Titre affiné par la conversation de support ; absent en signalement direct. */
+  title?: string | null;
+  logs?: string | null;
+  appVersion?: string | null;
+  platform?: string | null;
+  /** Colonne Json libre : la forme côté client peut évoluer. */
+  diagnostics?: unknown;
+  attachments?: ReportAttachment[] | null;
+  user?: { username?: string | null } | null;
+};
+
 // A `> Domaine : … · Sévérité : …` blockquote line for the body header, or "".
-function triageLine({ domain, severity } = {}) {
+function triageLine({ domain, severity }: Triage = {}): string {
   const parts = [];
   if (domain && DOMAIN_NAMES[domain]) parts.push(`Domaine : ${DOMAIN_NAMES[domain]}`);
   if (severity && SEVERITY_NAMES[severity]) parts.push(`Sévérité : ${SEVERITY_NAMES[severity]}`);
@@ -59,7 +93,7 @@ export function githubEnabled() {
   return Boolean(token());
 }
 
-function firstLine(s) {
+function firstLine(s: string | null | undefined): string {
   return String(s || "").split("\n")[0].trim();
 }
 
@@ -68,11 +102,11 @@ function firstLine(s) {
 // it would ping/notify that account. A zero-width space right after the @ keeps
 // the text visually identical but breaks the mention link. (Logs already sit in a
 // fenced code block, where mentions never render, so they don't need this.)
-function noMentions(s) {
+function noMentions(s: string | null | undefined): string {
   return String(s ?? "").replace(/@(?=[a-z0-9_-])/gi, "@​");
 }
 
-function humanSize(bytes) {
+function humanSize(bytes: number | null | undefined): string {
   const n = Number(bytes) || 0;
   if (n < 1024) return `${n} o`;
   if (n < 1024 * 1024) return `${Math.round(n / 1024)} Ko`;
@@ -82,7 +116,7 @@ function humanSize(bytes) {
 // List the report's attachments. They live behind the authenticated /uploads
 // route (encrypted at rest), so they can't be embedded as images in the issue —
 // the body just inventories them and points to where the team can open them.
-function attachmentsBlock(attachments) {
+function attachmentsBlock(attachments: ReportAttachment[] | null | undefined): string {
   if (!Array.isArray(attachments) || attachments.length === 0) return "";
   const rows = attachments
     .map((a) => `- ${noMentions(a.filename || "fichier")} (${noMentions(a.mimeType || "?")} · ${humanSize(a.size)})`)
@@ -93,7 +127,7 @@ function attachmentsBlock(attachments) {
   );
 }
 
-function diagnosticsBlock(diag) {
+function diagnosticsBlock(diag: unknown): string {
   if (!diag || typeof diag !== "object") return "";
   const rows = Object.entries(diag)
     .map(
@@ -107,7 +141,7 @@ function diagnosticsBlock(diag) {
 
 // Build the issue body, keeping the message + diagnostics intact and truncating
 // the (potentially 100 KB) logs so the whole thing stays under GitHub's limit.
-export function buildIssueBody(report) {
+export function buildIssueBody(report: IssueReport): string {
   const reporter = report.user?.username
     ? noMentions(report.user.username)
     : "un utilisateur";
@@ -139,7 +173,9 @@ export function buildIssueBody(report) {
 
 // Create a GitHub issue mirroring the report. Returns { number, url } on
 // success, or null when disabled / on any error (logged, never thrown).
-export async function createIssueFromBugReport(report) {
+export async function createIssueFromBugReport(
+  report: IssueReport
+): Promise<{ number: number; url: string } | null> {
   if (!githubEnabled()) return null;
   // Prefer an explicit refined title (set by the support conversation); fall
   // back to the first line of the message for one-shot reports.
@@ -169,10 +205,12 @@ export async function createIssueFromBugReport(report) {
       console.error(`[github] create issue failed: ${res.status} ${detail.slice(0, 300)}`);
       return null;
     }
-    const data = await res.json();
+    // `res.json()` renvoie `unknown` : on décrit les deux seuls champs lus de
+    // la réponse « issue créée » de l'API GitHub.
+    const data = (await res.json()) as { number: number; html_url: string };
     return { number: data.number, url: data.html_url };
   } catch (e) {
-    console.error("[github] create issue error:", e.message);
+    console.error("[github] create issue error:", e instanceof Error ? e.message : e);
     return null;
   }
 }

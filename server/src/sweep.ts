@@ -1,5 +1,5 @@
-import { prisma } from "./db.js";
-import { listStoredFiles, safeUnlink, fileAgeMs } from "./storage.js";
+import { prisma } from "./db.ts";
+import { listStoredFiles, safeUnlink, fileAgeMs } from "./storage.ts";
 
 // Twin guardrails against orphans:
 //   (a) blobs on disk with no matching Attachment row — typically because

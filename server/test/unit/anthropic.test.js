@@ -3,7 +3,7 @@ import {
   anthropicEnabled,
   runSupportTurn,
   diagnosticContext,
-} from "../../src/anthropic.js";
+} from "../../src/anthropic.ts";
 
 const messages = [{ role: "user", content: "ça plante" }];
 

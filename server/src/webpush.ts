@@ -12,16 +12,39 @@
 import webpush from "web-push";
 import fs from "node:fs";
 import path from "node:path";
-import { prisma } from "./db.js";
+import type { WebPushSubscription } from "@prisma/client";
+import { prisma } from "./db.ts";
+
+// D'où viennent les clés VAPID effectivement utilisées (cf. stratégie ci-dessus).
+type VapidSource = "env" | "file" | "generated" | "generated-ephemeral";
+type VapidInfo = {
+  source: VapidSource;
+  path?: string;
+  error?: string;
+};
+
+// Seuls ces trois champs du modèle Prisma sont nécessaires pour envoyer.
+type StoredWebPushSubscription = Pick<WebPushSubscription, "endpoint" | "p256dh" | "auth">;
+
+// Charge utile JSON lue par le service worker. L'index signature garde la porte
+// ouverte à des champs additionnels (le SW ignore ce qu'il ne connaît pas).
+export type WebPushPayload = {
+  title: string;
+  body: string;
+  url?: string;
+  tag?: string;
+  channelId?: string;
+  [key: string]: unknown;
+};
 
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "mailto:admin@murgat-chat.local";
 const VAPID_FILE = process.env.VAPID_FILE || path.join(process.cwd(), "data", "vapid.json");
 
-let vapidPublicKey = null;
-let vapidPrivateKey = null;
+let vapidPublicKey: string | null = null;
+let vapidPrivateKey: string | null = null;
 let ready = false;
 
-function loadOrGenerateVapid() {
+function loadOrGenerateVapid(): VapidInfo {
   // Highest priority: env vars (allows secret rotation without touching disk).
   if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
     vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
@@ -39,7 +62,11 @@ function loadOrGenerateVapid() {
       }
     }
   } catch (e) {
-    console.warn("[webpush] failed to read VAPID_FILE, regenerating:", e.message);
+    // `e` est `unknown` dans un catch : on restreint avec une garde.
+    console.warn(
+      "[webpush] failed to read VAPID_FILE, regenerating:",
+      e instanceof Error ? e.message : String(e)
+    );
   }
   // First run: generate, persist.
   const keys = webpush.generateVAPIDKeys();
@@ -54,15 +81,18 @@ function loadOrGenerateVapid() {
     );
     return { source: "generated", path: VAPID_FILE };
   } catch (e) {
-    console.error("[webpush] failed to persist VAPID, in-memory only:", e.message);
-    return { source: "generated-ephemeral", error: e.message };
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[webpush] failed to persist VAPID, in-memory only:", message);
+    return { source: "generated-ephemeral", error: message };
   }
 }
 
 export function initWebPush() {
   if (ready) return { publicKey: vapidPublicKey };
   const info = loadOrGenerateVapid();
-  webpush.setVapidDetails(VAPID_SUBJECT, vapidPublicKey, vapidPrivateKey);
+  // loadOrGenerateVapid() renseigne les deux clés sur tous ses chemins (env,
+  // fichier, génération) : d'où les assertions non-null, purement statiques.
+  webpush.setVapidDetails(VAPID_SUBJECT, vapidPublicKey!, vapidPrivateKey!);
   ready = true;
   console.log(`[webpush] VAPID ${info.source}${info.path ? ` (${info.path})` : ""}`);
   return { publicKey: vapidPublicKey };
@@ -80,11 +110,14 @@ export function getVapidPublicKey() {
 //
 // payload is a plain object that will be JSON.stringify'd. Typically:
 //   { title, body, url?, tag?, channelId? }
-export async function sendWebPush(subscriptions, payload) {
+export async function sendWebPush(
+  subscriptions: StoredWebPushSubscription[] | null | undefined,
+  payload: WebPushPayload
+): Promise<{ sent: number; pruned: number }> {
   if (!ready) initWebPush();
   if (!subscriptions?.length) return { sent: 0, pruned: 0 };
   const json = JSON.stringify(payload);
-  const toPrune = [];
+  const toPrune: string[] = [];
   let sent = 0;
   for (const sub of subscriptions) {
     try {
@@ -98,12 +131,15 @@ export async function sendWebPush(subscriptions, payload) {
       );
       sent++;
     } catch (err) {
-      const code = err?.statusCode;
+      // `err` est `unknown` : seule une WebPushError porte un statusCode (les
+      // erreurs réseau nues n'en ont pas), d'où la garde plutôt qu'un cast.
+      const code = err instanceof webpush.WebPushError ? err.statusCode : undefined;
       if (code === 404 || code === 410) {
         // Endpoint dead → remove from DB (don't log every one; can be noisy).
         toPrune.push(sub.endpoint);
       } else {
-        console.warn(`[webpush] send failed (${code || "?"}):`, err?.message || err);
+        const message = err instanceof Error ? err.message : undefined;
+        console.warn(`[webpush] send failed (${code || "?"}):`, message || err);
       }
     }
   }

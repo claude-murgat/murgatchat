@@ -4,6 +4,8 @@
 // renvoie toujours `data` telle quelle — un décalage de schéma ne doit jamais casser
 // le serveur. Pendant côté serveur de web/src/api.js#checkContract ; les schémas
 // vivent dans le mini-package partagé (../../shared/contracts.ts).
+import type { ZodType } from "zod";
+
 /**
  * @template T
  * @param {import("zod").ZodType<T>} schema Schéma partagé (shared/contracts.ts).
@@ -11,7 +13,7 @@
  * @param {string} label Libellé de la frontière, pour le log.
  * @returns {unknown} `data`, inchangée (vérif non bloquante).
  */
-export function checkContract(schema, data, label) {
+export function checkContract<T>(schema: ZodType<T>, data: unknown, label: string): unknown {
   const res = schema.safeParse(data);
   if (!res.success) {
     const issues = res.error.issues

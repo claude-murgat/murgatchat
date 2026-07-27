@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { requireAuth } from "../auth.js";
-import { storeEncryptedAttachment, MAX_UPLOAD_BYTES } from "./uploads.js";
+import { requireAuth } from "../auth.ts";
+import { storeEncryptedAttachment, MAX_UPLOAD_BYTES } from "./uploads.ts";
 
 // GIPHY proxy. The API key lives only on the server (never in the client bundle)
 // and is read per-request so deployments can set it without a code change (and
@@ -19,21 +19,47 @@ function rating() {
 
 const router = Router();
 
+// Formes minimales de la réponse GIPHY : uniquement les champs lus ici. Tout
+// est optionnel, l'API étant une source externe non validée (les replis `|| {}`
+// du code sont la vraie garde d'exécution).
+interface GiphyRendition {
+  url?: string;
+  width?: string;
+  height?: string;
+}
+interface GiphyImages {
+  fixed_width?: GiphyRendition;
+  downsized?: GiphyRendition;
+  downsized_large?: GiphyRendition;
+  original?: GiphyRendition;
+}
+interface GiphyGif {
+  id?: string;
+  title?: string;
+  images?: GiphyImages;
+}
+interface GiphySearchResponse {
+  data?: GiphyGif[];
+  pagination?: { offset?: number; count?: number };
+}
+
 // Normalize a GIPHY result down to what the client grid needs. `fixed_width` is
 // a ~200px-wide animated rendition (cheap for the grid); `original` is what we
 // re-host on selection.
-function mapGiphy(g) {
-  const img = g.images || {};
-  const preview = img.fixed_width || img.downsized || img.original || {};
-  const full = img.original || img.downsized_large || img.fixed_width || {};
+function mapGiphy(g: GiphyGif) {
+  const img: GiphyImages = g.images || {};
+  const preview: GiphyRendition = img.fixed_width || img.downsized || img.original || {};
+  const full: GiphyRendition = img.original || img.downsized_large || img.fixed_width || {};
   if (!preview.url || !full.url) return null;
   return {
     id: g.id,
     title: g.title || "",
     previewUrl: preview.url,
     fullUrl: full.url,
-    width: parseInt(full.width, 10) || null,
-    height: parseInt(full.height, 10) || null,
+    // `width` / `height` restent optionnels côté type ; `parseInt(undefined)`
+    // donne NaN, absorbé par le `|| null` — l'assertion préserve ce chemin.
+    width: parseInt(full.width as string, 10) || null,
+    height: parseInt(full.height as string, 10) || null,
   };
 }
 
@@ -47,7 +73,7 @@ router.get("/search", requireAuth, async (req, res) => {
   if (!key) return res.status(503).json({ error: "not_configured", gifs: [] });
 
   const q = (req.query.q || "").toString().trim().slice(0, 100);
-  const pos = Math.max(0, parseInt(req.query.pos || "0", 10) || 0);
+  const pos = Math.max(0, parseInt((req.query.pos as string) || "0", 10) || 0);
   const endpoint = q ? "search" : "trending";
   const params = new URLSearchParams({
     api_key: key,
@@ -61,9 +87,9 @@ router.get("/search", requireAuth, async (req, res) => {
   try {
     const r = await fetch(`${GIPHY_BASE}/${endpoint}?${params.toString()}`);
     if (!r.ok) return res.status(502).json({ error: "provider_error", gifs: [] });
-    const data = await r.json();
+    const data = (await r.json()) as GiphySearchResponse;
     const gifs = (data.data || []).map(mapGiphy).filter(Boolean);
-    const p = data.pagination || {};
+    const p: NonNullable<GiphySearchResponse["pagination"]> = data.pagination || {};
     const nextPos = (p.offset || pos) + (p.count || gifs.length);
     res.json({ gifs, nextPos, provider: "giphy" });
   } catch {
@@ -73,7 +99,7 @@ router.get("/search", requireAuth, async (req, res) => {
 
 // Only GIPHY media hosts may be imported — this endpoint fetches a URL
 // server-side, so an open target would be an SSRF hole.
-function isAllowedGifUrl(url) {
+function isAllowedGifUrl(url: string): boolean {
   try {
     const u = new URL(url);
     return u.protocol === "https:" && /(^|\.)giphy\.com$/i.test(u.hostname);
@@ -119,7 +145,9 @@ router.post("/import", requireAuth, async (req, res) => {
       attachment: { id: att.id, filename: att.filename, mimeType: att.mimeType, size: att.size },
     });
   } catch (e) {
-    console.error("[gifs] store failed:", e.message);
+    // Assertion plutôt que garde `instanceof Error` : une garde imposerait une
+    // branche de repli, donc un comportement d'exécution différent.
+    console.error("[gifs] store failed:", (e as Error).message);
     res.status(500).json({ error: "store_failed" });
   }
 });
