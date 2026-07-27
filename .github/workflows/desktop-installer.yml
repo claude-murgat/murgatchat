@@ -35,7 +35,7 @@ jobs:
       # VITE_API_URL is deliberately NOT set -> the installer ships with NO baked
       # server (web/src/api.js prod default is ""), exactly like the release build.
       # Without tagName/releaseId, tauri-action only builds (no upload to a release).
-      - uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           # createUpdaterArtifacts=true → the build signs the installer, so the
           # signing key must be present even for this test build.
