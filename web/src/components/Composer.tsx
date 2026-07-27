@@ -721,7 +721,7 @@ function Composer(
           isTouchDevice(). Une variante `sm:` mentirait sur une fenêtre desktop
           étroite (astuce cachée alors qu'Entrée envoie) comme sur une tablette
           large (astuce affichée alors qu'Entrée va à la ligne). */}
-      <div className="hidden [@media(pointer:fine)]:block px-3 pb-1.5 text-[11px] leading-none text-slate-400 text-right">
+      <div className="hidden [@media(pointer:fine)]:block px-3 pb-1.5 text-[11px] leading-none text-slate-400 text-left">
         <kbd className="font-sans">Maj</kbd> + <kbd className="font-sans">Entrée</kbd> pour
         aller à la ligne
       </div>
