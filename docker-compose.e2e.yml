@@ -24,7 +24,9 @@ services:
       retries: 10
 
   server-e2e:
-    build: ./server
+    build:
+      context: .
+      dockerfile: server/Dockerfile
     depends_on:
       db-e2e:
         condition: service_healthy
@@ -43,7 +45,8 @@ services:
 
   web-e2e:
     build:
-      context: ./web
+      context: .
+      dockerfile: web/Dockerfile
       args:
         VITE_API_URL: http://localhost:4001
     depends_on:

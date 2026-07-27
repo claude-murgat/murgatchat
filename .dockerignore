@@ -1,0 +1,13 @@
+# Contexte de build partagé (racine du repo) pour les images web ET server —
+# voir docker-compose(.e2e).yml (context: .). On exclut tout ce qui n'est pas
+# nécessaire aux builds pour garder le contexte léger et rapide.
+**/node_modules
+**/dist
+.git
+.github
+.claude
+mobile
+e2e
+web/src-tauri
+.env
+.env.*

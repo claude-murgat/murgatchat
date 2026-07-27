@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { api, getToken, setToken, checkContract } from "./api.js";
-import { NotificationEventSchema } from "./contracts.js";
+import { NotificationEventSchema } from "../../shared/contracts.js";
 import { getSocket, closeSocket } from "./socket.js";
 import {
   notify,
