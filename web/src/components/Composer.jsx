@@ -144,7 +144,14 @@ function Composer(
   // restauré au retour (#165). Le callback est lu via un ref pour qu'un simple
   // changement de son identité ne redéclenche pas la synchro.
   const onDraftChangeRef = useRef(onDraftChange);
-  onDraftChangeRef.current = onDraftChange;
+  // Synchro dans un effet, pas pendant le rendu : écrire un ref en plein rendu
+  // n'est pas sûr en mode concurrent (un rendu abandonné laisserait le ref sur
+  // une valeur jamais validée). Cet effet est sans tableau de dépendances, donc
+  // il s'exécute à chaque commit — et avant celui qui suit, les effets étant
+  // exécutés dans l'ordre de déclaration.
+  useEffect(() => {
+    onDraftChangeRef.current = onDraftChange;
+  });
   useEffect(() => {
     onDraftChangeRef.current?.({ text, attachments });
   }, [text, attachments]);

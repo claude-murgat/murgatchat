@@ -298,9 +298,14 @@ export default function ChannelView({
         !el || el.scrollHeight - el.scrollTop - el.clientHeight < 150;
       // Replies arrive on `message:new` too in the new model (parent quote is
       // carried inline in `msg.parent`), so a single handler covers both.
+      // L'intention de scroll est posée AVANT l'updater : React peut rejouer un
+      // updater, ce qui réécrirait le ref après que le useLayoutEffect l'a déjà
+      // consommé et remis à null — d'où un saut de scroll parasite. Un message
+      // en double (le `some` ci-dessous) repasserait ici sans rien changer :
+      // « bottom » alors qu'on y est déjà, ou null, dans les deux cas sans effet.
+      scrollModeRef.current = nearBottom ? { type: "bottom" } : null;
       setMessages((prev) => {
         if (prev.some((m) => m.id === msg.id)) return prev;
-        scrollModeRef.current = nearBottom ? { type: "bottom" } : null;
         return [...prev, msg];
       });
       if (isWindowFocused()) socket.emit("channel:read", { channelId: activeChannelId });
@@ -439,11 +444,14 @@ export default function ChannelView({
         const el = scrollRef.current;
         const prevHeight = el ? el.scrollHeight : 0;
         const prevTop = el ? el.scrollTop : 0;
+        // Posée avant l'updater, pour la même raison qu'au-dessus (un updater
+        // peut être rejoué). Si aucun message ancien n'est réellement ajouté, on
+        // demande de « préserver » une position inchangée : opération neutre.
+        scrollModeRef.current = { type: "preserve", prevHeight, prevTop };
         setMessages((prev) => {
           const seen = new Set(prev.map((m) => m.id));
           const older = (res.messages || []).filter((m) => !seen.has(m.id));
           if (!older.length) return prev;
-          scrollModeRef.current = { type: "preserve", prevHeight, prevTop };
           return [...older, ...prev];
         });
         setHasMore(!!res.hasMore);

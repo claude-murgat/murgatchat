@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import { api } from "../api.js";
 import { getDiagnostics, getLogLines, dumpText, entryCount } from "../logbuffer.js";
 
@@ -38,15 +38,17 @@ export default function BugReportModal({ onClose }) {
 
   // Snapshot diagnostics + logs once when the modal opens, so the preview and
   // the submitted payload stay consistent across turns.
-  const snapshot = useMemo(
-    () => ({
-      diagnostics: getDiagnostics(),
-      logs: getLogLines(),
-      text: dumpText(),
-      count: entryCount(),
-    }),
-    []
-  );
+  // `useState` (initialiseur paresseux) et non `useMemo` : ces fonctions lisent
+  // un tampon MUTABLE (logbuffer). `useMemo` n'est qu'un indice de performance,
+  // React se réserve le droit de le recalculer — la fenêtre de logs capturée
+  // pouvait alors changer d'un rendu à l'autre. `useState` garantit une
+  // initialisation unique, ce qui est exactement la sémantique voulue ici.
+  const [snapshot] = useState(() => ({
+    diagnostics: getDiagnostics(),
+    logs: getLogLines(),
+    text: dumpText(),
+    count: entryCount(),
+  }));
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;

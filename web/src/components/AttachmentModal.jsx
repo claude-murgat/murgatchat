@@ -437,11 +437,17 @@ function TextView({ buffer, onError }) {
 // blob: URL instead (allowed by the CSP's `frame-src 'self' blob:`): the browser
 // renders it with its native PDF viewer, cross-origin server and desktop alike.
 function PdfView({ buffer, attachment }) {
-  const objUrl = useMemo(
-    () => URL.createObjectURL(new Blob([buffer], { type: "application/pdf" })),
-    [buffer]
-  );
-  useEffect(() => () => URL.revokeObjectURL(objUrl), [objUrl]);
+  // L'URL blob est créée ET révoquée dans le MÊME effet. Avec un `useMemo`, un
+  // remontage (StrictMode, rendu concurrent) révoquait l'URL au démontage sans
+  // que le memo la recrée : l'iframe pointait alors sur une URL morte et le PDF
+  // ne s'affichait plus. Ici chaque montage crée la sienne et ne révoque qu'elle.
+  const [objUrl, setObjUrl] = useState(null);
+  useEffect(() => {
+    const url = URL.createObjectURL(new Blob([buffer], { type: "application/pdf" }));
+    setObjUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [buffer]);
+  if (!objUrl) return null;
   return (
     <iframe
       src={objUrl}
