@@ -1,6 +1,40 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+@theme {
+  --color-aubergine-400: #bcabbc;
+  --color-aubergine-500: #6b3a6b;
+  --color-aubergine-600: #522653;
+  --color-aubergine-700: #3f0e40;
+  --color-aubergine-800: #350d36;
+  --color-aubergine-900: #19171d;
+  --color-aubergine: #3f0e40;
+
+  --color-slackblue: #1264a3;
+  --color-slackgreen: #007a5a;
+  --color-slackred: #e01e5a;
+
+  --font-sans:
+    Slack-Lato, Lato, ui-sans-serif, system-ui, -apple-system, Segoe UI,
+    Helvetica Neue, Arial, sans-serif;
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
 
 /* The app is light-themed. Force native controls (inputs, textareas, selects,
    date/time pickers, default scrollbars) to render light even when the OS is in
@@ -15,7 +49,7 @@ html, body, #root {
 
 body {
   margin: 0;
-  font-family: theme('fontFamily.sans');
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
 }
 

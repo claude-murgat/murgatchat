@@ -73,7 +73,7 @@ function renderComposerText(value) {
     const at = m.index + m[1].length; // position du « @ »
     if (at > last) out.push(value.slice(last, at));
     out.push(
-      <span key={at} className="rounded bg-aubergine-700/15 text-aubergine-800">
+      <span key={at} className="rounded-sm bg-aubergine-700/15 text-aubergine-800">
         {"@" + m[2]}
       </span>
     );
@@ -386,11 +386,11 @@ function Composer(
   const showMentions = mentionCandidates.length > 0;
 
   return (
-    <div className="relative border border-slate-300 rounded-lg bg-white shadow-sm">
+    <div className="relative border border-slate-300 rounded-lg bg-white shadow-xs">
       {showEmoji && (
         <div
           ref={emojiRef}
-          className="absolute bottom-full left-2 mb-2 z-50 shadow-xl rounded"
+          className="absolute bottom-full left-2 mb-2 z-50 shadow-xl rounded-sm"
         >
           <EmojiPicker
             onEmojiClick={(e) => {
@@ -475,7 +475,7 @@ function Composer(
         <div
           ref={backdropRef}
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words px-3 py-3 text-slate-900 rounded-t-lg"
+          className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap wrap-break-word px-3 py-3 text-slate-900 rounded-t-lg"
         >
           {renderComposerText(text)}
         </div>
@@ -501,7 +501,7 @@ function Composer(
           placeholder={placeholder || "Écrire un message..."}
           // Texte transparent (on lit le calque en dessous) mais curseur + espace
           // réservé visibles ; le placeholder garde sa couleur explicitement.
-          className="relative w-full resize-none px-3 py-3 text-transparent caret-slate-900 placeholder-slate-400 bg-transparent outline-none rounded-t-lg"
+          className="relative w-full resize-none px-3 py-3 text-transparent caret-slate-900 placeholder-slate-400 bg-transparent outline-hidden rounded-t-lg"
         />
       </div>
       {attachments.length > 0 && (
@@ -509,7 +509,7 @@ function Composer(
           {attachments.map((a) => (
             <div
               key={a.id}
-              className="flex items-center gap-2 bg-slate-100 rounded px-2 py-1 text-sm text-slate-700"
+              className="flex items-center gap-2 bg-slate-100 rounded-sm px-2 py-1 text-sm text-slate-700"
             >
               <span>📎</span>
               <span className="max-w-[160px] truncate">{a.filename}</span>
@@ -531,11 +531,11 @@ function Composer(
             type="datetime-local"
             value={scheduledAt}
             onChange={(e) => setScheduledAt(e.target.value)}
-            className="border border-slate-300 rounded px-2 py-1"
+            className="border border-slate-300 rounded-sm px-2 py-1"
           />
           <button
             onClick={() => send(true)}
-            className="ml-auto bg-slackgreen text-white px-3 py-1 rounded font-medium hover:opacity-90"
+            className="ml-auto bg-slackgreen text-white px-3 py-1 rounded-sm font-medium hover:opacity-90"
           >
             Planifier
           </button>
@@ -630,7 +630,7 @@ function Composer(
         <button
           onClick={() => send(false)}
           disabled={(!text.trim() && attachments.length === 0) || uploading}
-          className="bg-slackgreen text-white px-3 py-1.5 rounded font-medium hover:opacity-90 disabled:opacity-40"
+          className="bg-slackgreen text-white px-3 py-1.5 rounded-sm font-medium hover:opacity-90 disabled:opacity-40"
         >
           Envoyer
         </button>

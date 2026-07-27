@@ -254,7 +254,7 @@ export default function Login({ onLoggedIn }) {
       : "Choisissez un nouveau mot de passe.";
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-aubergine-900 via-aubergine-800 to-aubergine-700 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-aubergine-900 via-aubergine-800 to-aubergine-700 p-4">
       <div className="w-full max-w-md bg-white text-slate-900 rounded-xl shadow-2xl overflow-hidden">
         <div className="bg-aubergine-700 text-white p-6">
           <div className="flex items-center gap-2 text-2xl font-bold">

@@ -57,7 +57,7 @@ export default function GifPicker({ onSelect }) {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Rechercher un GIF…"
-          className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-aubergine-400"
+          className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-sm text-slate-900 outline-hidden focus:ring-2 focus:ring-aubergine-400"
         />
       </div>
 
@@ -85,7 +85,7 @@ export default function GifPicker({ onSelect }) {
                 key={g.id}
                 type="button"
                 onClick={() => onSelect(g)}
-                className="block w-full mb-2 break-inside-avoid rounded overflow-hidden bg-slate-100 hover:ring-2 hover:ring-aubergine-400 focus:outline-none focus:ring-2 focus:ring-aubergine-400"
+                className="block w-full mb-2 break-inside-avoid rounded-sm overflow-hidden bg-slate-100 hover:ring-2 hover:ring-aubergine-400 focus:outline-hidden focus:ring-2 focus:ring-aubergine-400"
                 title={g.title || "GIF"}
               >
                 <img src={g.previewUrl} alt={g.title || "GIF"} loading="lazy" className="w-full" />

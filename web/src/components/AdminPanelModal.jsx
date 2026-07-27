@@ -38,9 +38,9 @@ function actionsFor(me, target) {
 
 function roleBadge(u) {
   if (u.isOwner)
-    return <span className="text-[11px] font-semibold text-amber-700 bg-amber-100 rounded px-1.5 py-0.5">Propriétaire</span>;
+    return <span className="text-[11px] font-semibold text-amber-700 bg-amber-100 rounded-sm px-1.5 py-0.5">Propriétaire</span>;
   if (u.isAdmin)
-    return <span className="text-[11px] font-semibold text-blue-700 bg-blue-100 rounded px-1.5 py-0.5">Admin</span>;
+    return <span className="text-[11px] font-semibold text-blue-700 bg-blue-100 rounded-sm px-1.5 py-0.5">Admin</span>;
   return <span className="text-[11px] text-slate-500">Membre</span>;
 }
 
@@ -211,7 +211,7 @@ export default function AdminPanelModal({ currentUser, onClose, onUserUpdated })
                       </span>
                       {roleBadge(u)}
                       {disabled && (
-                        <span className="text-[11px] font-semibold text-slate-600 bg-slate-200 rounded px-1.5 py-0.5">
+                        <span className="text-[11px] font-semibold text-slate-600 bg-slate-200 rounded-sm px-1.5 py-0.5">
                           Désactivé
                         </span>
                       )}
@@ -272,7 +272,7 @@ export default function AdminPanelModal({ currentUser, onClose, onUserUpdated })
 
         {tab === "users" && confirmAction && (
           <div
-            className="fixed inset-0 bg-black/50 grid place-items-stretch sm:place-items-center z-[60] p-0 sm:p-4"
+            className="fixed inset-0 bg-black/50 grid place-items-stretch sm:place-items-center z-60 p-0 sm:p-4"
             onClick={() => setConfirmAction(null)}
           >
             <div

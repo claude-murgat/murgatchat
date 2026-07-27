@@ -269,7 +269,7 @@ export default function BugReportModal({ onClose }) {
                 >
                   <div
                     className={
-                      "max-w-[85%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap break-words " +
+                      "max-w-[85%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap wrap-break-word " +
                       (m.role === "user"
                         ? "bg-aubergine-700 text-white rounded-br-sm"
                         : "bg-slate-100 text-slate-800 rounded-bl-sm")
@@ -320,7 +320,7 @@ export default function BugReportModal({ onClose }) {
                   }
                 }}
                 placeholder="Votre réponse… (Entrée pour envoyer)"
-                className="flex-1 border border-slate-300 rounded-md px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-aubergine-400"
+                className="flex-1 border border-slate-300 rounded-md px-3 py-2 text-sm resize-none focus:outline-hidden focus:ring-2 focus:ring-aubergine-400"
               />
               <button
                 onClick={send}
@@ -354,7 +354,7 @@ export default function BugReportModal({ onClose }) {
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
                   placeholder="Ex. : en cliquant sur un salon, l'app reste bloquée sur l'écran de chargement…"
-                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-aubergine-400"
+                  className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm resize-y focus:outline-hidden focus:ring-2 focus:ring-aubergine-400"
                 />
               </div>
 
@@ -391,7 +391,7 @@ export default function BugReportModal({ onClose }) {
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={files.length >= MAX_ATTACHMENTS}
-                  className="px-2.5 py-1.5 rounded border border-slate-300 hover:bg-slate-50 text-sm disabled:opacity-50"
+                  className="px-2.5 py-1.5 rounded-sm border border-slate-300 hover:bg-slate-50 text-sm disabled:opacity-50"
                 >
                   <span aria-hidden="true">📎 </span>Joindre une capture
                 </button>
@@ -403,7 +403,7 @@ export default function BugReportModal({ onClose }) {
                     {files.map((f, i) => (
                       <li
                         key={`${f.name}-${f.size}-${i}`}
-                        className="flex items-center justify-between gap-2 text-[12px] bg-slate-50 border border-slate-200 rounded px-2 py-1"
+                        className="flex items-center justify-between gap-2 text-[12px] bg-slate-50 border border-slate-200 rounded-sm px-2 py-1"
                       >
                         <span className="truncate min-w-0">{f.name}</span>
                         <button
@@ -424,28 +424,28 @@ export default function BugReportModal({ onClose }) {
                 <button
                   type="button"
                   onClick={() => setShowPreview((s) => !s)}
-                  className="px-2.5 py-1.5 rounded border border-slate-300 hover:bg-slate-50"
+                  className="px-2.5 py-1.5 rounded-sm border border-slate-300 hover:bg-slate-50"
                 >
                   {showPreview ? "Masquer l'aperçu" : "Voir ce qui sera envoyé"}
                 </button>
                 <button
                   type="button"
                   onClick={copyLogs}
-                  className="px-2.5 py-1.5 rounded border border-slate-300 hover:bg-slate-50"
+                  className="px-2.5 py-1.5 rounded-sm border border-slate-300 hover:bg-slate-50"
                 >
                   {copied ? "Copié ✓" : "Copier les logs"}
                 </button>
                 <button
                   type="button"
                   onClick={downloadLogs}
-                  className="px-2.5 py-1.5 rounded border border-slate-300 hover:bg-slate-50"
+                  className="px-2.5 py-1.5 rounded-sm border border-slate-300 hover:bg-slate-50"
                 >
                   Télécharger .txt
                 </button>
               </div>
 
               {showPreview && (
-                <pre className="text-[11px] leading-snug bg-slate-50 border border-slate-200 rounded-md p-3 max-h-56 overflow-auto whitespace-pre-wrap break-words text-slate-700">
+                <pre className="text-[11px] leading-snug bg-slate-50 border border-slate-200 rounded-md p-3 max-h-56 overflow-auto whitespace-pre-wrap wrap-break-word text-slate-700">
                   {snapshot.text}
                 </pre>
               )}
@@ -457,7 +457,7 @@ export default function BugReportModal({ onClose }) {
               <button
                 onClick={onClose}
                 disabled={busy}
-                className="px-3 py-1.5 rounded border border-slate-300 text-sm disabled:opacity-50"
+                className="px-3 py-1.5 rounded-sm border border-slate-300 text-sm disabled:opacity-50"
               >
                 Annuler
               </button>

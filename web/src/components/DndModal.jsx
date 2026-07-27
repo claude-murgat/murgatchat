@@ -76,7 +76,7 @@ export default function DndModal({ active, user, onClose, onPick, onSaveSchedule
               value={start}
               onChange={(e) => setStart(e.target.value)}
               disabled={!enabled}
-              className="border border-slate-300 rounded px-2 py-1"
+              className="border border-slate-300 rounded-sm px-2 py-1"
             />
             <span>à</span>
             <input
@@ -84,12 +84,12 @@ export default function DndModal({ active, user, onClose, onPick, onSaveSchedule
               value={end}
               onChange={(e) => setEnd(e.target.value)}
               disabled={!enabled}
-              className="border border-slate-300 rounded px-2 py-1"
+              className="border border-slate-300 rounded-sm px-2 py-1"
             />
             <button
               onClick={saveSchedule}
               disabled={saving}
-              className="ml-auto bg-aubergine-700 text-white px-3 py-1 rounded font-medium hover:bg-aubergine-800 disabled:opacity-50"
+              className="ml-auto bg-aubergine-700 text-white px-3 py-1 rounded-sm font-medium hover:bg-aubergine-800 disabled:opacity-50"
             >
               Enregistrer
             </button>
@@ -100,7 +100,7 @@ export default function DndModal({ active, user, onClose, onPick, onSaveSchedule
         </div>
 
         <div className="p-3 border-t border-slate-200 text-right">
-          <button onClick={onClose} className="px-3 py-1.5 rounded border">
+          <button onClick={onClose} className="px-3 py-1.5 rounded-sm border">
             Fermer
           </button>
         </div>
