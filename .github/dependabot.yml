@@ -47,16 +47,6 @@ updates:
       # pointe DÉJÀ sur la 7.x, donc sans ce garde-fou Dependabot la proposerait.
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
-      # ESLint reste en 9 CÔTÉ WEB : `eslint-plugin-react` plafonne sa peer dep à
-      # `eslint@^9.7` et AUCUNE version publiée ne supporte la 10 — le blocage est
-      # en amont, pas dans notre config. Sans ce garde-fou, Dependabot rouvre en
-      # boucle des PR condamnées à échouer (ERESOLVE). À lever dès que
-      # eslint-plugin-react publie le support d'ESLint 10.
-      # NB : le serveur, lui, est passé en 10 — sa config n'utilise aucun plugin React.
-      - dependency-name: "eslint"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "@eslint/js"
-        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "npm"
     directory: "/server"

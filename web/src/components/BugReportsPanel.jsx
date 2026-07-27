@@ -139,6 +139,25 @@ function ReportDetail({ report }) {
 // "Rapports de bug" tab of the Administration panel. Renders the filter row +
 // scrollable list; meant to sit inside the modal's flex-col body (between the
 // tab nav and the shared footer).
+// Défini au niveau module, comme les autres composants de ce fichier. Déclaré
+// à l'intérieur de BugReportsPanel, il était recréé à CHAQUE rendu : React y
+// voyait alors un type de composant différent et démontait/remontait le
+// sous-arbre au lieu de le mettre à jour.
+function FilterButton({ value, label, active, onSelect }) {
+  return (
+    <button
+      onClick={() => onSelect(value)}
+      className={`px-2.5 py-1 rounded-md border text-xs ${
+        active
+          ? "border-aubergine-500 bg-aubergine-50 text-aubergine-800 font-medium"
+          : "border-slate-300 text-slate-600 hover:bg-slate-50"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
 export default function BugReportsPanel() {
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -216,25 +235,22 @@ export default function BugReportsPanel() {
     }
   }
 
-  const FilterButton = ({ value, label }) => (
-    <button
-      onClick={() => setStatusFilter(value)}
-      className={`px-2.5 py-1 rounded-md border text-xs ${
-        statusFilter === value
-          ? "border-aubergine-500 bg-aubergine-50 text-aubergine-800 font-medium"
-          : "border-slate-300 text-slate-600 hover:bg-slate-50"
-      }`}
-    >
-      {label}
-    </button>
-  );
-
   return (
     <>
       <div className="p-3 border-b border-slate-200 flex items-center gap-2">
         <span className="text-xs text-slate-500">Filtre&nbsp;:</span>
-        <FilterButton value="open" label={`Ouverts (${openCount})`} />
-        <FilterButton value="" label={`Tous (${total})`} />
+        <FilterButton
+          value="open"
+          label={`Ouverts (${openCount})`}
+          active={statusFilter === "open"}
+          onSelect={setStatusFilter}
+        />
+        <FilterButton
+          value=""
+          label={`Tous (${total})`}
+          active={statusFilter === ""}
+          onSelect={setStatusFilter}
+        />
       </div>
 
       <div className="flex-1 overflow-y-auto">

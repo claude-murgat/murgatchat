@@ -119,7 +119,7 @@ export async function uploadFile(file) {
   // client_max_body_size) ou une passerelle revient en page d'erreur HTML, pas
   // en JSON — un res.json() aveugle jetterait « Unexpected token '<' » (l'erreur
   // que voyait le desktop). On tolère donc un corps non-JSON.
-  let data = {};
+  let data;
   try {
     data = await res.json();
   } catch {

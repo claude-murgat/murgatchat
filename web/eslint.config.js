@@ -1,11 +1,19 @@
-// Flat ESLint config (ESLint v9) for the Vite + React 18 web app (ESM).
-// Correctness-focused: JS recommended + React + Rules of Hooks. The JSX runtime
-// config disables the legacy "React must be in scope" rules (Vite's automatic
-// runtime). prop-types is off (the codebase doesn't use them).
+// Flat ESLint config (ESLint v10) for the Vite + React 19 web app (ESM).
+// Correctness-focused: JS recommended + @eslint-react + Rules of Hooks.
+//
+// Pourquoi @eslint-react et non eslint-plugin-react : ce dernier plafonne sa
+// peer dep à `eslint@^9.7` et aucune version publiée ne supporte ESLint 10, ce
+// qui gelait tout le lint du web. @eslint-react est la réécriture moderne,
+// pensée pour TypeScript (utile pour la migration en cours) et sans contrainte
+// de version d'ESLint. Ses règles remplacent l'ancien jeu `recommended` ; les
+// règles héritées des composants de classe disparaissent d'elles-mêmes (le code
+// est 100 % hooks) et prop-types n'existe plus (jamais utilisé ici).
 import js from "@eslint/js";
 import globals from "globals";
-import react from "eslint-plugin-react";
+import eslintReact from "@eslint-react/eslint-plugin";
 import reactHooks from "eslint-plugin-react-hooks";
+
+const react = eslintReact.configs.recommended;
 
 export default [
   {
@@ -32,16 +40,21 @@ export default [
       },
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
-    plugins: { react, "react-hooks": reactHooks },
-    settings: { react: { version: "detect" } },
+    plugins: { ...react.plugins, "react-hooks": reactHooks },
+    settings: { ...react.settings },
     rules: {
-      ...react.configs.recommended.rules,
-      ...react.configs["jsx-runtime"].rules,
+      ...react.rules,
+      // Évite le double signalement : @eslint-react embarque des règles qui
+      // recouvrent celles de eslint-plugin-react-hooks, qu'on garde comme
+      // référence pour les Rules of Hooks.
+      ...eslintReact.configs["disable-conflict-eslint-plugin-react-hooks"].rules,
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "warn",
-      "react/prop-types": "off",
-      // Apostrophes in JSX text are fine (lots of French copy: « l'inscription »).
-      "react/no-unescaped-entities": "off",
+      // Purement stylistique (impose de nommer un ref `ref` ou `*Ref`) : aucune
+      // valeur de correction, et le dépôt a déjà sa propre convention. Coupée
+      // pour ne pas noyer les avertissements qui, eux, signalent de vrais
+      // problèmes (impureté de rendu, fuites de timeout/fetch, clés d'index…).
+      "@eslint-react/naming-convention-ref-name": "off",
       // Empty catch blocks are an intentional "swallow" idiom used throughout.
       "no-empty": ["error", { allowEmptyCatch: true }],
       // Allow intentionally-unused args and PascalCase/UPPER imports (components,
