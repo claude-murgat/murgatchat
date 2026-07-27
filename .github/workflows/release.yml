@@ -35,6 +35,21 @@ jobs:
       # Le suffixe n'est PAS répercuté dans les fichiers de version : ils gardent un
       # semver propre (0.7.7). L'installeur porte donc la vraie version, et on évite
       # tout souci de bundler Windows avec un numéro de version pré-release.
+      # Le déclencheur `tags: ["v*"]` accepte n'importe quoi (v2, vfoo, v1.2…).
+      # Depuis la 1.0.0 le projet suit strictement le SemVer : on refuse ici tout
+      # tag qui n'en respecte pas la grammaire, AVANT de construire quoi que ce
+      # soit. Un numéro mal formé se propagerait sinon jusqu'à l'installeur et à
+      # `latest.json`, où il fausserait la comparaison de versions de l'updater.
+      - name: Valider le format du tag (SemVer strict)
+        shell: bash
+        run: |
+          T="$GITHUB_REF_NAME"
+          RE='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
+          if [[ ! "$T" =~ $RE ]]; then
+            echo "::error::Tag '$T' invalide. Attendu : vMAJEUR.MINEUR.CORRECTIF"
+            echo "::error::(suffixe de pré-release optionnel, ex. v1.0.0 ou v1.0.0-rc.1)"
+            exit 1
+          fi
       - id: ver
         shell: bash
         run: |
