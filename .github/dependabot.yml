@@ -68,6 +68,13 @@ updates:
       # Même garde-fou TS 7.x que pour /web (voir ci-dessus).
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
+      # `@types/node` doit rester ALIGNÉ SUR LE RUNTIME, aujourd'hui Node 24
+      # (node:24-alpine dans les images, node-version: 24 en CI). Des types en
+      # avance décriraient des API absentes à l'exécution : TypeScript validerait
+      # du code qui plante en production — un vert trompeur, pire que pas de
+      # types du tout. À relever EN MÊME TEMPS que le runtime, jamais avant.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   # Mini-package de contrats partagés : sa seule dépendance est zod, mais elle est
   # dupliquée avec celle du serveur — il faut donc la suivre ici aussi pour ne pas
