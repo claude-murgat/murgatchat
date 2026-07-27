@@ -1,5 +1,5 @@
 import { logEvent } from "./logbuffer.js";
-import { MessagesResponseSchema } from "../../shared/contracts.js";
+import { MessagesResponseSchema } from "../../shared/contracts.ts";
 
 // The server address is configurable at runtime from the login screen and
 // persisted in localStorage, so the same build can point at any server.

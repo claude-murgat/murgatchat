@@ -1,5 +1,9 @@
-// @ts-check
-// Contrats de données aux frontières (phase 1 de la feuille de route typage).
+// Contrats de données aux frontières (phases 1 et 3 de la feuille de route typage).
+//
+// PREMIER fichier converti en TypeScript (pilote de la phase 3). Il n'est PAS
+// compilé : Node 24 retire les annotations de type à la volée, et Vite fait de
+// même côté web. D'où l'extension `.ts` explicite dans les imports — Node ne
+// résout pas `./contracts.js` vers `contracts.ts`.
 //
 // Schémas zod décrivant EXACTEMENT ce que le serveur sérialise, pour valider au
 // runtime aux frontières (le client valide ce qu'il reçoit, le serveur ce qu'il
@@ -103,7 +107,7 @@ export const NotificationEventSchema = NotificationEventBase.extend({
 //
 // (voir web/src/api.js pour un exemple câblé).
 
-/** @typedef {z.infer<typeof AttachmentSchema>} Attachment */
-/** @typedef {z.infer<typeof MessageBase>} Message */
-/** @typedef {z.infer<typeof MessagesResponseBase>} MessagesResponse */
-/** @typedef {z.infer<typeof NotificationEventBase>} NotificationEvent */
+export type Attachment = z.infer<typeof AttachmentSchema>;
+export type Message = z.infer<typeof MessageBase>;
+export type MessagesResponse = z.infer<typeof MessagesResponseBase>;
+export type NotificationEvent = z.infer<typeof NotificationEventBase>;

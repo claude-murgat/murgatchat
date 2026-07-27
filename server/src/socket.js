@@ -5,7 +5,7 @@ import { serializeMessage } from "./routes/channels.js";
 import { encryptBody } from "./crypto.js";
 import { sendExpoPush } from "./push.js";
 import { sendWebPush } from "./webpush.js";
-import { NotificationEventSchema } from "../../shared/contracts.js";
+import { NotificationEventSchema } from "../../shared/contracts.ts";
 import { checkContract } from "./contractCheck.js";
 
 // DnD actif si fenêtre ponctuelle (dndUntil) OU plage quotidienne (heure serveur)

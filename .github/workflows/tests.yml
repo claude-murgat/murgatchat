@@ -38,7 +38,7 @@ jobs:
           cache: npm
           cache-dependency-path: server/package-lock.json
       - run: npm ci
-      # Le serveur importe ../../shared/contracts.js à l'exécution (validation zod
+      # Le serveur importe ../../shared/contracts.ts à l'exécution (validation zod
       # des payloads aux frontières) → installer les deps du mini-package partagé
       # pour que `zod` soit résoluble pendant les tests.
       - name: Install shared contracts deps

@@ -16,6 +16,10 @@
     "allowJs": true,
     "checkJs": false,
     "noEmit": true,
+    // Les imports du contrat partagé portent l'extension `.ts` explicite : Node
+    // 24 exécute le TypeScript tel quel mais ne résout PAS `./contracts.js` vers
+    // `contracts.ts`. Nécessite `noEmit`, déjà activé — rien n'est compilé.
+    "allowImportingTsExtensions": true,
 
     "strict": true,
     "skipLibCheck": true,
@@ -23,5 +27,5 @@
     "forceConsistentCasingInFileNames": true
   },
   // `../shared` : les contrats zod partagés, d'où sont inférés les types (z.infer).
-  "include": ["src/**/*", "../shared/contracts.js"]
+  "include": ["src/**/*", "../shared/contracts.ts"]
 }
