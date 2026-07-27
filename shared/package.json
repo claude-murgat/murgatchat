@@ -5,6 +5,6 @@
   "type": "module",
   "description": "Schémas de contrats de données partagés (web + server). Mini-package autonome : sa seule dépendance est zod, installée sur place pour que le serveur résolve zod à l'exécution. Importé en relatif (../../shared/contracts.js), pas via npm workspaces, pour laisser web/ et server/ indépendants.",
   "dependencies": {
-    "zod": "^3.23.8"
+    "zod": "^4.4.3"
   }
 }
