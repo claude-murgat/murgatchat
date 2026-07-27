@@ -4,14 +4,24 @@ WORKDIR /app
 
 RUN apk add --no-cache openssl
 
-COPY package.json package-lock.json* ./
+# Contexte de build = RACINE du repo (voir docker-compose : context: .), pour
+# embarquer le mini-package de contrats `shared/` en plus de `server/`.
+COPY server/package.json server/package-lock.json* ./
 RUN npm install --omit=dev || npm install
 
-COPY prisma ./prisma
+COPY server/prisma ./prisma
 RUN npx prisma generate
 
-COPY src ./src
-COPY scripts ./scripts
+COPY server/src ./src
+COPY server/scripts ./scripts
+
+# Mini-package de contrats à /shared : server/src importe ../../shared -> /shared
+# depuis /app/src. Contrairement au web, le serveur exécute contracts.js tel quel
+# (pas de bundling), donc `zod` doit être résoluble depuis /shared -> on installe
+# SON node_modules ici (le node_modules est exclu du contexte, on le reconstruit).
+COPY shared/package.json shared/package-lock.json* /shared/
+RUN cd /shared && npm install --omit=dev
+COPY shared/ /shared/
 
 # Run as the built-in non-root `node` user. Pre-create the data dirs owned by it
 # so FRESH named volumes inherit that ownership. NOTE: pre-existing prod volumes

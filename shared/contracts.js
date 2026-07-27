@@ -1,9 +1,9 @@
 // Contrats de données aux frontières (phase 1 de la feuille de route typage).
 //
 // Schémas zod décrivant EXACTEMENT ce que le serveur sérialise, pour valider au
-// runtime ce que le client reçoit (le côté « données non fiables »). Volontairement
-// PUR : ce fichier n'importe que `zod` afin de pouvoir être déplacé tel quel dans un
-// dossier `shared/` partagé client+serveur à l'étape suivante.
+// runtime aux frontières (le client valide ce qu'il reçoit, le serveur ce qu'il
+// émet). Volontairement PUR : n'importe que `zod`. Vit dans le mini-package
+// autonome `shared/`, importé en relatif par web/ et server/ (pas de workspaces).
 //
 // Sources (server/src/routes/channels.js) :
 //   - serializeMessage()    -> MessageSchema

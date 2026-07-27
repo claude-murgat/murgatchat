@@ -5,6 +5,8 @@ import { serializeMessage } from "./routes/channels.js";
 import { encryptBody } from "./crypto.js";
 import { sendExpoPush } from "./push.js";
 import { sendWebPush } from "./webpush.js";
+import { NotificationEventSchema } from "../../shared/contracts.js";
+import { checkContract } from "./contractCheck.js";
 
 // DnD actif si fenêtre ponctuelle (dndUntil) OU plage quotidienne (heure serveur)
 export function isUserDnd(user, now = new Date()) {
@@ -87,12 +89,16 @@ export async function notifyMembers(io, channelId, authorId, serialized) {
     include: { user: true },
   });
   const awayUserIds = [];
+  // Frontière serveur : on valide le payload de notification contre le contrat
+  // partagé (non bloquant), une seule fois — il est identique pour tous les membres.
+  const notifPayload = { channelId, message: serialized };
+  checkContract(NotificationEventSchema, notifPayload, "emit notification");
   for (const cm of members) {
     if (cm.userId === authorId) continue;
     if (cm.notifyLevel === "none") continue;
     if (cm.notifyLevel === "mentions" && !isMentioned(cm.user, serialized.body)) continue;
     if (isUserDnd(cm.user)) continue;
-    io.to(`user:${cm.userId}`).emit("notification", { channelId, message: serialized });
+    io.to(`user:${cm.userId}`).emit("notification", notifPayload);
     if (webDesktopInactive(cm.userId)) awayUserIds.push(cm.userId);
   }
   if (awayUserIds.length === 0) return;

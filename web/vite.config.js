@@ -60,8 +60,20 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
+  resolve: {
+    // `../../shared/contracts.js` (hors racine `web/`) importe `zod`. Sans ceci,
+    // rollup cherche `zod` À CÔTÉ du fichier partagé (/shared/node_modules) et
+    // échoue. dedupe force la résolution depuis `web/node_modules` quel que soit
+    // l'emplacement de l'importateur — ce qui garde aussi le build desktop (tauri,
+    // qui n'installe que `web/`) fonctionnel, sans shared/node_modules.
+    dedupe: ["zod"],
+  },
   server: {
     host: "0.0.0.0",
     port: 5173,
+    // Autorise l'import de `../../shared` (mini-package de contrats, hors racine
+    // Vite `web/`) pendant `vite dev`. Le build de prod n'en a pas besoin
+    // (rollup bundle sans restriction hors racine).
+    fs: { allow: [".."] },
   },
 });
