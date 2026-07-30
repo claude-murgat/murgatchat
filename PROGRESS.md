@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-07-21** (0.7.6 : modales plein écran lisibles sur mobile (bouton de validation visible), clic sur notification web qui ouvre la conversation, pièces jointes jusqu'à 50 Mo configurables via `.env` + fix du crash desktop sur fichier trop lourd ; 0.7.5 : aperçu intégré Word/Excel/CSV/texte + PDF réparé, clic notification desktop par protocole, purge du résidu de démarrage TSE, DM triés par récence + non-lus plus visibles, ouverture sur le 1er message non lu + auto-chargement des anciens, mentions surlignées à la saisie ; 0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages).
+Dernière mise à jour : **2026-07-27** (**1.0.0 — sortie d'alpha** : SemVer strict + canal de pré-release ; socle modernisé (Node 24 LTS, React 19, Tailwind 4, Vite 8, Express 5, Prisma 6, zod 4, ESLint 10, Vitest 4) ; **dépôt 100 % TypeScript**, les trois phases du typage livrées ; quatre bugs révélés par l'outillage ; 0.7.6 : modales plein écran lisibles sur mobile (bouton de validation visible), clic sur notification web qui ouvre la conversation, pièces jointes jusqu'à 50 Mo configurables via `.env` + fix du crash desktop sur fichier trop lourd ; 0.7.5 : aperçu intégré Word/Excel/CSV/texte + PDF réparé, clic notification desktop par protocole, purge du résidu de démarrage TSE, DM triés par récence + non-lus plus visibles, ouverture sur le 1er message non lu + auto-chargement des anciens, mentions surlignées à la saisie ; 0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages).
 
 ---
 
@@ -859,6 +859,69 @@ Release **0.7.5** publiée (pipeline `release.yml`, installeur desktop signé + 
 
 Release **0.7.6** publiée (pipeline `release.yml`, installeur desktop signé + `latest.json`).
 
+## Itération 2026-07-27 — modernisation du socle, TypeScript intégral & 1.0.0
+
+83. **Runtime et dépendances rattrapés (1.0.0)** — **Node 20 → 24 LTS** : la 20 était en
+    fin de vie depuis le 2026-04-30, donc sans correctif de sécurité (calendrier officiel
+    consulté ; la 22 n'aurait été qu'un demi-pas, la 26 n'est pas encore LTS). Dans la
+    foulée : **React 18 → 19**, **Tailwind 3 → 4**, **Vite 5 → 8** (Rolldown remplace
+    Rollup), **Express 4 → 5**, **Prisma 5 → 6**, **zod 3 → 4**, **ESLint 9 → 10**,
+    **Vitest 2 → 4**, plus multer 2, nodemailer 9, bcryptjs 3, react-markdown 10 et cinq
+    actions GitHub. Vulnérabilités de production **5 → 3**.
+    ⚠ Motif récurrent rencontré **cinq fois** : Dependabot **sépare des paquets
+    indissociables** (zod ×3 emplacements, `prisma`+`@prisma/client`, `eslint`+`@eslint/js`,
+    `react`+`react-dom`) — aucune de ces PR ne peut passer seule, il faut une PR groupée.
+    Le groupage a d'ailleurs été corrigé pour sortir les majors des lots (#210).
+
+84. **Typage : les trois phases livrées (1.0.0)** — (1) **contrats zod partagés** aux
+    frontières : le client valide ce qu'il reçoit, le serveur ce qu'il émet, depuis un
+    mini-package `shared/` autonome (#197, #201). (2) **TypeScript en analyseur** —
+    `noEmit`, opt-in `// @ts-check`, types **inférés** des schémas zod (#202). (3)
+    **migration complète** : `shared/` (#243), `server/src` 23 fichiers (#244), `web/src`
+    34 fichiers (#245). **Le dépôt est 100 % TypeScript**, et rien n'est compilé — Node 24
+    retire les types à la volée, Vite transpile.
+    ⚠ Conséquences durables : **extension `.ts`/`.tsx` explicite** dans les imports
+    relatifs (Node ne résout pas `.js` → `.ts`), et **aucune construction non effaçable**
+    (`enum`, `namespace`, décorateurs). Patron `…Base` strict + `.passthrough()` exporté
+    dans les contrats : sans lui, passthrough ajoute une signature d'index et `msg.bodyy`
+    passe silencieusement. `eslint-plugin-react` remplacé par `@eslint-react` (l'ancien
+    plafonnait à `eslint@^9.7`), ce qui a débloqué ESLint 10 côté web (#241).
+
+85. **Quatre bugs révélés par l'outillage, pas par les utilisateurs (1.0.0)** — (a)
+    **notification et toast en double** : ils étaient déclenchés depuis un updater
+    `setChannels` qui ne servait qu'à LIRE la liste ; React peut rejouer un updater
+    (#239, démontré avec deux instances et une sonde : 1 message = 1 déclenchement).
+    (b) **aperçu PDF cassé au remontage** : URL blob créée en `useMemo` mais révoquée par
+    un effet → l'iframe pointait sur une URL morte. (c) **`FilterButton` recréé à chaque
+    rendu** (défini dans le corps du composant) : React démontait le sous-arbre au lieu de
+    le mettre à jour. (d) **pièce jointe de signalement inopérante** : `api.uploadFile`
+    valait `undefined`, `uploadFile` étant un export autonome — **invisible en JavaScript**,
+    trouvé par la migration TS.
+
+86. **Sortie d'alpha, SemVer strict et canal de pré-release (1.0.0)** — le projet quitte
+    la phase alpha-test ouverte le 2026-05-28 : **tout changement cassant impose désormais
+    un incrément MAJEUR**. Le tag est validé contre la grammaire SemVer **avant** tout
+    build (le déclencheur `v*` acceptait `v2`, `v1.0`, `vfoo`) — un numéro mal formé
+    fausserait la comparaison de versions de l'auto-updater. Nouveau **canal de
+    pré-release** (#249) : un tag suffixé (`v1.0.0-rc.1`) publie avec le drapeau
+    `prerelease`, que GitHub exclut de `/releases/latest`, donc **invisible des postes
+    installés** ; le suffixe reste sur le tag seul, les fichiers de version gardant un
+    semver propre. C'est ce canal qui a validé **`tauri-action` 1.0.0** (#186) : la 1.0
+    écrit désormais des URLs d'**API** dans `latest.json`, ce qui aurait pu casser
+    l'auto-update — vérifié non cassant, `tauri-plugin-updater` envoyant
+    `Accept: application/octet-stream` par défaut. ⚠ Ne jamais définir un `headers.Accept`
+    personnalisé dans la config updater.
+
+⚠ **Pièges de CI à ne pas re-découvrir** : sans parseur TypeScript, **ESLint IGNORE
+silencieusement les `.ts`/`.tsx`** — mesuré à 39 fichiers analysés dont 0 `.ts`, le gate
+serait passé **à vide** (corrigé par `typescript-eslint`, à vérifier au nombre de fichiers
+analysés après tout renommage). Et `requireAuth` annoté avec le `Request` par défaut
+d'Express **fige les paramètres de route** pour toutes les routes qui le montent
+(`req.params.id` → `string | string[]`) : il doit rester **générique** sur ce paramètre.
+
+Release **1.0.0** publiée (validée d'abord en pré-release `v1.0.0-rc.1`, invisible des
+postes, puis taguée proprement ; installeur signé + `latest.json`, auto-update live).
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
@@ -879,4 +942,9 @@ Release **0.7.6** publiée (pipeline `release.yml`, installeur desktop signé + 
 > ouverture sur le 1er non-lu + auto-load des anciens #179, mentions surlignées à la saisie #183),
 > **0.7.6** (modales plein écran mobile en `dvh` — bouton de validation visible #192, clic notif
 > web via service worker #190/#193, pièces jointes 50 Mo configurable via `MAX_UPLOAD_MB` + fix du
-> crash `Unexpected token '<'` du desktop #194).
+> crash `Unexpected token '<'` du desktop #194),
+> **1.0.0** (**sortie d'alpha** + SemVer strict et canal de pré-release ; Node 24 LTS,
+> React 19, Tailwind 4, Vite 8, Express 5, Prisma 6, zod 4, ESLint 10, Vitest 4 ;
+> **dépôt 100 % TypeScript** — phases 1 à 3 du typage ; 4 bugs révélés par l'outillage :
+> notification en double, aperçu PDF, composant recréé au rendu, pièce jointe de
+> signalement).
