@@ -9,7 +9,11 @@ RUN apk add --no-cache openssl
 COPY server/package.json server/package-lock.json* ./
 RUN npm install --omit=dev || npm install
 
+# prisma.config.ts est indispensable depuis Prisma 7 : c'est lui qui porte
+# l'URL de connexion pour la CLI (migrations au démarrage, cf. CMD plus bas),
+# schema.prisma ne l'accepte plus.
 COPY server/prisma ./prisma
+COPY server/prisma.config.ts ./
 RUN npx prisma generate
 
 COPY server/src ./src

@@ -22,5 +22,6 @@
     "forceConsistentCasingInFileNames": true
   },
   // `../shared` : les contrats zod partagés, d'où sont inférés les types (z.infer).
-  "include": ["src/**/*", "../shared/contracts.ts"]
+  // `prisma.config.ts` : config de la CLI Prisma, à la racine du package (hors src).
+  "include": ["src/**/*", "prisma.config.ts", "../shared/contracts.ts"]
 }

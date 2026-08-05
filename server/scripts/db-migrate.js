@@ -10,13 +10,15 @@
 // la base est injoignable ou une migration casse — on ne démarre pas le serveur
 // sur un schéma incertain.
 import { execSync } from "node:child_process";
-import { PrismaClient } from "@prisma/client";
+// On réutilise le client de l'app plutôt que d'en instancier un ici : depuis
+// Prisma 7 il faut lui passer un adaptateur de driver, et une seconde
+// construction pourrait dériver de celle de src/db.ts.
+import { prisma } from "../src/db.ts";
 
 const INIT = "0_init";
 const sh = (cmd) => execSync(cmd, { stdio: "inherit" });
 
 async function isLegacyDbPush() {
-  const prisma = new PrismaClient();
   try {
     // Base héritée de `db push` = une table connue existe mais la table
     // d'historique des migrations n'a jamais été créée.

@@ -87,7 +87,12 @@ export async function setup() {
   if (!mailUp) throw new Error("Mailpit did not become ready within 30s");
 
   // Create the schema on the empty test DB (no migration history needed).
-  run(process.execPath, [prismaCli, "db", "push", "--skip-generate", "--accept-data-loss"], {
+  // Prisma 7 a retiré `--skip-generate` : `db push` ne génère plus le client.
+  // Pas de `--accept-data-loss` non plus : la base vient d'être recréée vide, il
+  // n'y a rien à perdre. Sans le drapeau, `push` ABANDONNE au lieu d'écraser s'il
+  // trouve des données — filet de sécurité si TEST_DATABASE_URL pointait un jour
+  // ailleurs que sur le conteneur jetable.
+  run(process.execPath, [prismaCli, "db", "push"], {
     cwd: serverRoot,
     env: { ...process.env, DATABASE_URL: TEST_DATABASE_URL },
   });
