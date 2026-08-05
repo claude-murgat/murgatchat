@@ -280,6 +280,7 @@ Tables (Prisma) :
   cd server && npx prisma migrate dev --name <description>   # crée prisma/migrations/<ts>_<description>/
   ```
 - En **dev local / tests**, la base jetable reste synchronisée par `prisma db push` (rapide, éphémère — voir `server/test/globalSetup.js`).
+- **Où vit l'URL de connexion** : depuis Prisma 7 elle n'est plus dans `schema.prisma`, mais dans [`server/prisma.config.ts`](server/prisma.config.ts) pour la CLI et dans l'adaptateur `@prisma/adapter-pg` pour l'exécution ([`server/src/db.ts`](server/src/db.ts)). Les deux lisent la même variable `DATABASE_URL` ; la config recharge `server/.env` s'il existe, une variable déjà présente dans l'environnement restant prioritaire.
 
 ## Variables d'environnement (server)
 
