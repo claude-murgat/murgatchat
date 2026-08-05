@@ -86,6 +86,7 @@ export JWT_SECRET=dev-secret
 export MESSAGE_ENCRYPTION_KEY=$(openssl rand -hex 32)
 export UPLOAD_DIR=./uploads
 npx prisma db push
+npx prisma generate   # Prisma 7 : plus de postinstall, la génération est explicite
 npm run dev
 ```
 

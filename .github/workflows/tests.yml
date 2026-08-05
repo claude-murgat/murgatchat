@@ -102,10 +102,14 @@ jobs:
       # (web + server) ; `zod` doit donc être résoluble depuis shared/.
       - name: Install shared contracts deps
         run: npm ci --prefix shared
+      # `prisma generate` est explicite depuis Prisma 7 : le paquet
+      # `@prisma/client` n'a plus de hook `postinstall`, donc `npm ci` ne produit
+      # plus les types des modèles et le typecheck échouerait sur eux.
       - name: Lint server
         working-directory: server
         run: |
           npm ci
+          npx prisma generate
           npm run lint
       # Analyse de types (phase 2) : seuls les fichiers portant `// @ts-check`
       # sont contrôlés, donc ce gate ne peut pas se déclencher tout seul sur du

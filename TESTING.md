@@ -32,6 +32,7 @@ Tests d'intégration qui démarrent le vrai serveur Express/Socket.IO en mémoir
 ```bash
 cd server
 npm install
+npx prisma generate # Prisma 7 : plus de postinstall, la génération est explicite
 npm test            # vitest run (tous les tests)
 npm run test:watch  # mode watch
 npm test -- test/http/auth.test.js   # un fichier
@@ -179,8 +180,10 @@ k6 run -e SMOKE=1 load/k6/chat-load.js
   Playwright en cas d'échec).
 - **lint** — ESLint 9 (flat config) sur `web/` et `server/` (`npm run lint` dans chaque
   package). Échoue sur toute **erreur** ; `react-hooks/exhaustive-deps` reste en warning
-  advisory. ⚠ En local, lancer `npx prisma generate` après un changement de schéma avant
-  `npm test` (le `globalSetup` fait `db push --skip-generate`).
+  advisory. ⚠ En local, lancer `npx prisma generate` avant `npm test` — après une
+  installation comme après un changement de schéma : depuis Prisma 7 le paquet
+  `@prisma/client` n'a plus de hook `postinstall`, et le `globalSetup` fait un simple
+  `db push` qui ne génère rien.
 - **sast** — [Semgrep](https://semgrep.dev) (rulesets `javascript`, `react`, `nodejs`,
   `expressjs`, `secrets`, `owasp-top-ten`). SARIF publié en artefact ; **échoue sur les
   findings de sévérité ERROR**.
