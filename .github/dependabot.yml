@@ -49,10 +49,26 @@ updates:
       # étroitement cadré sur un seul ensemble cohérent, ce qui garde la PR
       # relisible et testable — la promesse de #210 est donc préservée.
       #
+      # ⚠ CHAQUE PAQUET SCOPÉ EST LISTÉ PAR SON NOM EXACT, en plus du glob.
+      # Constaté sur ce dépôt (PR #264, première fournée regroupée) : un motif
+      # `@scope/*` NE MATCHE PAS. `vite` a bien rejoint son groupe, mais
+      # `@vitejs/plugin-react` est tombé dans le lot générique, et
+      # `@eslint-react/eslint-plugin` aussi — aucune PR de groupe `eslint` n'a
+      # même été ouverte. Les littéraux (`vite`, `globals`) et les noms scopés
+      # ÉCRITS EN ENTIER (`@types/react`) fonctionnent, eux. Les globs sont
+      # conservés par acquit de conscience, mais ne comptez pas dessus : sans les
+      # noms exacts ci-dessous, `@prisma/client` repartirait dans une PR séparée
+      # de `prisma` — précisément le bug que ce fichier existe pour empêcher.
+      # En ajoutant une dépendance scopée, AJOUTEZ-LA ICI explicitement.
+      #
       # Le client, la CLI et l'adaptateur de driver partagent le même numéro de
       # version et le même moteur : désalignés, le client ne démarre pas.
       prisma:
-        patterns: ["prisma", "@prisma/*"]
+        patterns:
+          - "prisma"
+          - "@prisma/client"
+          - "@prisma/adapter-pg"
+          - "@prisma/*"
       # Déclaré dans les TROIS projets. Le serveur exécute shared/contracts.ts tel
       # quel en résolvant zod depuis /shared/node_modules : deux versions de zod
       # en mémoire et les schémas ne s'instancient plus.
@@ -70,9 +86,11 @@ updates:
         patterns:
           - "eslint"
           - "@eslint/js"
+          - "typescript-eslint"
+          - "eslint-plugin-react-hooks"
+          - "@eslint-react/eslint-plugin"
           - "eslint-plugin-*"
           - "@eslint-react/*"
-          - "typescript-eslint"
       # Dupliqués web + server : à aligner, sans quoi les deux projets ne lintent
       # et ne typent pas contre les mêmes règles.
       typescript:
@@ -80,11 +98,26 @@ updates:
       globals:
         patterns: ["globals"]
       vite:
-        patterns: ["vite", "@vitejs/*", "vite-plugin-pwa"]
+        patterns:
+          - "vite"
+          - "vite-plugin-pwa"
+          - "@vitejs/plugin-react"
+          - "@vitejs/*"
       tailwind:
-        patterns: ["tailwindcss", "@tailwindcss/*"]
+        patterns:
+          - "tailwindcss"
+          - "@tailwindcss/postcss"
+          - "@tailwindcss/*"
       tauri:
-        patterns: ["@tauri-apps/*"]
+        patterns:
+          - "@tauri-apps/api"
+          - "@tauri-apps/cli"
+          - "@tauri-apps/plugin-autostart"
+          - "@tauri-apps/plugin-notification"
+          - "@tauri-apps/plugin-opener"
+          - "@tauri-apps/plugin-process"
+          - "@tauri-apps/plugin-updater"
+          - "@tauri-apps/*"
 
       # ── Tout le reste ──────────────────────────────────────────────────────
       # Mises à jour MINEURES/PATCH groupées (une PR « prod » + une PR « dev »)
