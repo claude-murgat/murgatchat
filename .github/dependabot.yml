@@ -18,54 +18,94 @@ updates:
   # (mobile/ et e2e/ sont volontairement hors périmètre : mobile est gelé depuis
   # le pivot PWA, e2e n'est que de l'outillage de test.)
   #
-  # Les mises à jour MINEURES/PATCH sont GROUPÉES (une PR « prod » + une PR « dev »
-  # par projet) pour éviter de noyer le dépôt sous les PR unitaires.
-  #
-  # Les MAJORS en sont volontairement exclus (`update-types`) : groupés, un seul
-  # major cassant rendait toute la PR rouge et donc immergeable — c'est ce qui est
-  # arrivé au premier lot (Express 5 + Prisma 7 + zod 4 dans une même PR). Hors
-  # groupe, chaque major arrive en PR individuelle, relisible et testable seule.
+  # UNE SEULE entrée pour les trois répertoires, et non une par projet : le dépôt
+  # n'utilise pas les workspaces npm (ça casserait le build tauri), donc sept
+  # paquets sont DUPLIQUÉS d'un package.json à l'autre — zod, typescript, eslint,
+  # @eslint/js, typescript-eslint, globals, socket.io-client. Avec une entrée par
+  # répertoire, Dependabot ne peut pas les grouper : il ouvre une PR par projet et
+  # les versions DÉRIVENT (constaté : socket.io-client web ^4.8.3 / server ^4.8.1,
+  # et zod déjà repris à la main en #215 après une PR limitée au seul /shared).
+  # `directories` (au pluriel) lève cette limite : un groupe s'étend alors aux
+  # trois manifestes et produit une PR unique qui les met à jour ensemble.
   - package-ecosystem: "npm"
-    directory: "/web"
+    directories:
+      - "/web"
+      - "/server"
+      - "/shared"
     schedule:
       interval: "weekly"
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 10
     commit-message:
       prefix: "chore"
     groups:
-      web-production:
+      # ── Ensembles indissociables ───────────────────────────────────────────
+      # Ces groupes n'ont VOLONTAIREMENT pas d'`update-types` : ils acceptent donc
+      # aussi les MAJORS. C'est l'inverse de la règle générale plus bas, et c'est
+      # l'objet même de ces groupes — séparer deux paquets qui doivent bouger
+      # ensemble produit deux PR rouges dont aucune n'est mergeable (vécu avec
+      # `prisma` / `@prisma/client` en #256 et #258). Chaque groupe reste
+      # étroitement cadré sur un seul ensemble cohérent, ce qui garde la PR
+      # relisible et testable — la promesse de #210 est donc préservée.
+      #
+      # Le client, la CLI et l'adaptateur de driver partagent le même numéro de
+      # version et le même moteur : désalignés, le client ne démarre pas.
+      prisma:
+        patterns: ["prisma", "@prisma/*"]
+      # Déclaré dans les TROIS projets. Le serveur exécute shared/contracts.ts tel
+      # quel en résolvant zod depuis /shared/node_modules : deux versions de zod
+      # en mémoire et les schémas ne s'instancient plus.
+      zod:
+        patterns: ["zod"]
+      # Protocole websocket : serveur et client doivent rester compatibles.
+      socketio:
+        patterns: ["socket.io", "socket.io-client"]
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
+      # `eslint` et `@eslint/js` suivent le même train de release ; les plugins
+      # déclarent l'ESLint majeur en pair — c'est ce plafond qui a bloqué le
+      # passage à ESLint 10 jusqu'au remplacement d'`eslint-plugin-react`.
+      eslint:
+        patterns:
+          - "eslint"
+          - "@eslint/js"
+          - "eslint-plugin-*"
+          - "@eslint-react/*"
+          - "typescript-eslint"
+      # Dupliqués web + server : à aligner, sans quoi les deux projets ne lintent
+      # et ne typent pas contre les mêmes règles.
+      typescript:
+        patterns: ["typescript"]
+      globals:
+        patterns: ["globals"]
+      vite:
+        patterns: ["vite", "@vitejs/*", "vite-plugin-pwa"]
+      tailwind:
+        patterns: ["tailwindcss", "@tailwindcss/*"]
+      tauri:
+        patterns: ["@tauri-apps/*"]
+
+      # ── Tout le reste ──────────────────────────────────────────────────────
+      # Mises à jour MINEURES/PATCH groupées (une PR « prod » + une PR « dev »)
+      # pour éviter de noyer le dépôt sous les PR unitaires.
+      #
+      # Les MAJORS en sont exclus (`update-types`) : groupés, un seul major
+      # cassant rendait toute la PR rouge et donc immergeable — c'est ce qui est
+      # arrivé au premier lot (Express 5 + Prisma 7 + zod 4 dans une même PR).
+      # Hors groupe, chaque major arrive en PR individuelle, relisible et testable
+      # seule. Ces deux groupes sont déclarés EN DERNIER : Dependabot retient le
+      # premier groupe qui correspond, donc les ensembles ci-dessus l'emportent.
+      npm-production:
         dependency-type: "production"
         update-types: ["minor", "patch"]
-      web-development:
+      npm-development:
         dependency-type: "development"
         update-types: ["minor", "patch"]
     ignore:
       # TypeScript reste en 6.x. La 7.x est la réécriture native (port Go) : on
       # n'y va pas tant que notre outillage ne la couvre pas — et `latest` sur npm
       # pointe DÉJÀ sur la 7.x, donc sans ce garde-fou Dependabot la proposerait.
-      - dependency-name: "typescript"
-        update-types: ["version-update:semver-major"]
-
-  - package-ecosystem: "npm"
-    directory: "/server"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      default-days: 7
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: "chore"
-    groups:
-      server-production:
-        dependency-type: "production"
-        update-types: ["minor", "patch"]
-      server-development:
-        dependency-type: "development"
-        update-types: ["minor", "patch"]
-    ignore:
-      # Même garde-fou TS 7.x que pour /web (voir ci-dessus).
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
       # `@types/node` doit rester ALIGNÉ SUR LE RUNTIME, aujourd'hui Node 24
@@ -75,16 +115,3 @@ updates:
       # types du tout. À relever EN MÊME TEMPS que le runtime, jamais avant.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
-
-  # Mini-package de contrats partagés : sa seule dépendance est zod, mais elle est
-  # dupliquée avec celle du serveur — il faut donc la suivre ici aussi pour ne pas
-  # laisser les deux diverger.
-  - package-ecosystem: "npm"
-    directory: "/shared"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      default-days: 7
-    open-pull-requests-limit: 3
-    commit-message:
-      prefix: "chore"
