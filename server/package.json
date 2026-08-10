@@ -37,7 +37,7 @@
     "@types/nodemailer": "^8.0.1",
     "@types/web-push": "^3.6.4",
     "eslint": "^10.8.0",
-    "globals": "^17.7.0",
+    "globals": "^17.9.0",
     "prisma": "^7.9.1",
     "socket.io-client": "^4.8.1",
     "supertest": "^7.0.0",
