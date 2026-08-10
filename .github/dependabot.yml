@@ -129,12 +129,104 @@ updates:
       # Hors groupe, chaque major arrive en PR individuelle, relisible et testable
       # seule. Ces deux groupes sont déclarés EN DERNIER : Dependabot retient le
       # premier groupe qui correspond, donc les ensembles ci-dessus l'emportent.
+      #
+      # ⚠ `exclude-patterns` RÉPÈTE la liste des ensembles couplés ci-dessus, et
+      # ce n'est pas de la redondance décorative. Constaté sur ce dépôt : un
+      # groupe `dependency-type` RAFLE les paquets AVANT les groupes par motif,
+      # pour les types de mise à jour qu'il couvre — la fournée régénérée après
+      # #270 a ainsi ramassé `vite`, `globals`, `@types/react`… dans un seul
+      # `npm-development`, alors que leurs groupes dédiés étaient déclarés avant.
+      # Sans ces exclusions, l'appartenance dépend d'une précédence non
+      # documentée. Avec elles, le départage est déterministe.
+      #
+      # Le cas qui rend la chose nécessaire même hors major : `socket.io-client`
+      # est en PROD dans /web et en DEV dans /server. Laissé aux deux groupes
+      # attrape-tout, un simple bump mineur le scinderait en DEUX PR — la dérive
+      # exacte que ce fichier existe pour empêcher.
+      #
+      # En ajoutant un paquet à un ensemble couplé, AJOUTEZ-LE AUSSI ICI.
       npm-production:
         dependency-type: "production"
         update-types: ["minor", "patch"]
+        exclude-patterns:
+          - "prisma"
+          - "@prisma/client"
+          - "@prisma/adapter-pg"
+          - "@prisma/*"
+          - "zod"
+          - "socket.io"
+          - "socket.io-client"
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+          - "eslint"
+          - "@eslint/js"
+          - "typescript-eslint"
+          - "eslint-plugin-react-hooks"
+          - "@eslint-react/eslint-plugin"
+          - "eslint-plugin-*"
+          - "@eslint-react/*"
+          - "typescript"
+          - "globals"
+          - "vite"
+          - "vite-plugin-pwa"
+          - "@vitejs/plugin-react"
+          - "@vitejs/*"
+          - "tailwindcss"
+          - "@tailwindcss/postcss"
+          - "@tailwindcss/*"
+          - "@tauri-apps/api"
+          - "@tauri-apps/cli"
+          - "@tauri-apps/plugin-autostart"
+          - "@tauri-apps/plugin-notification"
+          - "@tauri-apps/plugin-opener"
+          - "@tauri-apps/plugin-process"
+          - "@tauri-apps/plugin-updater"
+          - "@tauri-apps/*"
       npm-development:
         dependency-type: "development"
         update-types: ["minor", "patch"]
+        # Liste identique à celle de `npm-production` ci-dessus. Recopiée en
+        # entier plutôt que factorisée par une ancre YAML : le parseur de
+        # Dependabot n'est pas garanti les accepter, et ce fichier échoue en
+        # SILENCE. Les deux listes doivent être modifiées ensemble.
+        exclude-patterns:
+          - "prisma"
+          - "@prisma/client"
+          - "@prisma/adapter-pg"
+          - "@prisma/*"
+          - "zod"
+          - "socket.io"
+          - "socket.io-client"
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+          - "eslint"
+          - "@eslint/js"
+          - "typescript-eslint"
+          - "eslint-plugin-react-hooks"
+          - "@eslint-react/eslint-plugin"
+          - "eslint-plugin-*"
+          - "@eslint-react/*"
+          - "typescript"
+          - "globals"
+          - "vite"
+          - "vite-plugin-pwa"
+          - "@vitejs/plugin-react"
+          - "@vitejs/*"
+          - "tailwindcss"
+          - "@tailwindcss/postcss"
+          - "@tailwindcss/*"
+          - "@tauri-apps/api"
+          - "@tauri-apps/cli"
+          - "@tauri-apps/plugin-autostart"
+          - "@tauri-apps/plugin-notification"
+          - "@tauri-apps/plugin-opener"
+          - "@tauri-apps/plugin-process"
+          - "@tauri-apps/plugin-updater"
+          - "@tauri-apps/*"
     ignore:
       # TypeScript reste en 6.x. La 7.x est la réécriture native (port Go) : on
       # n'y va pas tant que notre outillage ne la couvre pas — et `latest` sur npm
