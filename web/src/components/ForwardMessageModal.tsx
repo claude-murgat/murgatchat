@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Channel, Message } from "../types.ts";
+import { useOverlayDismiss } from "../hooks/useOverlayDismiss.ts";
 
 // Sélecteur de conversation pour transférer un message (issue #124). On réutilise
 // la liste des conversations déjà chargée côté App (aucune requête réseau) et on
@@ -23,6 +24,7 @@ export default function ForwardMessageModal({
   onClose,
   onPick,
 }: ForwardMessageModalProps) {
+  const overlayDismiss = useOverlayDismiss(onClose);
   const [q, setQ] = useState("");
 
   const norm = (s: string | null | undefined) =>
@@ -35,7 +37,7 @@ export default function ForwardMessageModal({
   return (
     <div
       className="fixed inset-0 bg-black/50 grid place-items-stretch sm:place-items-center z-50 p-0 sm:p-4"
-      onClick={onClose}
+      {...overlayDismiss}
     >
       <div
         role="dialog"

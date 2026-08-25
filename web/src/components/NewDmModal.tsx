@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api.ts";
 import Avatar from "./Avatar.tsx";
 import type { Channel, User } from "../types.ts";
+import { useOverlayDismiss } from "../hooks/useOverlayDismiss.ts";
 
 interface NewDmModalProps {
   onClose: () => void;
@@ -11,6 +12,7 @@ interface NewDmModalProps {
 }
 
 export default function NewDmModal({ onClose, onOpened, currentUserId }: NewDmModalProps) {
+  const overlayDismiss = useOverlayDismiss(onClose);
   const [users, setUsers] = useState<User[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [q, setQ] = useState("");
@@ -71,7 +73,7 @@ export default function NewDmModal({ onClose, onOpened, currentUserId }: NewDmMo
   return (
     <div
       className="fixed inset-0 bg-black/50 grid place-items-stretch sm:place-items-center z-50 p-0 sm:p-4"
-      onClick={onClose}
+      {...overlayDismiss}
     >
       <div
         className="bg-white text-slate-900 sm:rounded-xl shadow-2xl w-full h-dvh sm:h-auto sm:max-w-md sm:max-h-[90vh] flex flex-col"

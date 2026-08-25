@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.ts";
+import { useOverlayDismiss } from "../hooks/useOverlayDismiss.ts";
 
 /** Invitation telle que sérialisée par le serveur (serializeInvitation). */
 interface Invitation {
@@ -25,6 +26,7 @@ interface InviteModalProps {
 }
 
 export default function InviteModal({ onClose }: InviteModalProps) {
+  const overlayDismiss = useOverlayDismiss(onClose);
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,7 +64,7 @@ export default function InviteModal({ onClose }: InviteModalProps) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 grid place-items-stretch sm:place-items-center z-50 p-0 sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 grid place-items-stretch sm:place-items-center z-50 p-0 sm:p-4" {...overlayDismiss}>
       <div
         className="bg-white text-slate-900 sm:rounded-xl shadow-2xl w-full h-dvh sm:h-auto sm:max-w-lg sm:max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}

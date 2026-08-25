@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useOverlayDismiss } from "../hooks/useOverlayDismiss.ts";
 
 interface PreferencesModalProps {
   onClose: () => void;
@@ -8,6 +9,7 @@ interface PreferencesModalProps {
 // so future options (theme, notifications, etc.) can be added here. The autostart
 // plugin is imported lazily so the browser build never pulls it in.
 export default function PreferencesModal({ onClose }: PreferencesModalProps) {
+  const overlayDismiss = useOverlayDismiss(onClose);
   const [autostart, setAutostart] = useState<boolean | null>(null); // null = loading
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +56,7 @@ export default function PreferencesModal({ onClose }: PreferencesModalProps) {
   return (
     <div
       className="fixed inset-0 bg-black/50 grid place-items-stretch sm:place-items-center z-50 p-0 sm:p-4"
-      onClick={onClose}
+      {...overlayDismiss}
     >
       <div
         className="bg-white text-slate-900 sm:rounded-xl shadow-2xl w-full h-dvh sm:h-auto sm:max-w-md sm:max-h-[90vh] overflow-hidden flex flex-col"
