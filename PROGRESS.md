@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-07-27** (**1.0.0 — sortie d'alpha** : SemVer strict + canal de pré-release ; socle modernisé (Node 24 LTS, React 19, Tailwind 4, Vite 8, Express 5, Prisma 6, zod 4, ESLint 10, Vitest 4) ; **dépôt 100 % TypeScript**, les trois phases du typage livrées ; quatre bugs révélés par l'outillage ; 0.7.6 : modales plein écran lisibles sur mobile (bouton de validation visible), clic sur notification web qui ouvre la conversation, pièces jointes jusqu'à 50 Mo configurables via `.env` + fix du crash desktop sur fichier trop lourd ; 0.7.5 : aperçu intégré Word/Excel/CSV/texte + PDF réparé, clic notification desktop par protocole, purge du résidu de démarrage TSE, DM triés par récence + non-lus plus visibles, ouverture sur le 1er message non lu + auto-chargement des anciens, mentions surlignées à la saisie ; 0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages).
+Dernière mise à jour : **2026-08-25** (**1.0.1** : correctif des modales qui se fermaient sur un glisser sortant du panneau (#191), **Prisma 6 → 7** — adaptateur de driver et `prisma.config.ts` —, groupage Dependabot repensé pour que les paquets indissociables voyagent ensemble, et une trentaine de dépendances relevées ; **1.0.0 — sortie d'alpha** : SemVer strict + canal de pré-release ; socle modernisé (Node 24 LTS, React 19, Tailwind 4, Vite 8, Express 5, Prisma 6, zod 4, ESLint 10, Vitest 4) ; **dépôt 100 % TypeScript**, les trois phases du typage livrées ; quatre bugs révélés par l'outillage ; 0.7.6 : modales plein écran lisibles sur mobile (bouton de validation visible), clic sur notification web qui ouvre la conversation, pièces jointes jusqu'à 50 Mo configurables via `.env` + fix du crash desktop sur fichier trop lourd ; 0.7.5 : aperçu intégré Word/Excel/CSV/texte + PDF réparé, clic notification desktop par protocole, purge du résidu de démarrage TSE, DM triés par récence + non-lus plus visibles, ouverture sur le 1er message non lu + auto-chargement des anciens, mentions surlignées à la saisie ; 0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages).
 
 ---
 
@@ -922,6 +922,62 @@ d'Express **fige les paramètres de route** pour toutes les routes qui le monten
 Release **1.0.0** publiée (validée d'abord en pré-release `v1.0.0-rc.1`, invisible des
 postes, puis taguée proprement ; installeur signé + `latest.json`, auto-update live).
 
+## Itération 2026-08-25 — Prisma 7, groupage des dépendances & 1.0.1
+
+87. **Prisma 6 → 7 (1.0.1)** — la 7 retire `datasource.url` de `schema.prisma` (`P1012`) et
+    impose un **adaptateur de driver** au client : l'adresse de connexion vit désormais dans
+    `server/prisma.config.ts` pour la CLI et dans `@prisma/adapter-pg` pour l'exécution, les
+    deux lisant la même `DATABASE_URL` — rien ne change côté déploiement. ⚠ Trois pièges,
+    tous non évidents : (a) dans la config il faut lire `process.env` **directement**, le
+    helper `env()` évaluant avidement et faisant échouer `prisma generate`, qui n'a pourtant
+    besoin d'aucune connexion ; (b) le hook **`postinstall` de `@prisma/client` a disparu**,
+    donc `npm ci` ne génère plus les types — c'est ce qui a fait rougir le job de lint, et
+    tout job qui typecheck doit appeler `prisma generate` explicitement ; (c) le **`.env`
+    n'est plus chargé automatiquement**, rechargé via `process.loadEnvFile` pour que le
+    workflow `prisma migrate dev` du README survive. Vérifié **avant tout push** : 212/212
+    tests, image Docker construite puis démarrée contre une base vierge **et** contre une base
+    héritée de `db push` — le chemin d'upgrade en production. À noter, la 7 ajoute un
+    garde-fou « agent IA » sur `db push --force-reset`, `db push --accept-data-loss` et
+    `migrate reset` ; **`migrate deploy` n'est pas concerné**, le démarrage du conteneur de
+    production est intact (#259).
+
+88. **Groupage Dependabot repensé (1.0.1)** — le dépôt n'utilisant pas les workspaces npm (ça
+    casserait le build tauri), **sept paquets sont dupliqués** entre les trois `package.json`.
+    Avec une entrée Dependabot par répertoire ils ne pouvaient pas être groupés, et ils
+    **dérivaient** : `socket.io-client` était désaligné, `globals` arrivait en deux PR
+    séparées. Les trois entrées npm fusionnent donc en une seule via **`directories`** (au
+    pluriel), seul moyen qu'un groupe s'étende à plusieurs manifestes, complétée par des
+    groupes par ensemble couplé (`prisma`, `zod`, `socket.io`, `react`, `eslint`, `vite`…)
+    qui acceptent **volontairement les majors** — séparer deux paquets indissociables donne
+    deux PR rouges dont aucune n'est mergeable, ce qui venait d'arriver à `prisma` /
+    `@prisma/client`. ⚠ Deux pièges découverts à la dure, dans un fichier qui échoue en
+    **silence** : un motif **`@scope/*` ne matche pas** (les paquets scopés doivent être
+    écrits en entier), et un groupe **`dependency-type` rafle les paquets avant les groupes
+    par motif** quel que soit l'ordre de déclaration — d'où des **`exclude-patterns`**
+    obligatoires sur les attrape-tout. Il a fallu trois PR pour y arriver (#264, #270, #273) ;
+    résultat vérifié sur un scan complet, les sept dupliqués sont alignés. Dans la foulée,
+    **`rust-cache` ré-épinglée sur la release `v2.9.2`** (#285) : elle pointait sur un commit
+    sans tag, donc Dependabot suivait la **branche** et proposait le HEAD de `master` — du
+    code non publié, dans la chaîne qui signe l'installeur desktop.
+
+89. **Modales qui se fermaient « toutes seules » (1.0.1, #191)** — un événement `click` ne se
+    déclenche pas sur la cible du relâchement mais sur l'**ancêtre commun** du `mousedown` et
+    du `mouseup`. Le motif des douze modales — `onClick={onClose}` sur le fond,
+    `stopPropagation()` sur le panneau — s'y laissait piéger : sélectionner le texte d'un
+    champ en glissant hors du panneau donnait pour cible le fond, et la modale se fermait.
+    Le hook **`useOverlayDismiss`** exige désormais que l'appui **et** le relâchement aient
+    tous deux eu lieu sur le fond. ⚠ L'issue avait été close comme **non reproductible**,
+    pour deux raisons cumulées : le geste doit sortir du panneau (retaper un nom ne suffit
+    pas), et le passage des modales en `h-dvh` était tombé le jour même, supprimant tout fond
+    visible **sur mobile** et y rendant le bug impossible — alors que le signalement portait
+    sur desktop, où rien n'avait changé. Correctif appliqué aux douze modales, vérifié au
+    navigateur par de vrais glissers de souris, fermeture volontaire au clic sur le fond
+    testée séparément (#291).
+
+Release **1.0.1** — patch au sens strict de SemVer : un correctif visible (#191), une
+migration d'infrastructure sans changement d'interface (Prisma 7) et une trentaine de
+dépendances relevées, aucune fonctionnalité nouvelle.
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
@@ -947,4 +1003,7 @@ postes, puis taguée proprement ; installeur signé + `latest.json`, auto-update
 > React 19, Tailwind 4, Vite 8, Express 5, Prisma 6, zod 4, ESLint 10, Vitest 4 ;
 > **dépôt 100 % TypeScript** — phases 1 à 3 du typage ; 4 bugs révélés par l'outillage :
 > notification en double, aperçu PDF, composant recréé au rendu, pièce jointe de
-> signalement).
+> signalement),
+> **1.0.1** (modales qui se fermaient sur un glisser sortant #191/#291, **Prisma 6 → 7**
+> — adaptateur de driver + `prisma.config.ts` #259, groupage Dependabot par ensemble
+> couplé #264/#270/#273, `rust-cache` ré-épinglée sur une release #285).
