@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect } from "react";
 import { api, uploadFile } from "../api.ts";
 import { getDiagnostics, getLogLines, dumpText, entryCount } from "../logbuffer.ts";
+import { useOverlayDismiss } from "../hooks/useOverlayDismiss.ts";
 
 // "Signaler un bug" — universal (web / PWA / desktop). The user describes the
 // problem and then refines it in a short conversation with Claude (server-side);
@@ -36,6 +37,7 @@ interface BugReportModalProps {
 }
 
 export default function BugReportModal({ onClose }: BugReportModalProps) {
+  const overlayDismiss = useOverlayDismiss(onClose);
   // "compose" → first message form · "chat" → conversation · "done" → success.
   const [phase, setPhase] = useState("compose");
   const [message, setMessage] = useState("");
@@ -268,7 +270,7 @@ export default function BugReportModal({ onClose }: BugReportModalProps) {
   return (
     <div
       className="fixed inset-0 bg-black/50 grid place-items-stretch sm:place-items-center z-50 p-0 sm:p-4"
-      onClick={onClose}
+      {...overlayDismiss}
     >
       <div
         className="bg-white text-slate-900 sm:rounded-xl shadow-2xl w-full h-dvh sm:h-auto sm:max-w-lg sm:max-h-[90vh] overflow-hidden flex flex-col"

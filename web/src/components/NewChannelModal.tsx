@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api.ts";
 import Avatar from "./Avatar.tsx";
 import type { Channel, User } from "../types.ts";
+import { useOverlayDismiss } from "../hooks/useOverlayDismiss.ts";
 
 interface NewChannelModalProps {
   onClose: () => void;
@@ -17,6 +18,7 @@ export default function NewChannelModal({
   currentUserId,
   initialName = "",
 }: NewChannelModalProps) {
+  const overlayDismiss = useOverlayDismiss(onClose);
   const [name, setName] = useState(initialName);
   const [description, setDescription] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
@@ -64,7 +66,7 @@ export default function NewChannelModal({
   return (
     <div
       className="fixed inset-0 bg-black/50 grid place-items-stretch sm:place-items-center z-50 p-0 sm:p-4"
-      onClick={onClose}
+      {...overlayDismiss}
     >
       <form
         onSubmit={submit}

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { User } from "../types.ts";
+import { useOverlayDismiss } from "../hooks/useOverlayDismiss.ts";
 
 /** Plage horaire quotidienne « heures calmes » envoyée au serveur. */
 interface DndSchedule {
@@ -19,6 +20,7 @@ interface DndModalProps {
 }
 
 export default function DndModal({ active, user, onClose, onPick, onSaveSchedule }: DndModalProps) {
+  const overlayDismiss = useOverlayDismiss(onClose);
   const presets = [
     { label: "30 minutes", minutes: 30 },
     { label: "1 heure", minutes: 60 },
@@ -44,7 +46,7 @@ export default function DndModal({ active, user, onClose, onPick, onSaveSchedule
   return (
     <div
       className="fixed inset-0 bg-black/50 grid place-items-stretch sm:place-items-center z-50 p-0 sm:p-4"
-      onClick={onClose}
+      {...overlayDismiss}
     >
       <div
         className="bg-white text-slate-900 sm:rounded-xl shadow-2xl w-full h-dvh sm:h-auto sm:max-w-md sm:max-h-[90vh] overflow-hidden flex flex-col"

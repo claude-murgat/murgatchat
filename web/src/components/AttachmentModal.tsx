@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { attachmentUrl } from "../api.ts";
 import { isTauri, openExternal } from "../desktop.ts";
 import type { Attachment } from "../types.ts";
+import { useOverlayDismiss } from "../hooks/useOverlayDismiss.ts";
 
 // Office previews are heavy parsers; they're loaded on demand (dynamic import)
 // only when a matching file is actually opened, so they never weigh on the main
@@ -571,6 +572,7 @@ interface AttachmentModalProps {
 }
 
 export default function AttachmentModal({ attachment, onClose }: AttachmentModalProps) {
+  const overlayDismiss = useOverlayDismiss(onClose);
   const url = attachmentUrl(attachment.id); // already carries ?token=…
   const downloadUrl = `${url}&download=1`; // server → Content-Disposition: attachment
   const kind = kindOf(attachment.mimeType, attachment.filename);
@@ -604,7 +606,7 @@ export default function AttachmentModal({ attachment, onClose }: AttachmentModal
   }
 
   return (
-    <div className="fixed inset-0 bg-black/80 z-60 flex flex-col" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/80 z-60 flex flex-col" {...overlayDismiss}>
       <div
         className="flex items-center gap-2 p-3 text-white"
         onClick={(e) => e.stopPropagation()}

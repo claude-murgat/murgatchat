@@ -4,6 +4,7 @@ import { api } from "../api.ts";
 import type { User } from "../types.ts";
 import Avatar from "./Avatar.tsx";
 import BugReportsPanel from "./BugReportsPanel.tsx";
+import { useOverlayDismiss } from "../hooks/useOverlayDismiss.ts";
 
 const PAGE_SIZE = 50;
 
@@ -78,6 +79,7 @@ interface AdminPanelModalProps {
 }
 
 export default function AdminPanelModal({ currentUser, onClose, onUserUpdated }: AdminPanelModalProps) {
+  const overlayDismiss = useOverlayDismiss(onClose);
   const [tab, setTab] = useState<TabKey>("users"); // "users" | "reports"
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -193,7 +195,7 @@ export default function AdminPanelModal({ currentUser, onClose, onUserUpdated }:
     : "";
 
   return (
-    <div className="fixed inset-0 bg-black/50 grid place-items-stretch sm:place-items-center z-50 p-0 sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 grid place-items-stretch sm:place-items-center z-50 p-0 sm:p-4" {...overlayDismiss}>
       <div
         className="bg-white text-slate-900 sm:rounded-xl shadow-2xl w-full h-dvh sm:h-auto sm:max-w-2xl sm:max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}

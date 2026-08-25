@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api } from "../api.ts";
 import type { User } from "../types.ts";
+import { useOverlayDismiss } from "../hooks/useOverlayDismiss.ts";
 
 interface ProfileModalProps {
   user: User;
@@ -10,6 +11,7 @@ interface ProfileModalProps {
 }
 
 export default function ProfileModal({ user, onClose, onUpdated }: ProfileModalProps) {
+  const overlayDismiss = useOverlayDismiss(onClose);
   const [displayName, setDisplayName] = useState(user.displayName);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -82,7 +84,7 @@ export default function ProfileModal({ user, onClose, onUpdated }: ProfileModalP
   return (
     <div
       className="fixed inset-0 bg-black/50 grid place-items-stretch sm:place-items-center z-50 p-0 sm:p-4"
-      onClick={onClose}
+      {...overlayDismiss}
     >
       <div
         className="bg-white text-slate-900 sm:rounded-xl shadow-2xl w-full h-dvh sm:h-auto sm:max-w-md sm:max-h-[90vh] flex flex-col"
