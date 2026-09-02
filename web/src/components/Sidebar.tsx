@@ -405,7 +405,7 @@ export default function Sidebar({
           />
         ) : (
           <>
-        <SidebarSection title="Salons">
+        <SidebarSection id="groups" title="Salons">
           {groups.map((c) => (
             <SidebarItem
               key={c.id}
@@ -424,7 +424,7 @@ export default function Sidebar({
           )}
         </SidebarSection>
 
-        <SidebarSection title="Messages directs">
+        <SidebarSection id="dms" title="Messages directs">
           {dms.map((c) => (
             <DmItem
               key={c.id}
@@ -442,6 +442,14 @@ export default function Sidebar({
           {dms.length === 0 && (
             <div className="text-xs text-aubergine-400 px-2 py-1">Aucun DM</div>
           )}
+        </SidebarSection>
+
+        {/* Emplacement réservé aux conversations avec Claude. Le back-end a déjà
+            le modèle SupportConversation (server/src/anthropic.ts), mais rien ne
+            l'expose encore côté barre latérale : la section est posée vide pour
+            que la place soit prise et repliable comme les autres. */}
+        <SidebarSection id="claude" title="Claude">
+          <div className="text-xs text-aubergine-400 px-2 py-1">Bientôt disponible</div>
         </SidebarSection>
           </>
         )}
@@ -497,18 +505,78 @@ export default function Sidebar({
   );
 }
 
+// Repli des sections de la barre latérale, mémorisé par appareil. La clé est un
+// `id` explicite et non le libellé affiché : renommer « Salons » ne doit pas
+// réinitialiser silencieusement le repli de tout le monde. Même enrobage
+// try/catch que le reste du projet — localStorage lève en navigation privée.
+const SECTION_COLLAPSED_PREFIX = "murgat:sidebarCollapsed:";
+function loadSectionCollapsed(id: string): boolean {
+  if (typeof localStorage === "undefined") return false;
+  try {
+    return localStorage.getItem(SECTION_COLLAPSED_PREFIX + id) === "1";
+  } catch {
+    return false;
+  }
+}
+function saveSectionCollapsed(id: string, collapsed: boolean) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    if (collapsed) localStorage.setItem(SECTION_COLLAPSED_PREFIX + id, "1");
+    else localStorage.removeItem(SECTION_COLLAPSED_PREFIX + id);
+  } catch {
+    // Non fatal : le repli ne sera juste pas retenu sur cet appareil.
+  }
+}
+
 interface SidebarSectionProps {
+  /** Clé de persistance du repli, stable même si `title` change. */
+  id: string;
   title: string;
   children?: ReactNode;
 }
 
-function SidebarSection({ title, children }: SidebarSectionProps) {
+function SidebarSection({ id, title, children }: SidebarSectionProps) {
+  const [collapsed, setCollapsed] = useState(() => loadSectionCollapsed(id));
+
+  function toggle() {
+    const next = !collapsed;
+    setCollapsed(next);
+    saveSectionCollapsed(id, next);
+  }
+
   return (
     <div>
-      <div className="px-2 mb-1 text-xs uppercase tracking-wide text-aubergine-400">
-        {title}
-      </div>
-      <div className="space-y-0.5">{children}</div>
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={!collapsed}
+        title={collapsed ? `Déplier ${title}` : `Replier ${title}`}
+        className="w-full flex items-center gap-1 px-2 mb-1 text-xs uppercase tracking-wide text-aubergine-400 hover:text-white cursor-pointer"
+      >
+        {/* Chevron : pointe vers le bas quand la section est ouverte, vers la
+            droite quand elle est repliée. La rotation est animée, mais reste
+            inerte si l'utilisateur a demandé moins d'animations. */}
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+          className={`shrink-0 transition-transform motion-reduce:transition-none ${
+            collapsed ? "-rotate-90" : ""
+          }`}
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+        <span>{title}</span>
+      </button>
+      {/* Démonté plutôt que masqué en CSS : une section repliée ne doit pas
+          rester atteignable au clavier ni annoncée aux lecteurs d'écran. */}
+      {!collapsed && <div className="space-y-0.5">{children}</div>}
     </div>
   );
 }
