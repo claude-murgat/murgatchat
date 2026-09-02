@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-08-25** (**1.0.1** : correctif des modales qui se fermaient sur un glisser sortant du panneau (#191), **Prisma 6 → 7** — adaptateur de driver et `prisma.config.ts` —, groupage Dependabot repensé pour que les paquets indissociables voyagent ensemble, et une trentaine de dépendances relevées ; **1.0.0 — sortie d'alpha** : SemVer strict + canal de pré-release ; socle modernisé (Node 24 LTS, React 19, Tailwind 4, Vite 8, Express 5, Prisma 6, zod 4, ESLint 10, Vitest 4) ; **dépôt 100 % TypeScript**, les trois phases du typage livrées ; quatre bugs révélés par l'outillage ; 0.7.6 : modales plein écran lisibles sur mobile (bouton de validation visible), clic sur notification web qui ouvre la conversation, pièces jointes jusqu'à 50 Mo configurables via `.env` + fix du crash desktop sur fichier trop lourd ; 0.7.5 : aperçu intégré Word/Excel/CSV/texte + PDF réparé, clic notification desktop par protocole, purge du résidu de démarrage TSE, DM triés par récence + non-lus plus visibles, ouverture sur le 1er message non lu + auto-chargement des anciens, mentions surlignées à la saisie ; 0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages).
+Dernière mise à jour : **2026-09-02** (**1.0.2** : release de maintenance — dompurify, Vite/plugin-react, Vitest et claude-code-action relevés, aucun changement fonctionnel ; **1.0.1** : correctif des modales qui se fermaient sur un glisser sortant du panneau (#191), **Prisma 6 → 7** — adaptateur de driver et `prisma.config.ts` —, groupage Dependabot repensé pour que les paquets indissociables voyagent ensemble, et une trentaine de dépendances relevées ; **1.0.0 — sortie d'alpha** : SemVer strict + canal de pré-release ; socle modernisé (Node 24 LTS, React 19, Tailwind 4, Vite 8, Express 5, Prisma 6, zod 4, ESLint 10, Vitest 4) ; **dépôt 100 % TypeScript**, les trois phases du typage livrées ; quatre bugs révélés par l'outillage ; 0.7.6 : modales plein écran lisibles sur mobile (bouton de validation visible), clic sur notification web qui ouvre la conversation, pièces jointes jusqu'à 50 Mo configurables via `.env` + fix du crash desktop sur fichier trop lourd ; 0.7.5 : aperçu intégré Word/Excel/CSV/texte + PDF réparé, clic notification desktop par protocole, purge du résidu de démarrage TSE, DM triés par récence + non-lus plus visibles, ouverture sur le 1er message non lu + auto-chargement des anciens, mentions surlignées à la saisie ; 0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages).
 
 ---
 
@@ -978,6 +978,22 @@ Release **1.0.1** — patch au sens strict de SemVer : un correctif visible (#19
 migration d'infrastructure sans changement d'interface (Prisma 7) et une trentaine de
 dépendances relevées, aucune fonctionnalité nouvelle.
 
+## Itération 2026-09-02 — maintenance des dépendances (1.0.2)
+
+90. **1.0.2, patch de pure maintenance** — quatre relevés de dépendances fusionnés
+    d'un bloc, tous verts sur les cinq jobs de `tests.yml` (backend, e2e, lint, SAST,
+    DAST) : `dompurify` 3.4.13 → 3.4.14 (web, *production* — c'est l'assainisseur qui
+    filtre le HTML des messages, donc le seul des quatre à toucher du code exécuté
+    chez l'utilisateur), `vite` 8.2.1 → 8.2.2 et `@vitejs/plugin-react` 6.0.5 → 6.1.0
+    (groupés : le plugin suit le cœur de Vite, cf. entrée 88), `vitest` 4.1.10 → 4.1.11
+    (serveur, dev) et l'action `anthropics/claude-code-action` 1.0.192 → 1.0.198 (CI).
+    Aucune interface ne bouge, aucune migration : **CORRECTIF** au sens du tableau
+    SemVer du README, ni mineur ni majeur. L'intérêt de journaliser une release aussi
+    mince est de garder la trace que le canal desktop a bien été re-livré — l'auto-updater
+    compare `latest.json` au numéro embarqué, donc une version non taguée n'existe pas
+    pour les postes installés.
+
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
@@ -1006,4 +1022,6 @@ dépendances relevées, aucune fonctionnalité nouvelle.
 > signalement),
 > **1.0.1** (modales qui se fermaient sur un glisser sortant #191/#291, **Prisma 6 → 7**
 > — adaptateur de driver + `prisma.config.ts` #259, groupage Dependabot par ensemble
-> couplé #264/#270/#273, `rust-cache` ré-épinglée sur une release #285).
+> couplé #264/#270/#273, `rust-cache` ré-épinglée sur une release #285),
+> **1.0.2** (maintenance seule : dompurify #295, Vite + plugin-react #294,
+> Vitest #296, claude-code-action #293).
