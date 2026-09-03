@@ -600,6 +600,26 @@ export default function App() {
     setShowNewDm(false);
   }, []);
 
+  // Ouvre (ou retrouve) la conversation avec l'expert Claude. Le canal arrive
+  // aussi par l'event socket channel:created — le merge par id déduplique.
+  const onOpenClaude = useCallback(async () => {
+    try {
+      const res = (await api.openClaudeConversation()) as { channel: Channel };
+      const channel = res.channel;
+      setChannels((prev) =>
+        prev.some((c) => c.id === channel.id) ? prev : [...prev, channel]
+      );
+      setActiveChannelId(channel.id);
+    } catch (e) {
+      const err = e as { data?: { error?: string } };
+      alert(
+        err?.data?.error === "claude_expert_unavailable"
+          ? "L'expert Claude n'est pas configuré sur ce serveur."
+          : "Impossible d'ouvrir la conversation avec l'expert."
+      );
+    }
+  }, []);
+
   const onChannelJoined = useCallback((channel: Channel) => {
     setChannels((prev) =>
       prev.some((c) => c.id === channel.id) ? prev : [...prev, channel]
@@ -719,6 +739,7 @@ export default function App() {
             onNewDm={() => setShowNewDm(true)}
             onChannelJoined={onChannelJoined}
             onDmOpened={onDmOpened}
+            onOpenClaude={onOpenClaude}
             onToggleDnd={toggleDnd}
             onLogout={onLogout}
             onInvite={() => setShowInvite(true)}
@@ -777,7 +798,7 @@ export default function App() {
           onOpened={onDmOpened}
         />
       )}
-      {showAddMembers && activeChannel && !activeChannel.isDirect && (
+      {showAddMembers && activeChannel && !activeChannel.isDirect && activeChannel.kind !== "claude" && (
         <AddMembersModal
           channel={activeChannel}
           currentUserId={user.id}
@@ -785,7 +806,7 @@ export default function App() {
           onAdded={onMembersAdded}
         />
       )}
-      {showMembers && activeChannel && !activeChannel.isDirect && (
+      {showMembers && activeChannel && !activeChannel.isDirect && activeChannel.kind !== "claude" && (
         <MembersModal
           channel={activeChannel}
           currentUser={user}

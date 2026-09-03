@@ -1,0 +1,7 @@
+[Unit]
+Description=Miroir du code supervision + commit des notes de l'expert
+
+[Service]
+Type=oneshot
+User=murgat
+ExecStart=/home/murgat/claude-helper/bin/sync-mirror

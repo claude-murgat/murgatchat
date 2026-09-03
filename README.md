@@ -396,6 +396,9 @@ pour les secrets) :
   conversation de support ; clé vide ⇒ envoi direct (chat désactivé).
   `SUPPORT_NOTIFY_TOKEN` (+ `SUPPORT_NOTIFY_CHANNEL`, défaut `support-dev`) pour la
   notification in-app ; vide ⇒ endpoint `/support/notify` désactivé.
+  `CLAUDE_HELPER_URL` + `CLAUDE_HELPER_TOKEN` + `CLAUDE_CALLBACK_TOKEN` pour
+  l'expert Claude « supervision » de la section CLAUDE (pont vers le service
+  [`claude-helper/`](claude-helper/) sur sa VM) ; l'un vide ⇒ section inerte.
 - **Runner local** (pour `claude-fix.yml`) : enregistre un *self-hosted runner* sur ta
   machine de dev (Settings → Actions → Runners → New self-hosted runner) avec le label
   **`murgatchat`** (en plus du `self-hosted` implicite). La machine doit avoir `git`,

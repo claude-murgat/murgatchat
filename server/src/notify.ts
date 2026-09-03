@@ -35,8 +35,9 @@ export function tokenMatches(provided: string): boolean {
   return timingSafeEqual(a, b);
 }
 
-// A dedicated, non-loginable author for pipeline messages.
-async function ensureBot() {
+// A dedicated, non-loginable author for pipeline messages. Exported: the
+// Claude-expert bridge (routes/claude.ts) reuses the same bot identity.
+export async function ensureBot() {
   let bot = await prisma.user.findUnique({ where: { username: BOT_USERNAME } });
   if (!bot) {
     bot = await prisma.user.create({
@@ -112,14 +113,14 @@ async function ensureChannel() {
   return channel;
 }
 
-// Post `text` into the team channel as the bot. Returns the serialized message
-// + channel/author ids so the caller can broadcast it over Socket.IO.
-export async function postPipelineMessage(text: string) {
+// Post `text` into an arbitrary channel as the bot, via the normal message path
+// (encrypted body + searchable plaintext). Returns the serialized message +
+// channel/author ids so the caller can broadcast it over Socket.IO.
+export async function postBotMessage(channelId: string, text: string) {
   const bot = await ensureBot();
-  const channel = await ensureChannel();
   const msg = await prisma.message.create({
     data: {
-      channelId: channel.id,
+      channelId,
       authorId: bot.id,
       body: encryptBody(text),
       searchableBody: text,
@@ -131,5 +132,11 @@ export async function postPipelineMessage(text: string) {
       parent: { include: { author: true } },
     },
   });
-  return { channelId: channel.id, authorId: bot.id, serialized: serializeMessage(msg) };
+  return { channelId, authorId: bot.id, serialized: serializeMessage(msg) };
+}
+
+// Post `text` into the team channel as the bot.
+export async function postPipelineMessage(text: string) {
+  const channel = await ensureChannel();
+  return postBotMessage(channel.id, text);
 }

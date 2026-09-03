@@ -1,0 +1,19 @@
+# Service du pont MurgaChat → expert Claude. Installé dans
+# /etc/systemd/system/ ; le code vit dans /home/murgat/claude-helper-svc
+# (rsync depuis le dossier claude-helper/ du dépôt murgatchat).
+[Unit]
+Description=Claude expert helper (pont MurgaChat)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=murgat
+WorkingDirectory=/home/murgat/claude-helper-svc
+EnvironmentFile=/home/murgat/claude-helper-svc/.env
+ExecStart=/usr/bin/node src/index.ts
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -46,6 +46,8 @@ export interface Channel {
   isDirect: boolean;
   isPrivate: boolean;
   isDefault: boolean;
+  /** "claude" = conversation privée avec l'expert Claude (section CLAUDE). */
+  kind?: "standard" | "claude";
   description: string | null;
   notifyLevel: NotifyLevel;
   members: User[];

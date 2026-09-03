@@ -9,6 +9,7 @@ import { sendExpoPush } from "./push.ts";
 import { sendWebPush } from "./webpush.ts";
 import { NotificationEventSchema } from "../../shared/contracts.ts";
 import { checkContract } from "./contractCheck.ts";
+import { claudeExpertEnabled, dispatchExpertTurn } from "./claudeHelper.ts";
 
 // Sous-ensemble des colonnes `User` que le calcul DnD lit vraiment. En
 // production l'appelant passe une ligne Prisma complète, mais les tests
@@ -235,6 +236,9 @@ export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
         }
         const member = await prisma.membership.findUnique({
           where: { userId_channelId: { userId, channelId } },
+          // kind du canal : détecter les conversations de l'expert Claude sans
+          // requête supplémentaire (voir le hook après notifyMembers).
+          include: { channel: { select: { kind: true } } },
         });
         if (!member) return ack?.({ error: "not_a_member" });
 
@@ -310,6 +314,15 @@ export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
 
         await notifyMembers(io, channelId, userId, serialized);
         ack?.({ ok: true, message: serialized });
+
+        // Conversation avec l'expert Claude : déclencher un tour d'analyse sur
+        // la VM auxiliaire. Fire-and-forget APRÈS l'ack — un pont en panne ne
+        // doit ni retarder ni casser l'envoi (dispatchExpertTurn n'émet jamais
+        // d'exception : il poste un message d'erreur du bot à la place).
+        if (member.channel.kind === "claude" && claudeExpertEnabled()) {
+          const authorName = msg.author?.displayName ?? null;
+          void dispatchExpertTurn(io, channelId, trimmed, { displayName: authorName });
+        }
       } catch (err) {
         console.error("message:send", err);
         ack?.({ error: "server_error" });
@@ -374,7 +387,7 @@ export async function dispatchScheduledMessages(io: Server) {
   const now = new Date();
   const due = await prisma.message.findMany({
     where: { delivered: false, scheduledAt: { lte: now } },
-    include: { author: true },
+    include: { author: true, channel: { select: { kind: true } } },
     take: 50,
   });
   for (const msg of due) {
@@ -390,5 +403,13 @@ export async function dispatchScheduledMessages(io: Server) {
     io.to(`channel:${msg.channelId}`).emit("message:new", serialized);
 
     await notifyMembers(io, msg.channelId, msg.authorId, serialized);
+
+    // Un message programmé dans la conversation de l'expert déclenche le tour
+    // à la livraison — même chemin que message:send.
+    if (msg.channel.kind === "claude" && claudeExpertEnabled()) {
+      void dispatchExpertTurn(io, msg.channelId, updated.searchableBody || "", {
+        displayName: msg.author?.displayName ?? null,
+      });
+    }
   }
 }

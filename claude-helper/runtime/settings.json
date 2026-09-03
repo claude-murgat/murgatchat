@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Edit(//home/murgat/claude-helper/notes/**)",
+      "Bash(ssh claude@172.16.1.182 *)",
+      "Bash(bin/db *)",
+      "Bash(bin/sync-mirror)"
+    ],
+    "deny": [
+      "Read(**/.env*)",
+      "Read(**/.my.cnf)",
+      "Read(//home/murgat/claude-helper-svc/**)",
+      "Read(//home/murgat/.ssh/**)",
+      "Edit(//home/murgat/claude-helper/docs/**)",
+      "Edit(//home/murgat/claude-helper/mirror/**)",
+      "Edit(//home/murgat/claude-helper/CLAUDE.md)",
+      "Edit(//home/murgat/claude-helper/.claude/**)",
+      "Edit(//home/murgat/claude-helper/bin/**)"
+    ]
+  }
+}
