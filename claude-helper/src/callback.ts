@@ -20,6 +20,31 @@ type CallbackPayload = {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// URL de progression, dérivée de CALLBACK_URL (.../claude/callback →
+// .../claude/progress). Séparée pour rester purement best-effort.
+function progressUrl(): string {
+  const cb = process.env.CALLBACK_URL || "";
+  return cb.replace(/\/callback$/, "/progress");
+}
+
+// Étape d'analyse en cours, affichée en direct sous l'indicateur de saisie.
+// Best-effort strict : pas de retry, jamais d'exception — un ratage ne coûte
+// qu'un libellé manquant, le tour et sa réponse finale ne sont pas concernés.
+export async function sendProgress(channelId: string, text: string) {
+  const url = progressUrl();
+  const token = process.env.CALLBACK_TOKEN || "";
+  if (!url || !token) return;
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ channelId, text }),
+    });
+  } catch {
+    /* ignoré volontairement */
+  }
+}
+
 export async function sendCallback(payload: CallbackPayload) {
   const url = process.env.CALLBACK_URL || "";
   const token = process.env.CALLBACK_TOKEN || "";

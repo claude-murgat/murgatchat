@@ -225,6 +225,11 @@ export default function ChannelView({
   // modale de sélection de destination ; null = modale fermée.
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
+  // Étape en cours de l'expert Claude (event claude:progress), affichée sous
+  // l'indicateur de saisie à la place du générique « Claude est en train
+  // d'écrire ». Effacée à l'arrivée de sa réponse ou après un silence.
+  const [claudeStatus, setClaudeStatus] = useState<string>("");
+  const claudeStatusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showNotifyMenu, setShowNotifyMenu] = useState(false);
   const notifyMenuRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -307,6 +312,7 @@ export default function ChannelView({
     if (!activeChannelId) return;
     let cancelled = false;
     setTypingUserIds([]);
+    setClaudeStatus("");
     setReplyingTo(null);
     setHasMore(false);
     setOldestCursor(null);
@@ -363,6 +369,8 @@ export default function ChannelView({
     if (!socket) return;
     function onNew(msg: Message) {
       if (!activeChannelId || msg.channelId !== activeChannelId) return;
+      // La réponse de l'expert est arrivée : l'étape en cours n'a plus lieu d'être.
+      setClaudeStatus("");
       // Ne suivre le bas que si on y est déjà (ne pas arracher un lecteur
       // d'historique vers le bas à chaque nouveau message).
       const el = scrollRef.current;
@@ -414,13 +422,23 @@ export default function ChannelView({
         delete typingTimers.current[userId];
       }, 4000);
     }
+    function onClaudeProgress({ channelId, text }: { channelId: string; text: string }) {
+      if (!activeChannelId || channelId !== activeChannelId) return;
+      setClaudeStatus(text);
+      if (claudeStatusTimer.current) clearTimeout(claudeStatusTimer.current);
+      // Garde-fou : si plus rien ne vient (helper muet), effacer le statut ; le
+      // tour lui-même reste borné à 15 min côté helper.
+      claudeStatusTimer.current = setTimeout(() => setClaudeStatus(""), 45000);
+    }
     socket.on("message:new", onNew);
+    socket.on("claude:progress", onClaudeProgress);
     socket.on("message:updated", onUpdated);
     socket.on("message:deleted", onDeleted);
     socket.on("reaction:update", onReaction);
     socket.on("typing:update", onTyping);
     return () => {
       socket.off("message:new", onNew);
+      socket.off("claude:progress", onClaudeProgress);
       socket.off("message:updated", onUpdated);
       socket.off("message:deleted", onDeleted);
       socket.off("reaction:update", onReaction);
@@ -924,9 +942,12 @@ export default function ChannelView({
         className="border-t border-slate-200 px-3 pt-1"
         style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
       >
-        <div className="h-4 px-1 text-xs italic text-slate-500">
-          {typingUserIds.length > 0 &&
-            `${typingLabel(typingUserIds, channel, currentUser)}…`}
+        <div className="h-4 px-1 text-xs italic text-slate-500 truncate">
+          {claudeStatus
+            ? `✳️ ${claudeStatus}…`
+            : typingUserIds.length > 0
+            ? `${typingLabel(typingUserIds, channel, currentUser)}…`
+            : ""}
         </div>
         {replyingTo && (
           <div className="mb-1 flex items-center gap-2 px-2 py-1.5 rounded-sm bg-aubergine-700/10 border border-aubergine-700/30 text-xs">

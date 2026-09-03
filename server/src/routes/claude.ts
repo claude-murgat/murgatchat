@@ -75,6 +75,36 @@ const callbackSchema = z.object({
   error: z.string().max(300).optional(),
 });
 
+// Progression d'un tour en cours (best-effort, machine à machine) : le helper
+// pousse un court libellé d'étape (« Lecture des logs… ») affiché en direct
+// sous l'indicateur de saisie. Éphémère : rien n'est stocké, on ne fait que
+// relayer aux clients du canal via l'event socket claude:progress.
+const progressSchema = z.object({
+  channelId: z.string().min(1).max(60),
+  text: z.string().min(1).max(300),
+});
+
+router.post("/progress", async (req, res) => {
+  if (!claudeExpertEnabled()) {
+    return res.status(503).json({ error: "claude_expert_unavailable" });
+  }
+  const auth = req.headers.authorization || "";
+  const provided = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (!callbackTokenMatches(provided)) {
+    return res.status(401).json({ error: "unauthorized" });
+  }
+  const parsed = progressSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: "invalid_payload" });
+  const { channelId, text } = parsed.data;
+
+  const channel = await prisma.channel.findUnique({ where: { id: channelId } });
+  if (!channel || channel.kind !== "claude") {
+    return res.status(404).json({ error: "not_found" });
+  }
+  req.io?.to(`channel:${channelId}`).emit("claude:progress", { channelId, text });
+  res.json({ ok: true });
+});
+
 router.post("/callback", async (req, res) => {
   if (!claudeExpertEnabled()) {
     return res.status(503).json({ error: "claude_expert_unavailable" });

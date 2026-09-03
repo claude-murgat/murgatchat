@@ -5,7 +5,7 @@
 // comme des messages empilés dans un chat.
 
 import { runTurn } from "./agent.ts";
-import { sendCallback } from "./callback.ts";
+import { sendCallback, sendProgress } from "./callback.ts";
 
 const MAX_BUFFER = 20;
 const MAX_CONCURRENT = 2;
@@ -56,7 +56,7 @@ async function drain(key: string, conv: Conv) {
         .join("\n\n");
       let outcome: { ok: boolean; reply?: string; error?: string };
       try {
-        outcome = await runTurn(key, prompt);
+        outcome = await runTurn(key, prompt, (text) => void sendProgress(key, text));
       } catch (e) {
         console.error(`[helper] tour ${key} en échec:`, (e as Error).message);
         outcome = { ok: false, error: "turn_failed" };
