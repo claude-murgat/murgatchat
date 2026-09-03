@@ -393,7 +393,10 @@ pour les secrets) :
   le même PAT ; *Issues: write* suffit pour le pont), `GITHUB_REPO_OWNER`,
   `GITHUB_REPO_NAME`. Token vide ⇒ pont désactivé (comportement historique).
   `ANTHROPIC_API_KEY` (+ `SUPPORT_MODEL`, défaut `claude-opus-4-8`) pour la
-  conversation de support ; clé vide ⇒ envoi direct (chat désactivé).
+  conversation de support ; clé vide ⇒ envoi direct (chat désactivé). En
+  alternative, `ANTHROPIC_OAUTH_TOKEN` (jeton `claude setup-token`) fait porter
+  le coût sur l'abonnement Claude plutôt que sur les crédits API ; il prime sur
+  la clé API. ⚠ Usage rate-limité, partagé avec les autres usages de l'abonnement.
   `SUPPORT_NOTIFY_TOKEN` (+ `SUPPORT_NOTIFY_CHANNEL`, défaut `support-dev`) pour la
   notification in-app ; vide ⇒ endpoint `/support/notify` désactivé.
   `CLAUDE_HELPER_URL` + `CLAUDE_HELPER_TOKEN` + `CLAUDE_CALLBACK_TOKEN` pour

@@ -19,12 +19,29 @@ const MAX_TOKENS = 1024;
 function apiKey() {
   return process.env.ANTHROPIC_API_KEY || "";
 }
+// Jeton OAuth d'abonnement (généré par `claude setup-token`, préfixe
+// sk-ant-oat…). S'il est présent, on l'utilise à la place de la clé API : appel
+// authentifié en Bearer + en-tête beta, ce qui fait porter le coût par
+// l'abonnement Claude plutôt que par les crédits API. Priorité à l'OAuth.
+function oauthToken() {
+  return process.env.ANTHROPIC_OAUTH_TOKEN || "";
+}
+// En-têtes d'authentification selon le mode disponible (OAuth d'abord).
+function authHeaders(): Record<string, string> {
+  if (oauthToken()) {
+    return {
+      Authorization: `Bearer ${oauthToken()}`,
+      "anthropic-beta": "oauth-2025-04-20",
+    };
+  }
+  return { "x-api-key": apiKey() };
+}
 function model() {
   return process.env.SUPPORT_MODEL || "claude-opus-4-8";
 }
 
 export function anthropicEnabled() {
-  return Boolean(apiKey());
+  return Boolean(apiKey() || oauthToken());
 }
 
 // French-first triage agent. Asks a few targeted questions, then finalizes.
@@ -197,7 +214,7 @@ export async function runSupportTurn(
     const res = await fetch(API, {
       method: "POST",
       headers: {
-        "x-api-key": apiKey(),
+        ...authHeaders(),
         "anthropic-version": API_VERSION,
         "Content-Type": "application/json",
       },
