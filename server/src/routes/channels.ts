@@ -451,7 +451,10 @@ router.post("/:id/members", requireAuth, async (req, res) => {
   if (userIds.length === 0) return res.status(400).json({ error: "no_users" });
 
   const channel = await prisma.channel.findUnique({ where: { id } });
-  if (!channel || channel.isDirect) return res.status(404).json({ error: "not_found" });
+  // Les conversations de l'expert Claude (kind "claude") sont figées à
+  // {utilisateur, bot} : ni ajout, ni départ, ni retrait de membre.
+  if (!channel || channel.isDirect || channel.kind === "claude")
+    return res.status(404).json({ error: "not_found" });
   const requester = await prisma.membership.findUnique({
     where: { userId_channelId: { userId: req.userId, channelId: id } },
   });
@@ -485,7 +488,8 @@ router.post("/:id/members", requireAuth, async (req, res) => {
 router.post("/:id/leave", requireAuth, async (req, res) => {
   const { id } = req.params;
   const channel = await prisma.channel.findUnique({ where: { id } });
-  if (!channel || channel.isDirect) return res.status(404).json({ error: "not_found" });
+  if (!channel || channel.isDirect || channel.kind === "claude")
+    return res.status(404).json({ error: "not_found" });
   if (channel.isDefault) return res.status(403).json({ error: "cannot_leave_default" });
   await prisma.membership.deleteMany({ where: { channelId: id, userId: req.userId } });
   req.io?.to(`user:${req.userId}`).emit("channel:removed", { channelId: id });
@@ -497,7 +501,8 @@ router.post("/:id/leave", requireAuth, async (req, res) => {
 router.delete("/:id/members/:userId", requireAuth, async (req, res) => {
   const { id, userId } = req.params;
   const channel = await prisma.channel.findUnique({ where: { id } });
-  if (!channel || channel.isDirect) return res.status(404).json({ error: "not_found" });
+  if (!channel || channel.isDirect || channel.kind === "claude")
+    return res.status(404).json({ error: "not_found" });
   if (channel.isDefault) {
     return res.status(403).json({ error: "cannot_remove_from_default" });
   }
@@ -564,6 +569,7 @@ export function serializeChannel(channel: ChannelWithRelations, viewerId: string
     isDirect: channel.isDirect,
     isPrivate: channel.isPrivate,
     isDefault: channel.isDefault,
+    kind: channel.kind,
     description: channel.description,
     // Niveau de notification de l'appelant pour ce channel (défaut "all" si la
     // membership n'est pas hydratée, p. ex. juste après une création).

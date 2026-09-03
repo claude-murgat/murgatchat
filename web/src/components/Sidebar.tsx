@@ -118,6 +118,8 @@ interface SidebarProps {
   onNewDm: () => void;
   onChannelJoined: (channel: Channel) => void;
   onDmOpened: (channel: Channel) => void;
+  /** Ouvre (ou retrouve) la conversation avec l'expert Claude. */
+  onOpenClaude: () => void;
   onToggleDnd: () => void;
   onLogout: () => void;
   onInvite: () => void;
@@ -141,6 +143,7 @@ export default function Sidebar({
   onNewDm,
   onChannelJoined,
   onDmOpened,
+  onOpenClaude,
   onToggleDnd,
   onLogout,
   onInvite,
@@ -209,7 +212,9 @@ export default function Sidebar({
     setPwaInstallable(false);
   }
 
-  const groups = channels.filter((c) => !c.isDirect);
+  const groups = channels.filter((c) => !c.isDirect && c.kind !== "claude");
+  // La (les) conversation(s) avec l'expert Claude vivent dans leur section.
+  const claudeConvs = channels.filter((c) => c.kind === "claude");
   // DMs sorted by most-recent activity (SMS-style, #180): the conversation with
   // the latest message floats to the top — which also surfaces unread ones,
   // since they're usually the most recent (see the coloured badge below, #179).
@@ -444,12 +449,31 @@ export default function Sidebar({
           )}
         </SidebarSection>
 
-        {/* Emplacement réservé aux conversations avec Claude. Le back-end a déjà
-            le modèle SupportConversation (server/src/anthropic.ts), mais rien ne
-            l'expose encore côté barre latérale : la section est posée vide pour
-            que la place soit prise et repliable comme les autres. */}
+        {/* Conversation privée avec l'expert Claude de l'appli SUPERVISION
+            (canal kind="claude", voir server/src/routes/claude.ts). Tant que
+            l'utilisateur n'en a pas, un bouton l'ouvre à la demande. */}
         <SidebarSection id="claude" title="Claude">
-          <div className="text-xs text-aubergine-400 px-2 py-1">Bientôt disponible</div>
+          {claudeConvs.map((c) => (
+            <SidebarItem
+              key={c.id}
+              active={c.id === activeChannelId}
+              onClick={() => onSelectChannel(c)}
+              onLongPress={(pos) =>
+                setConvMenu({ channelId: c.id, unread: c.unread, ...pos })
+              }
+              prefix="✳️"
+              label={c.name || "Expert supervision"}
+              unread={c.unread}
+            />
+          ))}
+          {claudeConvs.length === 0 && (
+            <button
+              onClick={onOpenClaude}
+              className="w-full text-left px-2 py-1 rounded text-sm text-aubergine-400 hover:text-white hover:bg-aubergine-600"
+            >
+              ✳️ Consulter l'expert supervision
+            </button>
+          )}
         </SidebarSection>
           </>
         )}

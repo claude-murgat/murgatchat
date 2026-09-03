@@ -74,6 +74,11 @@ services:
       # le salon d'équipe à l'ouverture d'une PR. Vide = endpoint désactivé.
       SUPPORT_NOTIFY_TOKEN: ${SUPPORT_NOTIFY_TOKEN:-}
       SUPPORT_NOTIFY_CHANNEL: ${SUPPORT_NOTIFY_CHANNEL:-support-dev}
+      # Expert Claude « supervision » (section CLAUDE) : pont vers le service
+      # claude-helper sur sa VM. Les trois vides = section inerte. Voir .env.example.
+      CLAUDE_HELPER_URL: ${CLAUDE_HELPER_URL:-}
+      CLAUDE_HELPER_TOKEN: ${CLAUDE_HELPER_TOKEN:-}
+      CLAUDE_CALLBACK_TOKEN: ${CLAUDE_CALLBACK_TOKEN:-}
     ports:
       - "4000:4000"
     volumes:

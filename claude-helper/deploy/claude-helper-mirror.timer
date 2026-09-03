@@ -1,0 +1,9 @@
+[Unit]
+Description=Rafraîchit le miroir supervision toutes les 30 min
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=30min
+
+[Install]
+WantedBy=timers.target

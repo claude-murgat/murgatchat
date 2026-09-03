@@ -43,6 +43,11 @@ model Channel {
   isDirect    Boolean  @default(false)
   isPrivate   Boolean  @default(false)
   isDefault   Boolean  @default(false)
+  // Nature du canal : "standard" (salons & DM historiques) ou "claude" (la
+  // conversation privée d'un utilisateur avec l'expert Claude — voir
+  // routes/claude.ts). Une colonne dédiée plutôt qu'une détection par
+  // appartenance du bot : un vrai DM avec le bot resterait un DM.
+  kind        String   @default("standard")
   description String?
   createdAt   DateTime @default(now())
 

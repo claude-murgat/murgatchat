@@ -1,0 +1,32 @@
+#!/bin/sh
+# Rafraîchit le miroir local du code de la supervision (lecture seule) et
+# committe le carnet notes/ pour l'audit. Lancé par le timer systemd toutes les
+# 30 min, et à la demande par l'agent quand la fraîcheur compte.
+#
+# tar-over-ssh plutôt que rsync : la machine supervision n'a pas rsync et on
+# n'installe rien sur elle. Le paquet est petit (node_modules/vendor/var/.env*
+# exclus), donc un plein toutes les 30 min reste négligeable.
+set -u
+BASE=/home/murgat/claude-helper
+TMP="$BASE/mirror/.supervision.tmp"
+
+rm -rf "$TMP" && mkdir -p "$TMP"
+if ssh -o BatchMode=yes -o ConnectTimeout=10 claude@172.16.1.182 \
+    "tar czf - -C /home/murgat --exclude='node_modules' --exclude='vendor' \
+     --exclude='var' --exclude='.env*' --exclude='.git' --exclude='runner' supervision" \
+    | tar xzf - -C "$TMP" 2>/dev/null; then
+  rm -rf "$BASE/mirror/supervision"
+  mv "$TMP/supervision" "$BASE/mirror/supervision"
+  rm -rf "$TMP"
+else
+  rm -rf "$TMP"
+  echo "sync-mirror: transfert en échec (réseau ? clé ssh ?)" >&2
+fi
+
+# Journal des notes de l'expert : un commit par passage s'il y a du neuf.
+if [ -d "$BASE/notes/.git" ]; then
+  cd "$BASE/notes" || exit 0
+  if [ -n "$(git status --porcelain)" ]; then
+    git add -A && git commit -q -m "notes $(date -Is)" || true
+  fi
+fi

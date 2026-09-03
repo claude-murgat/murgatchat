@@ -1,0 +1,6 @@
+#!/bin/sh
+# Requête SELECT-only sur la base de la supervision (MariaDB 172.16.1.182:3310).
+# Les identifiants (utilisateur claude_ro) vivent dans le ~/.my.cnf de murgat,
+# jamais dans l'environnement de l'agent. Usage : bin/db "SELECT ...;"
+exec mariadb --defaults-file="$HOME/.my.cnf" \
+  -h 172.16.1.182 -P 3310 --connect-timeout=10 --batch supervision -e "$*"

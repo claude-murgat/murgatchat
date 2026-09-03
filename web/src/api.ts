@@ -269,6 +269,10 @@ export const api = {
     request("/auth/web-push/subscribe", { method: "POST", body }),
   webPushUnsubscribe: (endpoint: string) =>
     request("/auth/web-push/subscribe", { method: "DELETE", body: { endpoint } }),
+  // Expert Claude « supervision » : ouvre (ou retrouve) la conversation privée
+  // de l'appelant avec l'expert. 503 (claude_expert_unavailable) si le pont
+  // n'est pas configuré sur ce serveur.
+  openClaudeConversation: () => request("/claude/conversation", { method: "POST" }),
   // Bug reports: any user can file one; admins consult/triage them.
   reportBug: (body: unknown) => request("/bug-reports", { method: "POST", body }),
   // Support conversation: chat with Claude to refine a ticket. startSupport may

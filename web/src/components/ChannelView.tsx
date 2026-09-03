@@ -662,7 +662,15 @@ export default function ChannelView({
     );
   }
 
-  const headerTitle = channel.isDirect ? channel.displayName : `# ${channel.name}`;
+  // Conversation avec l'expert Claude : même vue, mais un en-tête sans « # »,
+  // un sous-titre explicatif et pas de gestion de membres (canal figé à
+  // {utilisateur, bot} — voir server/src/routes/claude.ts).
+  const isClaude = channel.kind === "claude";
+  const headerTitle = channel.isDirect
+    ? channel.displayName
+    : isClaude
+    ? channel.name || "Expert supervision"
+    : `# ${channel.name}`;
   const currentNotifyOption =
     NOTIFY_OPTIONS.find((o) => o.value === (channel.notifyLevel || "all")) ||
     NOTIFY_OPTIONS[0];
@@ -732,6 +740,11 @@ export default function ChannelView({
                 <span className="truncate">{dmOnline ? "En ligne" : "Hors ligne"}</span>
               </div>
             )
+          ) : isClaude ? (
+            <div className="text-xs text-slate-500 truncate">
+              Expert de l'application SUPERVISION — les analyses peuvent prendre
+              plusieurs minutes
+            </div>
           ) : (
             <div className="text-xs text-slate-500 truncate">
               <button onClick={onShowMembers} className="hover:underline">
@@ -742,7 +755,7 @@ export default function ChannelView({
           )}
         </div>
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          {!channel.isDirect && (
+          {!channel.isDirect && !isClaude && (
             <button
               onClick={onAddMembers}
               className="text-xs px-2 py-1.5 rounded-sm border border-slate-300 hover:bg-slate-100 hidden sm:inline-block"
@@ -752,7 +765,7 @@ export default function ChannelView({
             </button>
           )}
           {/* Version compacte du bouton "+ Membres" sur mobile : icône seule. */}
-          {!channel.isDirect && (
+          {!channel.isDirect && !isClaude && (
             <button
               onClick={onAddMembers}
               className="sm:hidden w-10 h-10 grid place-items-center rounded-sm text-slate-600 hover:bg-slate-100"

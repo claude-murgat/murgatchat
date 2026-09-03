@@ -13,6 +13,7 @@ import searchRouter, { ensureSearchIndex } from "./routes/search.ts";
 import bugReportsRouter from "./routes/bugReports.ts";
 import supportRouter from "./routes/support.ts";
 import gifsRouter from "./routes/gifs.ts";
+import claudeRouter from "./routes/claude.ts";
 import { setupSocket, dispatchScheduledMessages } from "./socket.ts";
 import { prisma } from "./db.ts";
 import { sweepOrphanAttachments } from "./sweep.ts";
@@ -95,6 +96,7 @@ export function createServer() {
   app.use("/bug-reports", bugReportsRouter);
   app.use("/support", supportRouter);
   app.use("/gifs", gifsRouter);
+  app.use("/claude", claudeRouter);
 
   // Test-only: reset the DB to a virgin state (then recreate the default channel,
   // exactly like startup) so each e2e spec can bootstrap its own admin against the
