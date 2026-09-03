@@ -127,6 +127,36 @@ describe("POST /claude/callback", () => {
   });
 });
 
+describe("POST /claude/progress", () => {
+  it("401 sans secret ; relaie sur un canal claude ; 404 ailleurs", async () => {
+    enableBridge();
+    const u = await registerUser(srv.app);
+    const channel = (
+      await authed(srv.app, u.token).post("/claude/conversation").send({})
+    ).body.channel;
+
+    const noauth = await request(srv.app)
+      .post("/claude/progress")
+      .send({ channelId: channel.id, text: "Lecture des logs…" });
+    expect(noauth.status).toBe(401);
+
+    const ok = await request(srv.app)
+      .post("/claude/progress")
+      .set("Authorization", "Bearer callback-secret")
+      .send({ channelId: channel.id, text: "Lecture des logs…" });
+    expect(ok.status).toBe(200);
+
+    const salon = (
+      await authed(srv.app, u.token).post("/channels").send({ name: `salon-${Date.now()}` })
+    ).body.channel;
+    const wrong = await request(srv.app)
+      .post("/claude/progress")
+      .set("Authorization", "Bearer callback-secret")
+      .send({ channelId: salon.id, text: "détourné" });
+    expect(wrong.status).toBe(404);
+  });
+});
+
 describe("canaux claude figés", () => {
   it("refuse ajout / départ / retrait de membres (404, comme un canal invisible)", async () => {
     enableBridge();
