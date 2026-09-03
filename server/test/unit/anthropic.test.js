@@ -10,12 +10,20 @@ const messages = [{ role: "user", content: "ça plante" }];
 describe("anthropicEnabled", () => {
   afterEach(() => {
     delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.ANTHROPIC_OAUTH_TOKEN;
   });
 
   it("reflects presence of ANTHROPIC_API_KEY", () => {
     delete process.env.ANTHROPIC_API_KEY;
     expect(anthropicEnabled()).toBe(false);
     process.env.ANTHROPIC_API_KEY = "k";
+    expect(anthropicEnabled()).toBe(true);
+  });
+
+  it("est aussi actif avec un jeton OAuth d'abonnement seul", () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    expect(anthropicEnabled()).toBe(false);
+    process.env.ANTHROPIC_OAUTH_TOKEN = "sk-ant-oat01-xxx";
     expect(anthropicEnabled()).toBe(true);
   });
 });
