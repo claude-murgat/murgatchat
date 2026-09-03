@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-09-02** (**1.0.2** : release de maintenance — dompurify, Vite/plugin-react, Vitest et claude-code-action relevés, aucun changement fonctionnel ; **1.0.1** : correctif des modales qui se fermaient sur un glisser sortant du panneau (#191), **Prisma 6 → 7** — adaptateur de driver et `prisma.config.ts` —, groupage Dependabot repensé pour que les paquets indissociables voyagent ensemble, et une trentaine de dépendances relevées ; **1.0.0 — sortie d'alpha** : SemVer strict + canal de pré-release ; socle modernisé (Node 24 LTS, React 19, Tailwind 4, Vite 8, Express 5, Prisma 6, zod 4, ESLint 10, Vitest 4) ; **dépôt 100 % TypeScript**, les trois phases du typage livrées ; quatre bugs révélés par l'outillage ; 0.7.6 : modales plein écran lisibles sur mobile (bouton de validation visible), clic sur notification web qui ouvre la conversation, pièces jointes jusqu'à 50 Mo configurables via `.env` + fix du crash desktop sur fichier trop lourd ; 0.7.5 : aperçu intégré Word/Excel/CSV/texte + PDF réparé, clic notification desktop par protocole, purge du résidu de démarrage TSE, DM triés par récence + non-lus plus visibles, ouverture sur le 1er message non lu + auto-chargement des anciens, mentions surlignées à la saisie ; 0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages).
+Dernière mise à jour : **2026-09-03** (**1.1.0** : la section CLAUDE devient un expert de l'appli supervision (VM auxiliaire, accès lecture seule, progression en direct) + sections de la barre latérale repliables ; **1.0.2** : release de maintenance — dompurify, Vite/plugin-react, Vitest et claude-code-action relevés, aucun changement fonctionnel ; **1.0.1** : correctif des modales qui se fermaient sur un glisser sortant du panneau (#191), **Prisma 6 → 7** — adaptateur de driver et `prisma.config.ts` —, groupage Dependabot repensé pour que les paquets indissociables voyagent ensemble, et une trentaine de dépendances relevées ; **1.0.0 — sortie d'alpha** : SemVer strict + canal de pré-release ; socle modernisé (Node 24 LTS, React 19, Tailwind 4, Vite 8, Express 5, Prisma 6, zod 4, ESLint 10, Vitest 4) ; **dépôt 100 % TypeScript**, les trois phases du typage livrées ; quatre bugs révélés par l'outillage ; 0.7.6 : modales plein écran lisibles sur mobile (bouton de validation visible), clic sur notification web qui ouvre la conversation, pièces jointes jusqu'à 50 Mo configurables via `.env` + fix du crash desktop sur fichier trop lourd ; 0.7.5 : aperçu intégré Word/Excel/CSV/texte + PDF réparé, clic notification desktop par protocole, purge du résidu de démarrage TSE, DM triés par récence + non-lus plus visibles, ouverture sur le 1er message non lu + auto-chargement des anciens, mentions surlignées à la saisie ; 0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages).
 
 ---
 
@@ -994,6 +994,27 @@ dépendances relevées, aucune fonctionnalité nouvelle.
     pour les postes installés.
 
 
+## Itération 2026-09-03 — expert Claude supervision & barre latérale repliable (1.1.0)
+
+91. **Section CLAUDE = expert de l'application supervision (1.1.0)** — chaque
+    utilisateur ouvre sa conversation privée avec un Claude expert du projet
+    supervision (Symfony/api_robot/Modbus, hébergé ailleurs). Le canal est un vrai
+    Channel `kind="claude"` {utilisateur, bot claude} : on hérite de message:new,
+    non-lus, notifications + web push, recherche et ChannelView. Le cerveau tourne
+    sur une VM dédiée (Agent SDK, Opus 5) en **lecture seule stricte** sur la
+    supervision (ssh docker RO, MariaDB SELECT-only, code miroité). Pont
+    **asynchrone** (un tour dure des minutes) : message:send → POST /turn (202) →
+    réponse par webhook /claude/callback à secret partagé ; feature off sans les
+    trois variables CLAUDE_HELPER_*. Détail hors dépôt dans le dossier
+    `claude-helper/`.
+92. **Progression de l'expert en direct** — au lieu du seul « Claude est en train
+    d'écrire… », l'étape en cours s'affiche (« Lecture des logs… »,
+    « Interrogation de la base… ») via l'event socket `claude:progress`, best-effort
+    et éphémère.
+93. **Sections de la barre latérale repliables** — chaque en-tête (SALONS,
+    MESSAGES DIRECTS, CLAUDE) se replie via un chevron, état mémorisé par appareil.
+
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
@@ -1024,4 +1045,5 @@ dépendances relevées, aucune fonctionnalité nouvelle.
 > — adaptateur de driver + `prisma.config.ts` #259, groupage Dependabot par ensemble
 > couplé #264/#270/#273, `rust-cache` ré-épinglée sur une release #285),
 > **1.0.2** (maintenance seule : dompurify #295, Vite + plugin-react #294,
-> Vitest #296, claude-code-action #293).
+> Vitest #296, claude-code-action #293),
+> **1.1.0** (section CLAUDE = expert supervision #299/#300 + progression #301, barre latérale repliable #298).
