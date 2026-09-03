@@ -60,11 +60,36 @@ function progressLabel(content: unknown): string | null {
   return "Analyse en cours…";
 }
 
+type TurnResult = { ok: boolean; reply?: string; error?: string };
+
+// Un tour peut échouer par un crash du process Claude Code (exit 1) — observé
+// notamment quand un 2e message reprend la session juste après la fin du tour
+// précédent (race sur le fichier de session). On réessaie donc UNE fois, après
+// un court délai, sur ce seul cas (« sdk_error ») ; un timeout volontaire, une
+// réponse vide ou une erreur applicative du modèle ne sont pas rejoués.
 export async function runTurn(
   key: string,
   prompt: string,
   onProgress?: (text: string) => void
-): Promise<{ ok: boolean; reply?: string; error?: string }> {
+): Promise<TurnResult> {
+  const MAX_ATTEMPTS = 2;
+  let last: TurnResult = { ok: false, error: "sdk_error" };
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    last = await runOnce(key, prompt, onProgress);
+    if (last.ok || last.error !== "sdk_error") return last;
+    if (attempt < MAX_ATTEMPTS) {
+      console.warn(`[helper] tour ${key}: crash process (tentative ${attempt}), reprise dans 3s`);
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  }
+  return last;
+}
+
+async function runOnce(
+  key: string,
+  prompt: string,
+  onProgress?: (text: string) => void
+): Promise<TurnResult> {
   const sessions = loadSessions();
   const started = Date.now();
   const ac = new AbortController();
@@ -126,13 +151,19 @@ export async function runTurn(
         }
       }
       if (m.type === "result") {
-        if (m.is_error || (m.subtype && m.subtype !== "success")) {
-          failed = m.subtype || "error";
+        const isErr = Boolean(m.is_error) || (m.subtype && m.subtype !== "success");
+        if (isErr) {
+          // Certaines erreurs (crédit épuisé) reviennent comme result, pas comme
+          // exception : on les classe pareil pour un message utilisateur juste.
+          const detail = `${m.subtype || ""} ${m.result || ""}`;
+          failed = /credit balance|billing|insufficient|quota/i.test(detail)
+            ? "credit_low"
+            : m.subtype || "error";
         } else {
           reply = m.result || "";
         }
         console.log(
-          `[helper] tour ${key}: ${m.subtype || "success"} en ${Math.round(
+          `[helper] tour ${key}: ${isErr ? failed : "success"} en ${Math.round(
             (Date.now() - started) / 1000
           )}s, coût $${(m.total_cost_usd ?? 0).toFixed(4)}`
         );
@@ -147,8 +178,17 @@ export async function runTurn(
     return { ok: true, reply };
   } catch (e) {
     const aborted = ac.signal.aborted;
-    console.error(`[helper] tour ${key} interrompu:`, (e as Error).message);
-    return { ok: false, error: aborted ? "timeout_15min" : "sdk_error" };
+    const msg = (e as Error).message || "";
+    // Le message d'erreur du SDK embarque le stderr du process : on le loggue en
+    // entier pour diagnostiquer un exit 1 (au-delà du warning « connectors »).
+    console.error(`[helper] tour ${key} interrompu:`, msg);
+    if (aborted) return { ok: false, error: "timeout_15min" };
+    // Erreurs permanentes (inutile de retenter) : on les nomme pour un message
+    // utilisateur clair. Le reste = crash transitoire du process → « sdk_error »,
+    // seul cas rejoué par runTurn.
+    if (/credit balance|billing|insufficient|quota/i.test(msg)) return { ok: false, error: "credit_low" };
+    if (/authentication|invalid.*api.?key|x-api-key|401/i.test(msg)) return { ok: false, error: "auth" };
+    return { ok: false, error: "sdk_error" };
   } finally {
     clearTimeout(timer);
   }

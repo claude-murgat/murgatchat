@@ -68,6 +68,23 @@ router.post("/conversation", requireAuth, async (req, res) => {
 // Retour du helper (machine à machine) : la réponse de l'expert, ou son échec.
 // Auth par secret partagé (CLAUDE_CALLBACK_TOKEN), PAS un JWT utilisateur —
 // donc pas de requireAuth. Clone du modèle POST /support/notify.
+// Message affiché à l'utilisateur quand un tour échoue, selon le code renvoyé
+// par le helper. Un code inconnu retombe sur un message générique.
+function messageForError(error?: string): string {
+  switch (error) {
+    case "credit_low":
+      return "⚠️ L'expert est indisponible : le crédit Anthropic du compte est épuisé. Il faut recharger le compte (ou configurer une clé dédiée) — préviens un administrateur.";
+    case "auth":
+      return "⚠️ L'expert est indisponible : la clé Anthropic est invalide ou expirée. Préviens un administrateur.";
+    case "timeout_15min":
+      return "⚠️ L'analyse a dépassé 15 minutes et a été interrompue. Essaie de cibler ta demande (une question à la fois).";
+    case "empty_reply":
+      return "⚠️ L'expert n'a rien renvoyé. Reformule ta demande.";
+    default:
+      return "⚠️ L'analyse a échoué. Réessaie ; si ça persiste, regarde le journal du service claude-helper.";
+  }
+}
+
 const callbackSchema = z.object({
   channelId: z.string().min(1).max(60),
   ok: z.boolean(),
@@ -127,10 +144,7 @@ router.post("/callback", async (req, res) => {
   }
 
   stopTyping(channelId);
-  const text =
-    ok && reply
-      ? reply
-      : `⚠️ L'analyse a échoué (${error || "erreur inconnue"}). Reformulez ou réessayez ; si ça persiste, regardez le journal du service claude-helper.`;
+  const text = ok && reply ? reply : messageForError(error);
 
   try {
     if (req.io) await deliverBotReply(req.io, channelId, text);

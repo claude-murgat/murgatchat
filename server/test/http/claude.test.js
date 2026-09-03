@@ -112,7 +112,7 @@ describe("POST /claude/callback", () => {
     const ko = await request(srv.app)
       .post("/claude/callback")
       .set("Authorization", "Bearer callback-secret")
-      .send({ channelId: channel.id, ok: false, error: "timeout_15min" });
+      .send({ channelId: channel.id, ok: false, error: "credit_low" });
     expect(ko.status).toBe(200);
 
     const msgs = await prisma.message.findMany({
@@ -123,7 +123,7 @@ describe("POST /claude/callback", () => {
     expect(msgs.length).toBe(2);
     expect(msgs.every((m) => m.author.username === "claude")).toBe(true);
     expect(msgs[0].searchableBody).toContain("runner");
-    expect(msgs[1].searchableBody).toContain("timeout_15min");
+    expect(msgs[1].searchableBody).toContain("crédit");
   });
 });
 
