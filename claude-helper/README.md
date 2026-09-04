@@ -16,7 +16,13 @@ MurgaChat (.30) ── POST /turn (Bearer HELPER_TOKEN) ──▶ ce service (.2
                         └─ ssh claude@.182      docker RO (sudo whitelist), journalctl, /var/log
 ```
 
-Deux dossiers sur la VM, volontairement séparés :
+Le même service porte aussi le **relais du support in-app** du chat (bouton
+« Signaler un bug ») : le serveur lui confie chaque tour de triage, exécuté via
+le SDK sur l'abonnement — un jeton d'abonnement passé directement à l'API
+Messages est throttlé par politique (429 sans en-têtes de quota), le SDK est le
+seul chemin qui marche. Voir `src/support.ts`.
+
+Trois dossiers sur la VM, volontairement séparés :
 
 - `/home/murgat/claude-helper` — le **workspace de l'agent** (CLAUDE.md,
   `.claude/settings.json`, docs/, notes/, mirror/, bin/). Contenu installé
@@ -24,6 +30,9 @@ Deux dossiers sur la VM, volontairement séparés :
 - `/home/murgat/claude-helper-svc` — le **service** (ce dossier src/ + .env +
   state/). L'agent n'a pas le droit d'y lire (règle deny) : les secrets du pont
   y vivent.
+- `/home/murgat/claude-support` — workspace **vide** des tours de triage du
+  support (`settingSources: []`) : ils ne voient ni le CLAUDE.md ni les
+  permissions de l'expert, et n'ont aucun outil de fichier ou de shell.
 
 ## Provisioning (résumé — détail dans la PR d'origine)
 
@@ -54,7 +63,8 @@ Deux dossiers sur la VM, volontairement séparés :
    claude-helper-mirror.timer`.
 
 Côté MurgaChat : renseigner `CLAUDE_HELPER_URL` / `CLAUDE_HELPER_TOKEN` /
-`CLAUDE_CALLBACK_TOKEN` (voir `.env.example` à la racine).
+`CLAUDE_CALLBACK_TOKEN` (voir `.env.example` à la racine), et
+`SUPPORT_RELAY_URL` (même URL) pour que le support in-app passe par le relais.
 
 ## Contrat HTTP
 
@@ -65,6 +75,12 @@ Côté MurgaChat : renseigner `CLAUDE_HELPER_URL` / `CLAUDE_HELPER_TOKEN` /
   `{channelId, ok:false, error}` ; retries 30 s / 2 min / 10 min puis
   dead-letter dans `state/deadletter/` (rejouable à la main avec curl).
 - `GET /health` → `{ok, pending}`.
+- `POST /support-turn` — relais du triage (**synchrone**, quelques secondes) :
+  `{system, messages:[{role:"user"|"assistant", content}]}` (Bearer
+  `HELPER_TOKEN`) → `{reply, finalize}` où `finalize` est l'entrée de l'outil
+  `submit_ticket` (`title, body, severity?, domain?`) ou `null`. `401` / `400
+  invalid_payload` / `429 busy` (2 tours en parallèle max) / `502 turn_failed`.
+  Sans état : le serveur renvoie tout le transcript à chaque tour.
 
 ## Confinement de l'agent
 
