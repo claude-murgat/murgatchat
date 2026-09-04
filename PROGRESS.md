@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-09-04** (**1.2.1** : le support in-app passe vraiment par l'abonnement — relais SDK via la VM claude-helper, le mode OAuth brut de la 1.2.0 étant throttlé par politique ; **1.2.0** : l'expert et le support in-app peuvent tourner sur l'abonnement Claude (OAuth) faute de crédits API, messages d'erreur clairs + retry ; **1.1.0** : la section CLAUDE devient un expert de l'appli supervision (VM auxiliaire, accès lecture seule, progression en direct) + sections de la barre latérale repliables ; **1.0.2** : release de maintenance — dompurify, Vite/plugin-react, Vitest et claude-code-action relevés, aucun changement fonctionnel ; **1.0.1** : correctif des modales qui se fermaient sur un glisser sortant du panneau (#191), **Prisma 6 → 7** — adaptateur de driver et `prisma.config.ts` —, groupage Dependabot repensé pour que les paquets indissociables voyagent ensemble, et une trentaine de dépendances relevées ; **1.0.0 — sortie d'alpha** : SemVer strict + canal de pré-release ; socle modernisé (Node 24 LTS, React 19, Tailwind 4, Vite 8, Express 5, Prisma 6, zod 4, ESLint 10, Vitest 4) ; **dépôt 100 % TypeScript**, les trois phases du typage livrées ; quatre bugs révélés par l'outillage ; 0.7.6 : modales plein écran lisibles sur mobile (bouton de validation visible), clic sur notification web qui ouvre la conversation, pièces jointes jusqu'à 50 Mo configurables via `.env` + fix du crash desktop sur fichier trop lourd ; 0.7.5 : aperçu intégré Word/Excel/CSV/texte + PDF réparé, clic notification desktop par protocole, purge du résidu de démarrage TSE, DM triés par récence + non-lus plus visibles, ouverture sur le 1er message non lu + auto-chargement des anciens, mentions surlignées à la saisie ; 0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages).
+Dernière mise à jour : **2026-09-04** (**1.2.2** : release de maintenance — ESLint 10.9.1, Prisma 7.10.0, @types/react-dom 19.2.5 et claude-code-action 1.0.208 relevés, aucun changement fonctionnel ; **1.2.1** : le support in-app passe vraiment par l'abonnement — relais SDK via la VM claude-helper, le mode OAuth brut de la 1.2.0 étant throttlé par politique ; **1.2.0** : l'expert et le support in-app peuvent tourner sur l'abonnement Claude (OAuth) faute de crédits API, messages d'erreur clairs + retry ; **1.1.0** : la section CLAUDE devient un expert de l'appli supervision (VM auxiliaire, accès lecture seule, progression en direct) + sections de la barre latérale repliables ; **1.0.2** : release de maintenance — dompurify, Vite/plugin-react, Vitest et claude-code-action relevés, aucun changement fonctionnel ; **1.0.1** : correctif des modales qui se fermaient sur un glisser sortant du panneau (#191), **Prisma 6 → 7** — adaptateur de driver et `prisma.config.ts` —, groupage Dependabot repensé pour que les paquets indissociables voyagent ensemble, et une trentaine de dépendances relevées ; **1.0.0 — sortie d'alpha** : SemVer strict + canal de pré-release ; socle modernisé (Node 24 LTS, React 19, Tailwind 4, Vite 8, Express 5, Prisma 6, zod 4, ESLint 10, Vitest 4) ; **dépôt 100 % TypeScript**, les trois phases du typage livrées ; quatre bugs révélés par l'outillage ; 0.7.6 : modales plein écran lisibles sur mobile (bouton de validation visible), clic sur notification web qui ouvre la conversation, pièces jointes jusqu'à 50 Mo configurables via `.env` + fix du crash desktop sur fichier trop lourd ; 0.7.5 : aperçu intégré Word/Excel/CSV/texte + PDF réparé, clic notification desktop par protocole, purge du résidu de démarrage TSE, DM triés par récence + non-lus plus visibles, ouverture sur le 1er message non lu + auto-chargement des anciens, mentions surlignées à la saisie ; 0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages).
 
 ---
 
@@ -1047,6 +1047,20 @@ dépendances relevées, aucune fonctionnalité nouvelle.
     service complétées (#312).
 
 
+## Itération 2026-09-04 — maintenance des dépendances (1.2.2)
+
+97. **Release de maintenance (1.2.2)** — quatrième PR de dépendances passées
+    d'un coup : ESLint `10.8.1 → 10.9.1` (server + web, #309), Prisma
+    `7.9.1 → 7.10.0` (`@prisma/client`, `@prisma/adapter-pg`, `prisma`, #307),
+    `@types/react-dom` `19.2.4 → 19.2.5` (web, #308) et l'action CI
+    `claude-code-action` `1.0.198 → 1.0.208` (workflows, #306). Aucune fonctionnalité
+    ni changement de comportement : environnements de dev, tooling et outillage CI
+    uniquement. Lockfiles npm vérifiés cohérents après fusion des quatre PR (versions
+    des lock alignées sur les `package.json`), malgré le reformatage propre à la npm
+    locale 11. Versions portées à 1.2.2 dans les cinq fichiers du gate (package.json,
+    package-lock.json, Cargo.toml, Cargo.lock, tauri.conf.json) + PROGRESS.md.
+
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
@@ -1080,4 +1094,5 @@ dépendances relevées, aucune fonctionnalité nouvelle.
 > Vitest #296, claude-code-action #293),
 > **1.1.0** (section CLAUDE = expert supervision #299/#300 + progression #301, barre latérale repliable #298),
 > **1.2.0** (auth abonnement/OAuth pour l'expert & le support #304, messages d'erreur clairs + retry #303),
-> **1.2.1** (support in-app relayé au SDK de la VM #311 — l'OAuth brut de la 1.2.0 était une impasse ; docs #312).
+> **1.2.1** (support in-app relayé au SDK de la VM #311 — l'OAuth brut de la 1.2.0 était une impasse ; docs #312),
+> **1.2.2** (maintenance : ESLint #309, Prisma #307, @types/react-dom #308, claude-code-action #306).
