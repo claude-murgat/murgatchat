@@ -19,29 +19,27 @@ const MAX_TOKENS = 1024;
 function apiKey() {
   return process.env.ANTHROPIC_API_KEY || "";
 }
-// Jeton OAuth d'abonnement (généré par `claude setup-token`, préfixe
-// sk-ant-oat…). S'il est présent, on l'utilise à la place de la clé API : appel
-// authentifié en Bearer + en-tête beta, ce qui fait porter le coût par
-// l'abonnement Claude plutôt que par les crédits API. Priorité à l'OAuth.
-function oauthToken() {
-  return process.env.ANTHROPIC_OAUTH_TOKEN || "";
+// Relais par la VM claude-helper (voir claude-helper/src/support.ts) : le tour
+// est exécuté là-bas via le SDK, sur l'abonnement Claude. C'est le SEUL moyen de
+// faire porter le support par l'abonnement — un jeton d'abonnement sur l'API
+// Messages brute est throttlé par politique (429 sans en-têtes de quota,
+// constaté le 2026-09-04). Le relais prime sur la clé API quand il est configuré
+// ; il réutilise le secret du pont expert (CLAUDE_HELPER_TOKEN).
+function relayUrl() {
+  return process.env.SUPPORT_RELAY_URL || "";
 }
-// En-têtes d'authentification selon le mode disponible (OAuth d'abord).
-function authHeaders(): Record<string, string> {
-  if (oauthToken()) {
-    return {
-      Authorization: `Bearer ${oauthToken()}`,
-      "anthropic-beta": "oauth-2025-04-20",
-    };
-  }
-  return { "x-api-key": apiKey() };
+function relayToken() {
+  return process.env.CLAUDE_HELPER_TOKEN || "";
+}
+function relayEnabled() {
+  return Boolean(relayUrl() && relayToken());
 }
 function model() {
   return process.env.SUPPORT_MODEL || "claude-opus-4-8";
 }
 
 export function anthropicEnabled() {
-  return Boolean(apiKey() || oauthToken());
+  return relayEnabled() || Boolean(apiKey());
 }
 
 // French-first triage agent. Asks a few targeted questions, then finalizes.
@@ -193,6 +191,43 @@ function toolFrom(content: unknown): SubmitTicketInput | null {
   return block ? block.input || {} : null;
 }
 
+// Même contrat que l'appel API direct, mais le tour est exécuté par la VM
+// claude-helper (SDK). Log-and-swallow : null ⇒ la route retombe sur le
+// signalement direct, exactement comme pour un échec de l'API.
+async function relaySupportTurn(
+  system: string,
+  messages: unknown[]
+): Promise<SupportTurn | null> {
+  try {
+    const res = await fetch(`${relayUrl()}/support-turn`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${relayToken()}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ system, messages }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      console.error(`[anthropic] relay failed: ${res.status} ${detail.slice(0, 300)}`);
+      return null;
+    }
+    const data = (await res.json()) as {
+      reply?: string;
+      finalize?: SubmitTicketInput | null;
+    };
+    const finalize = data.finalize ?? null;
+    let reply = data.reply || "";
+    if (finalize && !reply) {
+      reply = "Merci, j'ai tout ce qu'il faut. Je transmets votre ticket à l'équipe.";
+    }
+    return { reply, finalize };
+  } catch (e) {
+    console.error("[anthropic] relay error:", (e as Error).message);
+    return null;
+  }
+}
+
 // Run one assistant turn over the prior transcript (an array of {role, content}
 // text turns). Returns:
 //   { reply, finalize } — finalize is the submit_ticket input when Claude chose
@@ -210,11 +245,12 @@ export async function runSupportTurn(
   // so the prompt cache still hits) — not in `messages`, which is the transcript
   // shown to the user.
   const system = SYSTEM + diagnosticContext(context);
+  if (relayEnabled()) return relaySupportTurn(system, messages);
   try {
     const res = await fetch(API, {
       method: "POST",
       headers: {
-        ...authHeaders(),
+        "x-api-key": apiKey(),
         "anthropic-version": API_VERSION,
         "Content-Type": "application/json",
       },

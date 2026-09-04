@@ -68,8 +68,8 @@ services:
       # Clé vide = chat off (le bouton « Signaler » retombe sur l'envoi direct).
       # Voir .env.example.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      # Jeton OAuth d'abonnement (setup-token) : prime sur la clé API si présent.
-      ANTHROPIC_OAUTH_TOKEN: ${ANTHROPIC_OAUTH_TOKEN:-}
+      # Relais du triage vers la VM claude-helper (abonnement) : prime sur la clé API.
+      SUPPORT_RELAY_URL: ${SUPPORT_RELAY_URL:-}
       SUPPORT_MODEL: ${SUPPORT_MODEL:-claude-opus-4-8}
       # Notification in-app du pipeline : le workflow claude-fix appelle
       # POST /support/notify avec ce secret partagé pour poster un message dans

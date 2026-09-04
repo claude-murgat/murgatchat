@@ -10,7 +10,8 @@ const messages = [{ role: "user", content: "ça plante" }];
 describe("anthropicEnabled", () => {
   afterEach(() => {
     delete process.env.ANTHROPIC_API_KEY;
-    delete process.env.ANTHROPIC_OAUTH_TOKEN;
+    delete process.env.SUPPORT_RELAY_URL;
+    delete process.env.CLAUDE_HELPER_TOKEN;
   });
 
   it("reflects presence of ANTHROPIC_API_KEY", () => {
@@ -20,10 +21,11 @@ describe("anthropicEnabled", () => {
     expect(anthropicEnabled()).toBe(true);
   });
 
-  it("est aussi actif avec un jeton OAuth d'abonnement seul", () => {
+  it("est aussi actif avec le relais seul (URL + secret du pont)", () => {
     delete process.env.ANTHROPIC_API_KEY;
-    expect(anthropicEnabled()).toBe(false);
-    process.env.ANTHROPIC_OAUTH_TOKEN = "sk-ant-oat01-xxx";
+    process.env.SUPPORT_RELAY_URL = "http://helper.test:7070";
+    expect(anthropicEnabled()).toBe(false); // secret manquant
+    process.env.CLAUDE_HELPER_TOKEN = "s";
     expect(anthropicEnabled()).toBe(true);
   });
 });
@@ -176,6 +178,68 @@ describe("runSupportTurn", () => {
   it("returns null (swallows) when the request throws", async () => {
     process.env.ANTHROPIC_API_KEY = "k";
     vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("down")));
+    expect(await runSupportTurn(messages)).toBeNull();
+  });
+});
+
+describe("runSupportTurn — relais claude-helper", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.SUPPORT_RELAY_URL;
+    delete process.env.CLAUDE_HELPER_TOKEN;
+  });
+
+  function enableRelay() {
+    process.env.SUPPORT_RELAY_URL = "http://helper.test:7070";
+    process.env.CLAUDE_HELPER_TOKEN = "relay-secret";
+  }
+
+  it("poste system + transcript au relais, authentifié, et relaie reply/finalize", async () => {
+    enableRelay();
+    process.env.ANTHROPIC_API_KEY = "k"; // présent mais le relais prime
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        reply: "Merci, je transmets.",
+        finalize: { title: "Bug salon", body: "Résumé", severity: "moyenne" },
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const turn = await runSupportTurn(messages, { platform: "pwa" });
+    expect(turn.reply).toBe("Merci, je transmets.");
+    expect(turn.finalize).toEqual({ title: "Bug salon", body: "Résumé", severity: "moyenne" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://helper.test:7070/support-turn");
+    expect(init.headers.Authorization).toBe("Bearer relay-secret");
+    const body = JSON.parse(init.body);
+    expect(body.messages).toEqual(messages);
+    expect(body.system).toContain("Plateforme : pwa"); // diagnostics dans le system
+  });
+
+  it("réponse par défaut quand le relais finalise sans texte", async () => {
+    enableRelay();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ reply: "", finalize: { title: "T", body: "B" } }),
+      })
+    );
+    const turn = await runSupportTurn(messages);
+    expect(turn.finalize).toEqual({ title: "T", body: "B" });
+    expect(turn.reply).toMatch(/transmets/);
+  });
+
+  it("null (repli) quand le relais répond en erreur ou est injoignable", async () => {
+    enableRelay();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 502, text: async () => "boom" }));
+    expect(await runSupportTurn(messages)).toBeNull();
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("down")));
     expect(await runSupportTurn(messages)).toBeNull();
   });
