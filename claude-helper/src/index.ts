@@ -17,6 +17,7 @@ import { timingSafeEqual } from "node:crypto";
 import express from "express";
 import { z } from "zod";
 import { enqueueTurn, queueDepth } from "./queue.ts";
+import { runSupportTurn } from "./support.ts";
 
 const PORT = Number(process.env.PORT || 7070);
 
@@ -56,7 +57,46 @@ app.post("/turn", (req, res) => {
   res.status(202).json({ ok: true });
 });
 
-for (const name of ["ANTHROPIC_API_KEY", "HELPER_TOKEN", "CALLBACK_URL", "CALLBACK_TOKEN"]) {
+// Relais du chat de support in-app (voir support.ts). Synchrone : le serveur de
+// chat attend la réponse (quelques secondes, le modal affiche « réfléchit… »).
+// Au plus 2 tours en parallèle — chacun est un process Claude Code complet.
+const supportSchema = z.object({
+  system: z.string().min(1).max(40_000),
+  messages: z
+    .array(z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(20_000) }))
+    .min(1)
+    .max(60),
+});
+const SUPPORT_MAX_CONCURRENT = 2;
+let supportRunning = 0;
+
+app.post("/support-turn", async (req, res) => {
+  const auth = req.headers.authorization || "";
+  const provided = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (!tokenMatches(provided)) return res.status(401).json({ error: "unauthorized" });
+
+  const parsed = supportSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: "invalid_payload" });
+  if (supportRunning >= SUPPORT_MAX_CONCURRENT) return res.status(429).json({ error: "busy" });
+
+  supportRunning++;
+  const started = Date.now();
+  try {
+    const out = await runSupportTurn(parsed.data.system, parsed.data.messages);
+    console.log(
+      `[helper] support-turn: ok en ${Math.round((Date.now() - started) / 1000)}s` +
+        (out.finalize ? " (ticket finalisé)" : "")
+    );
+    res.json(out);
+  } catch (e) {
+    console.error("[helper] support-turn en échec:", (e as Error).message);
+    res.status(502).json({ error: "turn_failed" });
+  } finally {
+    supportRunning--;
+  }
+});
+
+for (const name of ["HELPER_TOKEN", "CALLBACK_URL", "CALLBACK_TOKEN"]) {
   if (!process.env[name]) console.warn(`[helper] ⚠️ ${name} manquant — voir .env`);
 }
 
