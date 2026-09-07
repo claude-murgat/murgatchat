@@ -41,6 +41,49 @@ jobs:
     # seule borne. On laisse de la marge pour les fix qui demandent de l'exploration.
     timeout-minutes: 60
     steps:
+      # Garde-fou credentials, en TOUT PREMIER pour échouer vite et clairement.
+      # GH_BOT_TOKEN est un PAT : il expire. Quand il est mort, claude-code-action
+      # s'arrête 4 s plus tard sur « Failed to check permissions: Bad credentials »,
+      # message qui ne dit ni de quel token il s'agit, ni qu'il a expiré (vécu sur les
+      # runs 33850091335 et 34097195121). On teste donc le PAT d'abord, et on écrit la
+      # raison dans l'issue elle-même — via le GITHUB_TOKEN natif du workflow, seul
+      # token encore valide dans ce cas — pour que la panne soit visible là où l'équipe
+      # regarde, sans avoir à ouvrir les logs du job.
+      - name: Vérifier le PAT GH_BOT_TOKEN
+        env:
+          BOT_TOKEN: ${{ secrets.GH_BOT_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set +e
+          CODE=000
+          if [ -n "$BOT_TOKEN" ]; then
+            CODE=$(curl -sS -o /dev/null -w '%{http_code}' \
+              -H "Authorization: Bearer $BOT_TOKEN" "https://api.github.com/repos/$REPO")
+            CODE=${CODE:-000}
+          fi
+          if [ "$CODE" = "200" ]; then echo "✓ GH_BOT_TOKEN valide"; exit 0; fi
+          if [ -z "$BOT_TOKEN" ]; then
+            RAISON="le secret \`GH_BOT_TOKEN\` est absent du dépôt"
+          else
+            RAISON="le PAT \`GH_BOT_TOKEN\` est invalide ou expiré (l'API GitHub répond HTTP $CODE)"
+          fi
+          echo "::error::$RAISON — régénère-le, puis retire et repose le label claude:fix."
+          # Pas de heredoc ici : son délimiteur devrait être en colonne 0, ce qui
+          # sortirait du bloc littéral YAML. printf garde tout dans l'indentation.
+          BODY=$(printf '%s\n' \
+            "⚠️ **Le développement automatique n'a pas pu démarrer** : $RAISON." \
+            "" \
+            "Rien n'a été modifié sur le dépôt. Pour débloquer :" \
+            "" \
+            "1. Régénérer un PAT avec au minimum \`Contents: write\`, \`Pull requests: write\`, \`Issues: write\` et \`Metadata: read\` (ou le scope \`repo\` pour un token classique)." \
+            "2. \`gh secret set GH_BOT_TOKEN --repo $REPO\`" \
+            "3. Retirer puis reposer le label \`claude:fix\` sur cette issue.")
+          gh issue comment "$ISSUE" --repo "$REPO" --body "$BODY" \
+            || echo "Commentaire d'issue impossible (non bloquant)"
+          exit 1
+
       # Outils CLI requis par le job mais pas toujours présents sur le runner :
       #   - unzip : setup-bun (dans claude-code-action) télécharge Bun en .zip ; sans
       #     unzip → « bun: command not found » / exit 127.
@@ -171,6 +214,13 @@ jobs:
           ISSUE: ${{ github.event.issue.number }}
           REPO: ${{ github.repository }}
         run: |
+          # Cette étape ne doit JAMAIS faire échouer le job : quand elle tourne, le
+          # travail utile est déjà fait (la PR est ouverte ou non, une notif ratée n'y
+          # change rien). Or le shell est `bash -e` : la moindre commande en échec
+          # sortait en 1 et marquait le job en échec — c'est ce qui a masqué la vraie
+          # panne sur le run 33850091335. On coupe errexit, on teste explicitement
+          # chaque appel, et on sort 0 quoi qu'il arrive.
+          set +e
           if [ -z "$NOTIFY_TOKEN" ]; then echo "SUPPORT_NOTIFY_TOKEN absent → pas de notif"; exit 0; fi
           # On ne peut PAS filtrer sur un nom de branche fixe : claude-code-action
           # crée elle-même la branche (« claude/issue-<n>-<timestamp> »), pas le
@@ -180,13 +230,28 @@ jobs:
           # confondre #91 avec #910.
           PR_URL=$(gh pr list --repo "$REPO" --state open --json url,headRefName \
             --jq '[.[] | select(.headRefName | test("issue-'"$ISSUE"'(-|$)"))] | .[0].url // ""')
+          RC=$?
+          # Distinguer « l'appel a échoué » de « pas de PR » : sinon un token expiré se
+          # déguise en « aucune PR trouvée » et la vraie panne reste invisible.
+          if [ "$RC" -ne 0 ]; then
+            echo "::warning::gh pr list a échoué (GH_BOT_TOKEN expiré ou révoqué ?) → pas de notif"
+            exit 0
+          fi
           if [ -z "$PR_URL" ]; then echo "Aucune PR ouverte trouvée → pas de notif"; exit 0; fi
           TITLE=$(gh issue view "$ISSUE" --repo "$REPO" --json title --jq '.title')
+          # Le titre n'est qu'un libellé d'affichage : s'il manque, on notifie quand
+          # même plutôt que d'abandonner une notif dont le lien PR, lui, est bon.
+          [ -n "$TITLE" ] || TITLE="issue #$ISSUE"
           PAYLOAD=$(jq -n --argjson n "$ISSUE" --arg u "$PR_URL" --arg t "$TITLE" \
             '{issueNumber:$n, prUrl:$u, title:$t}')
+          if [ -z "$PAYLOAD" ]; then
+            echo "::warning::payload JSON non construit (jq absent ?) → pas de notif"
+            exit 0
+          fi
           curl -fsS -X POST "$CHAT_NOTIFY_URL/support/notify" \
             -H "Authorization: Bearer $NOTIFY_TOKEN" \
             -H "Content-Type: application/json" \
             -d "$PAYLOAD" \
             && echo "Chat notifié : $PR_URL" \
             || echo "Notif chat échouée (non bloquant)"
+          exit 0
