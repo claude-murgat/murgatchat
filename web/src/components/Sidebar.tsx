@@ -464,6 +464,10 @@ export default function Sidebar({
               prefix="✳️"
               label={c.name || "Expert supervision"}
               unread={c.unread}
+              // L'expert « écrit » : le serveur ré-émet typing:update pendant tout
+              // le tour d'analyse (voir server/src/claudeHelper.ts), on anime alors
+              // le logo pour signaler qu'il rédige sa réponse (#314).
+              typing={(typingByChannel?.[c.id]?.length || 0) > 0}
             />
           ))}
           {claudeConvs.length === 0 && (
@@ -612,9 +616,11 @@ interface SidebarItemProps {
   prefix: string;
   label: string;
   unread: boolean;
+  /** Anime le logo (pulsation) pour signaler que l'interlocuteur rédige (#314). */
+  typing?: boolean;
 }
 
-function SidebarItem({ active, onClick, onLongPress, prefix, label, unread }: SidebarItemProps) {
+function SidebarItem({ active, onClick, onLongPress, prefix, label, unread, typing }: SidebarItemProps) {
   const { handlers, onClickCapture } = useLongPress(onLongPress || (() => {}));
   return (
     <button
@@ -629,7 +635,14 @@ function SidebarItem({ active, onClick, onLongPress, prefix, label, unread }: Si
           : "text-aubergine-400 hover:bg-aubergine-600 hover:text-white"
       }`}
     >
-      <span className="opacity-80">{prefix}</span>
+      {/* Pulsation pendant la rédaction, inerte si l'utilisateur a demandé moins
+          d'animations. */}
+      <span
+        className={`opacity-80 ${typing ? "animate-pulse motion-reduce:animate-none" : ""}`}
+        title={typing ? "En train de rédiger…" : undefined}
+      >
+        {prefix}
+      </span>
       <span className="truncate flex-1">{label}</span>
       {unread && !active && (
         <span
