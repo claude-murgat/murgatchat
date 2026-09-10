@@ -30,7 +30,7 @@
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1",
     "socket.io-client": "^4.8.3",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@eslint-react/eslint-plugin": "^5.18.6",
