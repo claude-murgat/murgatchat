@@ -285,6 +285,8 @@ export const api = {
   listClaudeExperts: () => request("/claude/experts"),
   openClaudeConversation: (expert?: string) =>
     request("/claude/conversation", { method: "POST", body: expert ? { expert } : undefined }),
+  clearClaudeConversation: (channelId: string) =>
+    request(`/claude/conversation/${encodeURIComponent(channelId)}/clear`, { method: "POST" }),
   // Bug reports: any user can file one; admins consult/triage them.
   reportBug: (body: unknown) => request("/bug-reports", { method: "POST", body }),
   // Support conversation: chat with Claude to refine a ticket. startSupport may

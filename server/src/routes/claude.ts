@@ -179,4 +179,48 @@ router.post("/callback", async (req, res) => {
   }
 });
 
+// Effacer l'historique d'une conversation Claude et réinitialiser la session.
+// L'utilisateur doit être membre du canal. Supprime tous les messages et notifie
+// le helper de réinitialiser sa session pour que le tour suivant commence fresh.
+router.post("/conversation/:channelId/clear", requireAuth, async (req, res) => {
+  if (!claudeExpertEnabled()) {
+    return res.status(503).json({ error: "claude_expert_unavailable" });
+  }
+
+  const channel = await prisma.channel.findUnique({
+    where: { id: req.params.channelId },
+    include: { memberships: { select: { userId: true } } },
+  });
+
+  if (!channel || channel.kind !== "claude") {
+    return res.status(404).json({ error: "not_found" });
+  }
+
+  const isMember = channel.memberships.some((m) => m.userId === req.userId);
+  if (!isMember) {
+    return res.status(403).json({ error: "forbidden" });
+  }
+
+  // Supprimer tous les messages du canal.
+  await prisma.message.deleteMany({ where: { channelId: channel.id } });
+
+  // Notifier le helper de réinitialiser la session.
+  try {
+    if (process.env.CLAUDE_HELPER_URL) {
+      await fetch(`${process.env.CLAUDE_HELPER_URL}/reset-session`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.CLAUDE_HELPER_TOKEN}`,
+        },
+        body: JSON.stringify({ conversationKey: channel.id }),
+      });
+    }
+  } catch (err) {
+    console.error("[claude] reset-session failed:", (err as Error).message);
+  }
+
+  res.json({ ok: true });
+});
+
 export default router;

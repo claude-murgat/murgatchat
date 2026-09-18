@@ -15,7 +15,7 @@ const SESSIONS_FILE = join(STATE_DIR, "sessions.json");
 const TURN_TIMEOUT_MS = 15 * 60_000;
 const MAX_REPLY = 20_000; // même plafond que le zod du callback côté MurgaChat
 
-function loadSessions(): Record<string, string> {
+export function loadSessions(): Record<string, string> {
   try {
     return JSON.parse(readFileSync(SESSIONS_FILE, "utf8"));
   } catch {
@@ -25,6 +25,14 @@ function loadSessions(): Record<string, string> {
 function saveSessions(map: Record<string, string>) {
   mkdirSync(STATE_DIR, { recursive: true });
   writeFileSync(SESSIONS_FILE, JSON.stringify(map, null, 2));
+}
+
+export function resetSessionFor(conversationKey: string) {
+  const sessions = loadSessions();
+  if (conversationKey in sessions) {
+    delete sessions[conversationKey];
+    saveSessions(sessions);
+  }
 }
 
 // Libellé de progression dérivé d'un message assistant intermédiaire (= suivi
