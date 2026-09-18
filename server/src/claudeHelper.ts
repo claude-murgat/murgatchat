@@ -1,4 +1,4 @@
-// Pont vers l'expert Claude « supervision » — le cerveau tourne sur une VM
+// Pont vers les experts Claude (supervision, Murgat Management…) — le cerveau tourne sur une VM
 // auxiliaire (service claude-helper/, voir ce dossier à la racine du dépôt).
 // Ce module ne fait que déclencher un tour (webhook sortant) et animer
 // l'indicateur de saisie ; la réponse revient plus tard par POST
@@ -78,14 +78,16 @@ export async function deliverBotReply(io: Server, channelId: string, text: strin
   await notifyMembers(io, channelId, authorId, serialized);
 }
 
-// Déclenche un tour d'analyse pour `text` dans la conversation `channelId`.
-// Fire-and-forget côté appelant (message:send) : toute erreur se traduit par
-// un message du bot dans le canal, jamais par une exception remontée.
+// Déclenche un tour d'analyse pour `text` dans la conversation `channelId`,
+// auprès de l'expert `expert` (clé du registre experts.ts, que le helper résout
+// en workspace). Fire-and-forget côté appelant (message:send) : toute erreur se
+// traduit par un message du bot dans le canal, jamais par une exception remontée.
 export async function dispatchExpertTurn(
   io: Server,
   channelId: string,
   text: string,
-  author: { displayName: string | null }
+  author: { displayName: string | null },
+  expert: string
 ) {
   if (!claudeExpertEnabled()) return;
   try {
@@ -97,6 +99,7 @@ export async function dispatchExpertTurn(
       },
       body: JSON.stringify({
         conversationKey: channelId,
+        expert,
         message: text,
         author: { displayName: author.displayName ?? null },
       }),
@@ -109,7 +112,7 @@ export async function dispatchExpertTurn(
     await deliverBotReply(
       io,
       channelId,
-      "⚠️ L'expert supervision est injoignable pour le moment. Réessayez dans quelques minutes, ou vérifiez le service claude-helper sur sa VM."
+      "⚠️ L'expert est injoignable pour le moment. Réessayez dans quelques minutes, ou vérifiez le service claude-helper sur sa VM."
     ).catch((err) => console.error("[claude-helper] fallback message failed:", err.message));
   }
 }

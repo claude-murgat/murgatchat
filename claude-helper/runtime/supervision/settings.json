@@ -10,6 +10,7 @@
       "Read(**/.env*)",
       "Read(**/.my.cnf)",
       "Read(//home/murgat/claude-helper-svc/**)",
+      "Read(//home/murgat/claude-management/**)",
       "Read(//home/murgat/.ssh/**)",
       "Edit(//home/murgat/claude-helper/docs/**)",
       "Edit(//home/murgat/claude-helper/mirror/**)",

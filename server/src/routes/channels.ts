@@ -570,6 +570,7 @@ export function serializeChannel(channel: ChannelWithRelations, viewerId: string
     isPrivate: channel.isPrivate,
     isDefault: channel.isDefault,
     kind: channel.kind,
+    expert: channel.expert,
     description: channel.description,
     // Niveau de notification de l'appelant pour ce channel (défaut "all" si la
     // membership n'est pas hydratée, p. ex. juste après une création).

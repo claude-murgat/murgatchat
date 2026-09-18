@@ -1,0 +1,12 @@
+#!/bin/sh
+# Sonde HTTP en lecture seule de la stack de test (172.16.1.203), à travers son proxy
+# TLS (certificat auto-signé → -k). Un CHEMIN seulement, jamais une URL : l'agent n'a
+# pas d'accès web. Exemples :
+#   bin/http /build-info.json    → SHA et date du front déployé
+#   bin/http /api/redux          → 401 attendu sans jeton = l'api répond derrière le proxy
+#   bin/http /                   → le SPA (200)
+case "${1:-}" in
+  /*) ;;
+  *) echo "usage : bin/http /chemin" >&2; exit 2 ;;
+esac
+exec curl -sk -m 15 -w '\n[HTTP %{http_code} en %{time_total}s]\n' "https://172.16.1.203$1"

@@ -4,7 +4,7 @@ import Avatar from "./Avatar.tsx";
 import QuickSwitcher from "./QuickSwitcher.tsx";
 import { isTauri } from "../desktop.ts";
 import { pwaSupported, requestNotificationPermission, isPwaInstalled } from "../pwa.ts";
-import type { Channel, User } from "../types.ts";
+import type { Channel, User, ClaudeExpert } from "../types.ts";
 
 /** Coordonnées viewport où ouvrir le menu contextuel d'une conversation. */
 interface LongPressPosition {
@@ -120,8 +120,10 @@ interface SidebarProps {
   onNewDm: () => void;
   onChannelJoined: (channel: Channel) => void;
   onDmOpened: (channel: Channel) => void;
-  /** Ouvre (ou retrouve) la conversation avec l'expert Claude. */
-  onOpenClaude: () => void;
+  /** Ouvre (ou retrouve) la conversation avec un expert Claude (clé ; sans clé : supervision). */
+  onOpenClaude: (expert?: string) => void;
+  /** Experts ouverts sur ce serveur (GET /claude/experts) : un bouton par expert pas encore consulté. */
+  claudeExperts?: ClaudeExpert[];
   onToggleDnd: () => void;
   onLogout: () => void;
   onInvite: () => void;
@@ -147,6 +149,7 @@ export default function Sidebar({
   onChannelJoined,
   onDmOpened,
   onOpenClaude,
+  claudeExperts = [],
   onToggleDnd,
   onLogout,
   onInvite,
@@ -216,8 +219,12 @@ export default function Sidebar({
   }
 
   const groups = channels.filter((c) => !c.isDirect && c.kind !== "claude");
-  // La (les) conversation(s) avec l'expert Claude vivent dans leur section.
+  // Les conversations avec les experts Claude vivent dans leur section (une par
+  // expert) ; les experts ouverts mais pas encore consultés y ont un bouton.
   const claudeConvs = channels.filter((c) => c.kind === "claude");
+  const expertsToOpen = claudeExperts.filter(
+    (e) => !claudeConvs.some((c) => (c.expert || "supervision") === e.key)
+  );
   // DMs sorted by most-recent activity (SMS-style, #180): the conversation with
   // the latest message floats to the top — which also surfaces unread ones,
   // since they're usually the most recent (see the coloured badge below, #179).
@@ -456,9 +463,10 @@ export default function Sidebar({
           )}
         </SidebarSection>
 
-        {/* Conversation privée avec l'expert Claude de l'appli SUPERVISION
-            (canal kind="claude", voir server/src/routes/claude.ts). Tant que
-            l'utilisateur n'en a pas, un bouton l'ouvre à la demande. */}
+        {/* Conversations privées avec les experts Claude (canaux kind="claude",
+            un par expert — voir server/src/routes/claude.ts). Chaque expert ouvert
+            sur le serveur mais pas encore consulté a son bouton d'ouverture ; sans
+            liste (serveur sans pont ou antérieur), le bouton historique reste. */}
         <SidebarSection id="claude" title="Claude">
           {claudeConvs.map((c) => (
             <SidebarItem
@@ -469,7 +477,7 @@ export default function Sidebar({
                 setConvMenu({ channelId: c.id, unread: c.unread, ...pos })
               }
               prefix="✳️"
-              label={c.name || "Expert supervision"}
+              label={c.name || "Expert Claude"}
               unread={c.unread}
               // L'expert « écrit » : le serveur ré-émet typing:update pendant tout
               // le tour d'analyse (voir server/src/claudeHelper.ts), on anime alors
@@ -477,9 +485,18 @@ export default function Sidebar({
               typing={(typingByChannel?.[c.id]?.length || 0) > 0}
             />
           ))}
-          {claudeConvs.length === 0 && (
+          {expertsToOpen.map((e) => (
             <button
-              onClick={onOpenClaude}
+              key={e.key}
+              onClick={() => onOpenClaude(e.key)}
+              className="w-full text-left px-2 py-1 rounded text-sm text-aubergine-400 hover:text-white hover:bg-aubergine-600"
+            >
+              ✳️ {e.button}
+            </button>
+          ))}
+          {claudeExperts.length === 0 && claudeConvs.length === 0 && (
+            <button
+              onClick={() => onOpenClaude()}
               className="w-full text-left px-2 py-1 rounded text-sm text-aubergine-400 hover:text-white hover:bg-aubergine-600"
             >
               ✳️ Consulter l'expert supervision

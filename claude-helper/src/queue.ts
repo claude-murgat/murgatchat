@@ -1,17 +1,19 @@
 // File des tours : une conversation à la fois par utilisateur, deux tours au
 // plus en parallèle sur la VM (3,7 Gio de RAM — chaque tour est un process
-// Claude Code complet). Les messages arrivés pendant qu'un tour de la même
-// conversation tourne sont bufferisés puis fusionnés dans le tour suivant,
-// comme des messages empilés dans un chat.
+// Claude Code complet), tous experts confondus. Les messages arrivés pendant
+// qu'un tour de la même conversation tourne sont bufferisés puis fusionnés dans
+// le tour suivant, comme des messages empilés dans un chat. Une conversation
+// appartient à un seul expert : son workspace est mémorisé avec elle.
 
 import { runTurn } from "./agent.ts";
 import { sendCallback, sendProgress } from "./callback.ts";
+import { workspaceFor } from "./experts.ts";
 
 const MAX_BUFFER = 20;
 const MAX_CONCURRENT = 2;
 
 type Pending = { message: string; author: string | null };
-type Conv = { running: boolean; buffer: Pending[] };
+type Conv = { running: boolean; buffer: Pending[]; workspace: string };
 
 const convs = new Map<string, Conv>();
 let runningCount = 0;
@@ -23,12 +25,18 @@ export function queueDepth(): number {
   return n;
 }
 
-export function enqueueTurn(key: string, message: string, author: string | null): boolean {
+export function enqueueTurn(
+  key: string,
+  message: string,
+  author: string | null,
+  workspace: string = workspaceFor(undefined)!
+): boolean {
   let conv = convs.get(key);
   if (!conv) {
-    conv = { running: false, buffer: [] };
+    conv = { running: false, buffer: [], workspace };
     convs.set(key, conv);
   }
+  conv.workspace = workspace;
   if (conv.buffer.length >= MAX_BUFFER) return false;
   conv.buffer.push({ message, author });
   if (!conv.running && !waiting.includes(key)) waiting.push(key);
@@ -56,7 +64,7 @@ async function drain(key: string, conv: Conv) {
         .join("\n\n");
       let outcome: { ok: boolean; reply?: string; error?: string };
       try {
-        outcome = await runTurn(key, prompt, (text) => void sendProgress(key, text));
+        outcome = await runTurn(key, prompt, (text) => void sendProgress(key, text), conv.workspace);
       } catch (e) {
         console.error(`[helper] tour ${key} en échec:`, (e as Error).message);
         outcome = { ok: false, error: "turn_failed" };

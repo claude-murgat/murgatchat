@@ -277,10 +277,14 @@ export const api = {
     request("/auth/web-push/subscribe", { method: "POST", body }),
   webPushUnsubscribe: (endpoint: string) =>
     request("/auth/web-push/subscribe", { method: "DELETE", body: { endpoint } }),
-  // Expert Claude « supervision » : ouvre (ou retrouve) la conversation privée
-  // de l'appelant avec l'expert. 503 (claude_expert_unavailable) si le pont
-  // n'est pas configuré sur ce serveur.
-  openClaudeConversation: () => request("/claude/conversation", { method: "POST" }),
+  // Experts Claude (section CLAUDE) : la liste des experts ouverts sur ce serveur
+  // (vide si le pont n'est pas configuré), et l'ouverture (ou la reprise) de la
+  // conversation privée de l'appelant avec l'un d'eux. Sans clé : supervision.
+  // 503 (claude_expert_unavailable) si le pont n'est pas configuré, 400
+  // (unknown_expert) si l'expert n'est pas ouvert ici.
+  listClaudeExperts: () => request("/claude/experts"),
+  openClaudeConversation: (expert?: string) =>
+    request("/claude/conversation", { method: "POST", body: expert ? { expert } : undefined }),
   // Bug reports: any user can file one; admins consult/triage them.
   reportBug: (body: unknown) => request("/bug-reports", { method: "POST", body }),
   // Support conversation: chat with Claude to refine a ticket. startSupport may
