@@ -1,5 +1,5 @@
 import type { ZodType } from "zod";
-import type { NotifyLevel } from "./types.ts";
+import type { NotifyLevel, SearchResult } from "./types.ts";
 import { logEvent } from "./logbuffer.ts";
 import { MessagesResponseSchema } from "../../shared/contracts.ts";
 
@@ -209,7 +209,15 @@ export const api = {
     const qs = params.toString();
     return request(`/auth/users${qs ? `?${qs}` : ""}`);
   },
-  search: ({ q, channelId, limit }: { q?: string; channelId?: string; limit?: number } = {}) => {
+  search: ({
+    q,
+    channelId,
+    limit,
+  }: { q?: string; channelId?: string; limit?: number } = {}): Promise<{
+    q?: string;
+    results: SearchResult[];
+    total: number;
+  }> => {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
     if (channelId) params.set("channelId", channelId);

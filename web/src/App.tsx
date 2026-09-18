@@ -81,6 +81,8 @@ export default function App() {
   const [bootstrapped, setBootstrapped] = useState(false);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
+  // Message à mettre en évidence après ouverture depuis la recherche (#319).
+  const [focusMessageId, setFocusMessageId] = useState<string | null>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [showNewChannel, setShowNewChannel] = useState(false);
   // Pre-fills the create-channel modal name when launched from the search field.
@@ -555,9 +557,21 @@ export default function App() {
 
   const onSelectChannel = useCallback((c: Channel) => {
     setActiveChannelId(c.id);
+    setFocusMessageId(null); // ouverture normale : pas de message à mettre en évidence
     setChannels((prev) =>
       prev.map((ch) => (ch.id === c.id ? { ...ch, unread: false } : ch))
     );
+  }, []);
+
+  // Ouvre la conversation d'un résultat de recherche et demande à ChannelView de
+  // mettre le message en évidence (#319). Le serveur ne renvoie que des messages
+  // de salons dont l'utilisateur est membre : l'id est donc déjà dans `channels`.
+  const onSelectMessage = useCallback((channelId: string, messageId: string) => {
+    setActiveChannelId(channelId);
+    setChannels((prev) =>
+      prev.map((ch) => (ch.id === channelId ? { ...ch, unread: false } : ch))
+    );
+    setFocusMessageId(messageId);
   }, []);
 
   const onMarkUnread = useCallback(
@@ -730,6 +744,7 @@ export default function App() {
             channels={channels}
             activeChannelId={activeChannelId}
             onSelectChannel={onSelectChannel}
+            onSelectMessage={onSelectMessage}
             onMarkUnread={onMarkUnread}
             onMarkRead={onMarkRead}
             onNewChannel={(name: string) => {
@@ -762,6 +777,8 @@ export default function App() {
             socket={socket}
             onlineUserIds={onlineUserIds}
             channels={channels}
+            focusMessageId={focusMessageId}
+            onFocusHandled={() => setFocusMessageId(null)}
             onSwitchChannel={onSelectChannel}
             onAddMembers={() => setShowAddMembers(true)}
             onShowMembers={() => setShowMembers(true)}

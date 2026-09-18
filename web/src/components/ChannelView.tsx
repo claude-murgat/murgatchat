@@ -188,6 +188,10 @@ interface ChannelViewProps {
   onNotifyLevelChange?: (channelId: string, level: NotifyLevel) => void;
   channels?: Channel[];
   onSwitchChannel?: (channel: Channel) => void;
+  /** Message à faire défiler + mettre en évidence à l'ouverture (recherche #319). */
+  focusMessageId?: string | null;
+  /** Appelé une fois la mise en évidence effectuée, pour relâcher `focusMessageId`. */
+  onFocusHandled?: () => void;
   onBackToList?: (() => void) | null;
 }
 
@@ -203,6 +207,9 @@ export default function ChannelView({
   // Liste complète des conversations + bascule, pour le transfert de message (#124).
   channels = [],
   onSwitchChannel,
+  // Message ciblé par la recherche (#319) + accusé de prise en compte.
+  focusMessageId,
+  onFocusHandled,
   // Mobile-only : retour à la liste des canaux (annule activeChannelId dans App.jsx).
   // Sur desktop (md+), le bouton est masqué et la sidebar reste à gauche en permanence.
   onBackToList,
@@ -351,6 +358,21 @@ export default function ChannelView({
       cancelled = true;
     };
   }, [activeChannelId, socket]);
+
+  // Recherche (#319) : dès que le message ciblé est présent dans la page chargée,
+  // on le fait défiler + on le met en évidence, puis on relâche le focus côté App.
+  // S'il n'y est pas encore (le salon vient d'être ouvert et charge sa page), on
+  // laisse le focus posé : ce même effet se rejoue quand `messages` arrive.
+  useEffect(() => {
+    if (!focusMessageId) return;
+    if (!messages.some((m) => m.id === focusMessageId)) return;
+    // On coupe le collage bas / l'ancre « non lus » pour que le saut ne soit pas
+    // ramené par les re-calages programmatiques (rAF de l'effet de scroll).
+    stickBottomRef.current = false;
+    unreadAnchorRef.current = false;
+    jumpToMessage(focusMessageId);
+    onFocusHandled?.();
+  }, [focusMessageId, messages, onFocusHandled]);
 
   useEffect(() => {
     if (!activeChannelId || !socket) return;
