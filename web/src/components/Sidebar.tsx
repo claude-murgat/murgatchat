@@ -112,6 +112,8 @@ interface SidebarProps {
   channels: Channel[];
   activeChannelId: string | null;
   onSelectChannel: (channel: Channel) => void;
+  /** Ouvre la conversation d'un message trouvé et le met en évidence (#319). */
+  onSelectMessage: (channelId: string, messageId: string) => void;
   onMarkUnread?: (channelId: string) => void;
   onMarkRead?: (channelId: string) => void;
   onNewChannel: (name: string) => void;
@@ -137,6 +139,7 @@ export default function Sidebar({
   channels,
   activeChannelId,
   onSelectChannel,
+  onSelectMessage,
   onMarkUnread,
   onMarkRead,
   onNewChannel,
@@ -388,6 +391,10 @@ export default function Sidebar({
             channels={channels}
             onSelectChannel={(c) => {
               onSelectChannel(c);
+              setQuery("");
+            }}
+            onSelectMessage={(channelId, messageId) => {
+              onSelectMessage(channelId, messageId);
               setQuery("");
             }}
             onJoined={(c) => {

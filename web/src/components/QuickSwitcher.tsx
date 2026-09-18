@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { api } from "../api.ts";
 import Avatar from "./Avatar.tsx";
-import type { Channel, User } from "../types.ts";
+import type { Channel, SearchResult, User } from "../types.ts";
 
 interface QuickSwitcherProps {
   query: string;
   user: User;
   channels: Channel[];
   onSelectChannel: (channel: Channel) => void;
+  onSelectMessage: (channelId: string, messageId: string) => void;
   onJoined: (channel: Channel) => void;
   onOpened: (channel: Channel) => void;
   onCreateChannel: (name: string) => void;
@@ -25,6 +26,7 @@ export default function QuickSwitcher({
   user,
   channels,
   onSelectChannel,
+  onSelectMessage,
   onJoined,
   onOpened,
   onCreateChannel,
@@ -33,6 +35,8 @@ export default function QuickSwitcher({
 }: QuickSwitcherProps) {
   const [publicRaw, setPublicRaw] = useState<Channel[]>([]);
   const [peopleRaw, setPeopleRaw] = useState<User[]>([]);
+  // Messages correspondants (recherche plein texte serveur, #319).
+  const [messages, setMessages] = useState<SearchResult[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   // Ligne surlignée pour la navigation clavier (#94). 0 = premier résultat.
   const [active, setActive] = useState(0);
@@ -49,15 +53,17 @@ export default function QuickSwitcher({
     if (!q) {
       setPublicRaw([]);
       setPeopleRaw([]);
+      setMessages([]);
       return;
     }
     let cancelled = false;
     const t = setTimeout(() => {
-      Promise.all([api.publicChannels(q), api.listUsers(q)])
-        .then(([pc, us]) => {
+      Promise.all([api.publicChannels(q), api.listUsers(q), api.search({ q })])
+        .then(([pc, us, msg]) => {
           if (cancelled) return;
           setPublicRaw(pc.channels || []);
           setPeopleRaw(us.users || []);
+          setMessages(msg.results || []);
         })
         .catch(() => {
           /* transient — keep last results */
@@ -101,7 +107,10 @@ export default function QuickSwitcher({
   }
 
   const nothing =
-    existing.length === 0 && publicChannels.length === 0 && people.length === 0;
+    existing.length === 0 &&
+    messages.length === 0 &&
+    publicChannels.length === 0 &&
+    people.length === 0;
 
   // Liste à plat des actions, dans l'ordre d'affichage des sections. C'est ce
   // que parcourent les flèches et qu'active la touche Entrée (#94). Les « bases »
@@ -109,20 +118,22 @@ export default function QuickSwitcher({
   // quelle ligne surligner.
   const items: Array<() => void> = [
     ...existing.map((c) => () => onSelectChannel(c)),
+    ...messages.map((m) => () => onSelectMessage(m.channelId, m.id)),
     ...publicChannels.map((c) => () => join(c)),
     ...people.map((u) => () => dm(u)),
     () => onCreateChannel(q),
     () => dm(user),
     () => onNewGroup(),
   ];
-  const publicBase = existing.length;
+  const messagesBase = existing.length;
+  const publicBase = messagesBase + messages.length;
   const peopleBase = publicBase + publicChannels.length;
   const createBase = peopleBase + people.length;
 
   // Quand les résultats changent, on resélectionne la première ligne.
   useEffect(() => {
     setActive(0);
-  }, [ql, existing.length, publicChannels.length, people.length]);
+  }, [ql, existing.length, messages.length, publicChannels.length, people.length]);
 
   // Navigation clavier depuis le champ de recherche (qui garde le focus) : les
   // flèches déplacent la sélection, Entrée déclenche la ligne surlignée. On lit
@@ -163,6 +174,23 @@ export default function QuickSwitcher({
               onClick={() => onSelectChannel(c)}
               prefix={c.isDirect ? "💬" : c.isPrivate ? "🔒" : "#"}
               label={(c.isDirect ? c.displayName : c.name) || "conversation"}
+            />
+          ))}
+        </Section>
+      )}
+
+      {messages.length > 0 && (
+        <Section title="Messages">
+          {messages.map((m, i) => (
+            <Row
+              key={m.id}
+              active={active === messagesBase + i}
+              onClick={() => onSelectMessage(m.channelId, m.id)}
+              prefix={m.channel?.isDirect ? "💬" : "#"}
+              label={renderSnippet(m.snippet)}
+              sub={`${m.author?.displayName || "?"} · ${new Date(
+                m.createdAt
+              ).toLocaleDateString()}${m.channel?.name ? ` · ${m.channel.name}` : ""}`}
             />
           ))}
         </Section>
@@ -232,6 +260,22 @@ export default function QuickSwitcher({
         </div>
       )}
     </div>
+  );
+}
+
+// Le serveur (ts_headline) renvoie un extrait où les termes trouvés sont entourés
+// de <mark>…</mark>. On découpe sur ces balises et on rend des nœuds texte (que
+// React échappe) : aucune injection HTML possible, on surligne nous-mêmes les
+// fragments marqués (indices impairs après le split).
+function renderSnippet(html: string): ReactNode {
+  return html.split(/<mark>|<\/mark>/).map((part, i) =>
+    i % 2 === 1 ? (
+      <mark key={i} className="bg-amber-200 text-slate-900 rounded-sm px-0.5">
+        {part}
+      </mark>
+    ) : (
+      <span key={i}>{part}</span>
+    )
   );
 }
 

@@ -62,6 +62,20 @@ export interface Toast {
   open: () => void;
 }
 
+/** Un message correspondant à une recherche par mot-clé (GET /search). */
+export interface SearchResult {
+  id: string;
+  channelId: string;
+  channel: Pick<Channel, "id" | "name" | "isDirect"> | null;
+  author: Pick<User, "id" | "displayName" | "username" | "avatarColor"> | null;
+  createdAt: string;
+  editedAt: string | null;
+  parentId: string | null;
+  /** Extrait HTML avec les termes entourés de <mark> (voir routes/search.ts). */
+  snippet: string;
+  score: number;
+}
+
 /** Résultat du contrôle de version (GET /version) ou de l'updater desktop. */
 export interface UpdateInfo {
   updateAvailable: boolean;
