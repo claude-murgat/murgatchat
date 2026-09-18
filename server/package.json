@@ -26,23 +26,23 @@
     "nodemailer": "^9.0.5",
     "socket.io": "^4.8.3",
     "web-push": "^3.6.7",
-    "zod": "^4.4.3"
+    "zod": "^4.6.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.2.0",
-    "@types/node": "^24.13.3",
+    "@types/node": "^24.13.4",
     "@types/nodemailer": "^8.0.1",
     "@types/web-push": "^3.6.4",
     "eslint": "^10.9.1",
-    "globals": "^17.11.0",
+    "globals": "^17.12.0",
     "prisma": "^7.10.0",
     "socket.io-client": "^4.8.3",
     "supertest": "^7.0.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.68.0",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.0"
   }
 }

@@ -149,9 +149,19 @@ export async function notifyMembers(
     `[push] notifying ${tokens.length} native + ${webSubs.length} web for ${awayUserIds.length} away user(s)`
   );
   // Native pushes (Expo / FCM) for Android (and historically iOS).
+  // priority:high + channelId:default => heads-up + verrouillé (sinon
+  // Android les retient jusqu'au déverrouillage en Doze).
   if (tokens.length) {
     await sendExpoPush(
-      tokens.map((t) => ({ to: t.token, title, body, sound: "default", data: { channelId } }))
+      tokens.map((t) => ({
+        to: t.token,
+        title,
+        body,
+        sound: "default",
+        priority: "high" as const,
+        channelId: "default",
+        data: { channelId },
+      }))
     );
   }
   // Web pushes (browser / installed PWA, including iOS Safari Add to Home Screen).
