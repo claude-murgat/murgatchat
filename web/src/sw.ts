@@ -55,6 +55,10 @@ async function handlePush(event: PushEvent) {
     badge: "/icons/badge-72.png",
     // tag: same-tag notifications coalesce on iOS (good for chat per-channel).
     tag: payload.tag || "murgat-chat",
+    // Écran verrouillé : la notif doit persister et vibrer, sinon elle peut
+    // passer inaperçue / être repliée par l'OS.
+    requireInteraction: true,
+    vibrate: [200, 100, 200],
     data: {
       url: payload.url || "/",
       channelId: payload.channelId || null,

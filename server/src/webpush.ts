@@ -127,7 +127,10 @@ export async function sendWebPush(
           keys: { p256dh: sub.p256dh, auth: sub.auth },
         },
         json,
-        { TTL: 60 }
+        // TTL long : un TTL trop court fait expirer le push pendant que le
+        // téléphone dort (Doze) → notif visible seulement au déverrouillage.
+        // urgency high : réveil immédiat côté FCM / push service.
+        { TTL: 86400, urgency: "high" }
       );
       sent++;
     } catch (err) {
