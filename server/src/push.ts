@@ -8,6 +8,8 @@ export interface ExpoPushMessage {
   title?: string;
   body?: string;
   sound?: string;
+  priority?: "default" | "normal" | "high";
+  channelId?: string;
   data?: unknown;
 }
 
