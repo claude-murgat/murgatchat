@@ -76,6 +76,7 @@ describe("pont expert Claude (socket)", () => {
     expect(calls[0].init.headers.Authorization).toBe("Bearer helper-secret");
     const payload = JSON.parse(calls[0].init.body);
     expect(payload.conversationKey).toBe(channel.id);
+    expect(payload.expert).toBe("supervision"); // canal historique = expert supervision
     expect(payload.message).toContain("runner");
     expect(payload.author.displayName).toBe(u.user.displayName);
 

@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-09-07** (**1.2.3** : le logo de l'expert Claude s'anime pendant la rédaction de sa réponse dans la barre latérale (#314) ; **1.2.2** : release de maintenance — ESLint 10.9.1, Prisma 7.10.0, @types/react-dom 19.2.5 et claude-code-action 1.0.208 relevés, aucun changement fonctionnel ; **1.2.1** : le support in-app passe vraiment par l'abonnement — relais SDK via la VM claude-helper, le mode OAuth brut de la 1.2.0 étant throttlé par politique ; **1.2.0** : l'expert et le support in-app peuvent tourner sur l'abonnement Claude (OAuth) faute de crédits API, messages d'erreur clairs + retry ; **1.1.0** : la section CLAUDE devient un expert de l'appli supervision (VM auxiliaire, accès lecture seule, progression en direct) + sections de la barre latérale repliables ; **1.0.2** : release de maintenance — dompurify, Vite/plugin-react, Vitest et claude-code-action relevés, aucun changement fonctionnel ; **1.0.1** : correctif des modales qui se fermaient sur un glisser sortant du panneau (#191), **Prisma 6 → 7** — adaptateur de driver et `prisma.config.ts` —, groupage Dependabot repensé pour que les paquets indissociables voyagent ensemble, et une trentaine de dépendances relevées ; **1.0.0 — sortie d'alpha** : SemVer strict + canal de pré-release ; socle modernisé (Node 24 LTS, React 19, Tailwind 4, Vite 8, Express 5, Prisma 6, zod 4, ESLint 10, Vitest 4) ; **dépôt 100 % TypeScript**, les trois phases du typage livrées ; quatre bugs révélés par l'outillage ; 0.7.6 : modales plein écran lisibles sur mobile (bouton de validation visible), clic sur notification web qui ouvre la conversation, pièces jointes jusqu'à 50 Mo configurables via `.env` + fix du crash desktop sur fichier trop lourd ; 0.7.5 : aperçu intégré Word/Excel/CSV/texte + PDF réparé, clic notification desktop par protocole, purge du résidu de démarrage TSE, DM triés par récence + non-lus plus visibles, ouverture sur le 1er message non lu + auto-chargement des anciens, mentions surlignées à la saisie ; 0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages).
+Dernière mise à jour : **2026-09-18** (**non versionné, PR #339** : la section CLAUDE devient multi-experts et accueille l'expert **Murgat Management** — refonte `clean_v3`, stack de test .203, jamais la vraie prod ; **1.2.3** : le logo de l'expert Claude s'anime pendant la rédaction de sa réponse dans la barre latérale (#314) ; **1.2.2** : release de maintenance — ESLint 10.9.1, Prisma 7.10.0, @types/react-dom 19.2.5 et claude-code-action 1.0.208 relevés, aucun changement fonctionnel ; **1.2.1** : le support in-app passe vraiment par l'abonnement — relais SDK via la VM claude-helper, le mode OAuth brut de la 1.2.0 étant throttlé par politique ; **1.2.0** : l'expert et le support in-app peuvent tourner sur l'abonnement Claude (OAuth) faute de crédits API, messages d'erreur clairs + retry ; **1.1.0** : la section CLAUDE devient un expert de l'appli supervision (VM auxiliaire, accès lecture seule, progression en direct) + sections de la barre latérale repliables ; **1.0.2** : release de maintenance — dompurify, Vite/plugin-react, Vitest et claude-code-action relevés, aucun changement fonctionnel ; **1.0.1** : correctif des modales qui se fermaient sur un glisser sortant du panneau (#191), **Prisma 6 → 7** — adaptateur de driver et `prisma.config.ts` —, groupage Dependabot repensé pour que les paquets indissociables voyagent ensemble, et une trentaine de dépendances relevées ; **1.0.0 — sortie d'alpha** : SemVer strict + canal de pré-release ; socle modernisé (Node 24 LTS, React 19, Tailwind 4, Vite 8, Express 5, Prisma 6, zod 4, ESLint 10, Vitest 4) ; **dépôt 100 % TypeScript**, les trois phases du typage livrées ; quatre bugs révélés par l'outillage ; 0.7.6 : modales plein écran lisibles sur mobile (bouton de validation visible), clic sur notification web qui ouvre la conversation, pièces jointes jusqu'à 50 Mo configurables via `.env` + fix du crash desktop sur fichier trop lourd ; 0.7.5 : aperçu intégré Word/Excel/CSV/texte + PDF réparé, clic notification desktop par protocole, purge du résidu de démarrage TSE, DM triés par récence + non-lus plus visibles, ouverture sur le 1er message non lu + auto-chargement des anciens, mentions surlignées à la saisie ; 0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages).
 
 ---
 
@@ -1045,6 +1045,31 @@ dépendances relevées, aucune fonctionnalité nouvelle.
     in-process, workspace vide et `settingSources: []` (rien de l'expert), outils
     fichiers/shell interdits, sans état. `ANTHROPIC_OAUTH_TOKEN` retiré. Docs du
     service complétées (#312).
+
+
+## Itération 2026-09-18 — second expert Claude : Murgat Management (PR #339)
+
+98. **La section CLAUDE devient multi-experts** — un canal `kind="claude"` par
+    utilisateur **et par expert** (colonne `Channel.expert`, migration additive :
+    l'existant est rattaché à `supervision`), registre `server/src/experts.ts`
+    filtré par `CLAUDE_EXPERTS` (défaut `supervision` → rien ne change sans la
+    variable), `GET /claude/experts`, clé transmise au helper dans `POST /turn`.
+    Barre latérale : un bouton par expert ouvert et pas encore consulté ; l'en-tête
+    de la conversation affiche la description du canal (= l'expert consulté). Les
+    clients antérieurs (desktop non mis à jour) continuent d'ouvrir l'expert
+    supervision sans rien changer.
+99. **Expert « Murgat Management »** — basé sur la **refonte** (`clean_v3`) telle
+    que déployée sur la stack de **test** `172.16.1.203` ; la production réelle
+    n'est pas touchée et l'expert n'y a aucun accès (son CLAUDE.md lui impose de le
+    dire). Même modèle que la supervision : compte `claude` en lecture seule sur
+    .203 (sudo docker RO, ACL sur le dépôt déployé, secrets/certificats/dumps
+    exclus, `mm-keycloak-log` pour le journal des refus de jetons), MySQL 8.4
+    SELECT-only, miroir tar-over-ssh toutes les 30 min + `DEPLOYED.txt` (SHA servi,
+    derniers commits), sonde HTTPS `bin/http`. Un seul service `claude-helper`,
+    un workspace par expert (`WORKSPACE` / `WORKSPACE_<CLÉ>`, clé inconnue = 400),
+    `runtime/` du dépôt découpé par expert. Premier tour réel : réponse juste en
+    16 s (SHA déployé concordant, conteneurs, fichiers non suivis, dernier refus
+    Keycloak).
 
 
 ## Itération 2026-09-04 — maintenance des dépendances (1.2.2)

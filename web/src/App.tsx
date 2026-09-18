@@ -40,6 +40,7 @@ import type {
   Toast,
   UpdateInfo,
   User,
+  ClaudeExpert,
 } from "./types.ts";
 
 // Message tel qu'il arrive sur le socket : la même forme que le contrat partagé,
@@ -80,6 +81,8 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [bootstrapped, setBootstrapped] = useState(false);
   const [channels, setChannels] = useState<Channel[]>([]);
+  // Experts Claude ouverts sur ce serveur (section CLAUDE de la barre latérale).
+  const [claudeExperts, setClaudeExperts] = useState<ClaudeExpert[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   // Message à mettre en évidence après ouverture depuis la recherche (#319).
   const [focusMessageId, setFocusMessageId] = useState<string | null>(null);
@@ -204,6 +207,13 @@ export default function App() {
         return res.channels[0]?.id || null;
       });
     });
+
+    // Liste des experts pour la section CLAUDE — best-effort : un serveur sans
+    // pont (ou antérieur à la route) laisse simplement le bouton historique.
+    api
+      .listClaudeExperts()
+      .then((res) => setClaudeExperts((res as { experts?: ClaudeExpert[] }).experts || []))
+      .catch(() => setClaudeExperts([]));
 
     const onNew = (msg: WireMessage) => {
       setChannels((prev) =>
@@ -614,11 +624,12 @@ export default function App() {
     setShowNewDm(false);
   }, []);
 
-  // Ouvre (ou retrouve) la conversation avec l'expert Claude. Le canal arrive
-  // aussi par l'event socket channel:created — le merge par id déduplique.
-  const onOpenClaude = useCallback(async () => {
+  // Ouvre (ou retrouve) la conversation avec un expert Claude (clé du registre
+  // serveur ; sans clé : supervision). Le canal arrive aussi par l'event socket
+  // channel:created — le merge par id déduplique.
+  const onOpenClaude = useCallback(async (expert?: string) => {
     try {
-      const res = (await api.openClaudeConversation()) as { channel: Channel };
+      const res = (await api.openClaudeConversation(expert)) as { channel: Channel };
       const channel = res.channel;
       setChannels((prev) =>
         prev.some((c) => c.id === channel.id) ? prev : [...prev, channel]
@@ -629,6 +640,8 @@ export default function App() {
       alert(
         err?.data?.error === "claude_expert_unavailable"
           ? "L'expert Claude n'est pas configuré sur ce serveur."
+          : err?.data?.error === "unknown_expert"
+          ? "Cet expert n'est pas ouvert sur ce serveur."
           : "Impossible d'ouvrir la conversation avec l'expert."
       );
     }
@@ -755,6 +768,7 @@ export default function App() {
             onChannelJoined={onChannelJoined}
             onDmOpened={onDmOpened}
             onOpenClaude={onOpenClaude}
+            claudeExperts={claudeExperts}
             onToggleDnd={toggleDnd}
             onLogout={onLogout}
             onInvite={() => setShowInvite(true)}

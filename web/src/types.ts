@@ -46,13 +46,24 @@ export interface Channel {
   isDirect: boolean;
   isPrivate: boolean;
   isDefault: boolean;
-  /** "claude" = conversation privée avec l'expert Claude (section CLAUDE). */
+  /** "claude" = conversation privée avec un expert Claude (section CLAUDE). */
   kind?: "standard" | "claude";
+  /** Clé de l'expert consulté (canaux kind="claude") : "supervision", "management"… */
+  expert?: string | null;
   description: string | null;
   notifyLevel: NotifyLevel;
   members: User[];
   lastMessage: LastMessagePreview | null;
   unread: boolean;
+}
+
+/** Un expert Claude ouvert sur le serveur (GET /claude/experts, voir server/src/experts.ts). */
+export interface ClaudeExpert {
+  key: string;
+  name: string;
+  tagline: string;
+  /** Libellé du bouton d'ouverture dans la barre latérale. */
+  button: string;
 }
 
 /** Toast in-app affiché à la réception d'un message. */

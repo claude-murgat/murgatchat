@@ -48,6 +48,10 @@ model Channel {
   // routes/claude.ts). Une colonne dédiée plutôt qu'une détection par
   // appartenance du bot : un vrai DM avec le bot resterait un DM.
   kind        String   @default("standard")
+  // Expert consulté (canaux kind="claude" seulement) : clé du registre
+  // src/experts.ts ("supervision", "management"…). Un canal par utilisateur ET
+  // par expert ; null pour les salons et les DM.
+  expert      String?
   description String?
   createdAt   DateTime @default(now())
 

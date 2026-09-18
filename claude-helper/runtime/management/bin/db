@@ -1,0 +1,11 @@
+#!/bin/sh
+# Requête SELECT-only sur la base de Murgat Management — stack de TEST de la refonte
+# (MySQL 8.4 sur 172.16.1.203:3307). Les identifiants (utilisateur claude_ro) vivent
+# dans le ~/.my-management.cnf de murgat, jamais dans l'environnement de l'agent.
+# Usage : bin/db "SELECT …;"   — base par défaut murgat_management ; les bases legacy
+# se préfixent (commercial.contenu_precommande, modules_maintenances.…).
+# --ssl-verify-server-cert=0 : le certificat TLS de MySQL est auto-généré (le client
+# MariaDB refuserait de le vérifier) ; la liaison reste chiffrée.
+exec mariadb --defaults-file="$HOME/.my-management.cnf" \
+  -h 172.16.1.203 -P 3307 --connect-timeout=10 --ssl-verify-server-cert=0 --batch \
+  murgat_management -e "$*"

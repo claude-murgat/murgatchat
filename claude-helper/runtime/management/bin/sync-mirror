@@ -1,0 +1,60 @@
+#!/bin/sh
+# Rafraîchit le miroir local du dépôt murgat_management tel que DÉPLOYÉ sur la stack
+# de test (172.16.1.203, branche clean_v3), en lecture seule, et committe le carnet
+# notes/ pour l'audit. Lancé par le timer systemd toutes les 30 min, et à la demande
+# par l'agent quand la fraîcheur compte.
+#
+# tar-over-ssh (le compte claude@.203 est en lecture seule) ; sont exclus : les
+# dépendances (node_modules, vendor), var/ (logs et cache Symfony — les logs se lisent
+# en direct), les secrets (.env*, certs, google-sa.json, *.pem/*.key), les données
+# (storage = 8 Go de documents, dumped = dumps SQL), les builds (dist), les worktrees
+# d'autres agents et les rapports de tests. Reste ~50 Mo.
+set -u
+BASE=/home/murgat/claude-management
+TMP="$BASE/mirror/.murgat_management.tmp"
+HOST=claude@172.16.1.203
+REPO=/home/murgat/murgat_management
+
+# `-C $REPO .` et non `-C /home/murgat murgat_management` : le compte claude ne
+# peut que TRAVERSER /home/murgat (ACL x), pas le lire, et tar ouvre le dossier -C.
+# Un fichier illisible çà et là fait râler tar (exit 2) sans vider l'archive : c'est
+# la présence du CLAUDE.md extrait qui dit si le transfert a abouti.
+rm -rf "$TMP" && mkdir -p "$TMP/murgat_management"
+ssh -o BatchMode=yes -o ConnectTimeout=10 "$HOST" \
+    "tar czf - -C $REPO \
+      --exclude='node_modules' --exclude='vendor' --exclude='var' --exclude='.git' \
+      --exclude='.env*' --exclude='certs' --exclude='google-sa.json' --exclude='*.pem' --exclude='*.key' \
+      --exclude='storage' --exclude='dumped' --exclude='dist' --exclude='worktrees' \
+      --exclude='test-results' --exclude='playwright-report' --exclude='.kilo' --exclude='.cline' \
+      . 2>/dev/null" \
+    | tar xzf - -C "$TMP/murgat_management" 2>/dev/null
+if [ -f "$TMP/murgat_management/CLAUDE.md" ]; then
+  rm -rf "$BASE/mirror/murgat_management"
+  mv "$TMP/murgat_management" "$BASE/mirror/murgat_management"
+  rm -rf "$TMP"
+else
+  rm -rf "$TMP"
+  echo "sync-mirror: transfert en échec (réseau ? clé ssh ?)" >&2
+fi
+
+# Ce qui est réellement servi et les derniers commits du checkout déployé : le
+# miroir n'a pas de .git, ce fichier en tient lieu.
+{
+  echo "# Instantané du $(date -Is) — stack de test 172.16.1.203"
+  echo
+  echo "## /build-info.json (front servi à travers le proxy)"
+  curl -sk -m 10 https://172.16.1.203/build-info.json || echo "(injoignable)"
+  echo
+  echo
+  echo "## Checkout déployé ($REPO)"
+  ssh -o BatchMode=yes -o ConnectTimeout=10 "$HOST" \
+    "git -C $REPO status -sb 2>/dev/null | head -5; echo; git -C $REPO log --date=short --format='%h %ad %s' -40 2>/dev/null"
+} > "$BASE/mirror/DEPLOYED.txt"
+
+# Journal des notes de l'expert : un commit par passage s'il y a du neuf.
+if [ -d "$BASE/notes/.git" ]; then
+  cd "$BASE/notes" || exit 0
+  if [ -n "$(git status --porcelain)" ]; then
+    git add -A && git commit -q -m "notes $(date -Is)" || true
+  fi
+fi

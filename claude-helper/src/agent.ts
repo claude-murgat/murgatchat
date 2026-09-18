@@ -1,6 +1,6 @@
-// Un tour d'analyse = une invocation de l'Agent SDK dans le workspace
-// /home/murgat/claude-helper (CLAUDE.md = connaissance permanente de l'expert,
-// .claude/settings.json = permissions). La continuité d'une conversation
+// Un tour d'analyse = une invocation de l'Agent SDK dans le workspace de
+// l'expert visé (voir experts.ts : CLAUDE.md = connaissance permanente de
+// l'expert, .claude/settings.json = permissions). La continuité d'une conversation
 // MurgaChat repose sur `resume` : on garde l'id de session Claude par canal
 // dans state/sessions.json, l'historique vit chez Claude Code (~/.claude).
 
@@ -8,8 +8,8 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { workspaceFor } from "./experts.ts";
 
-const WORKSPACE = process.env.WORKSPACE || "/home/murgat/claude-helper";
 const STATE_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "state");
 const SESSIONS_FILE = join(STATE_DIR, "sessions.json");
 const TURN_TIMEOUT_MS = 15 * 60_000;
@@ -48,11 +48,12 @@ function progressLabel(content: unknown): string | null {
   // Pas de phrase : statut générique selon l'outil.
   const cmd = String(tool.input?.command ?? "").toLowerCase();
   if (tool.name === "Bash") {
-    if (cmd.includes("docker logs")) return "Lecture des logs de la supervision…";
+    if (cmd.includes("docker logs")) return "Lecture des logs des conteneurs…";
     if (/docker (ps|stats|inspect|top)/.test(cmd)) return "Inspection des conteneurs…";
     if (cmd.includes("bin/db") || cmd.includes("mariadb")) return "Interrogation de la base…";
     if (cmd.includes("sync-mirror")) return "Mise à jour du miroir du code…";
-    if (cmd.startsWith("ssh")) return "Connexion à la supervision…";
+    if (cmd.includes("bin/http")) return "Sonde HTTP de l'application…";
+    if (cmd.startsWith("ssh")) return "Connexion au serveur…";
     return "Exécution d'une commande…";
   }
   if (["Read", "Grep", "Glob"].includes(tool.name)) return "Lecture du code…";
@@ -70,12 +71,13 @@ type TurnResult = { ok: boolean; reply?: string; error?: string };
 export async function runTurn(
   key: string,
   prompt: string,
-  onProgress?: (text: string) => void
+  onProgress?: (text: string) => void,
+  workspace: string = workspaceFor(undefined)!
 ): Promise<TurnResult> {
   const MAX_ATTEMPTS = 2;
   let last: TurnResult = { ok: false, error: "sdk_error" };
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    last = await runOnce(key, prompt, onProgress);
+    last = await runOnce(key, prompt, onProgress, workspace);
     if (last.ok || last.error !== "sdk_error") return last;
     if (attempt < MAX_ATTEMPTS) {
       console.warn(`[helper] tour ${key}: crash process (tentative ${attempt}), reprise dans 3s`);
@@ -88,7 +90,8 @@ export async function runTurn(
 async function runOnce(
   key: string,
   prompt: string,
-  onProgress?: (text: string) => void
+  onProgress: ((text: string) => void) | undefined,
+  workspace: string
 ): Promise<TurnResult> {
   const sessions = loadSessions();
   const started = Date.now();
@@ -100,7 +103,7 @@ async function runOnce(
       prompt,
       options: {
         model: "claude-opus-5",
-        cwd: WORKSPACE,
+        cwd: workspace,
         resume: sessions[key],
         // Charger UNIQUEMENT les réglages du workspace : CLAUDE.md +
         // .claude/settings.json (permissions). Pas de réglages utilisateur.

@@ -1,10 +1,11 @@
-// Section CLAUDE — la conversation de chaque utilisateur avec l'expert
-// « supervision ». Le canal est un vrai Channel (kind: "claude", privé, membres
-// = l'utilisateur + le bot claude) : on hérite ainsi de message:new, des badges
-// non-lus, des notifications/push (crucial : une analyse dure des minutes), de
-// la recherche et de toute l'UI ChannelView. Le cerveau tourne sur la VM
-// claude-helper (voir ../claudeHelper.ts) ; ce fichier expose l'ouverture de la
-// conversation et le webhook de retour.
+// Section CLAUDE — la conversation de chaque utilisateur avec un expert Claude
+// (supervision, Murgat Management… — registre dans ../experts.ts). Le canal est
+// un vrai Channel (kind: "claude", privé, membres = l'utilisateur + le bot
+// claude, colonne `expert` = clé du registre) : on hérite ainsi de message:new,
+// des badges non-lus, des notifications/push (crucial : une analyse dure des
+// minutes), de la recherche et de toute l'UI ChannelView. Le cerveau tourne sur
+// la VM claude-helper (voir ../claudeHelper.ts) ; ce fichier expose la liste des
+// experts ouverts, l'ouverture d'une conversation et les webhooks de retour.
 
 import { Router } from "express";
 import { z } from "zod";
@@ -18,25 +19,47 @@ import {
   deliverBotReply,
 } from "../claudeHelper.ts";
 import { serializeChannel } from "./channels.ts";
+import { EXPERTS, enabledExperts, getEnabledExpert } from "../experts.ts";
 
 const router = Router();
 
-export const CLAUDE_CHANNEL_NAME = "Expert supervision";
+// Nom du canal de l'expert historique — conservé pour les appelants existants.
+export const CLAUDE_CHANNEL_NAME = EXPERTS.supervision.name;
 
-// Ouvre (ou retrouve) LA conversation de l'appelant avec l'expert. Idempotent :
-// un seul canal kind="claude" par utilisateur, même sous double-clic — d'où le
-// findFirst avant création plutôt qu'une contrainte dédiée en base.
+// Les experts ouverts sur ce serveur (CLAUDE_EXPERTS) : la barre latérale
+// propose un bouton par expert pas encore consulté. Liste vide si le pont n'est
+// pas configuré — le client garde alors son bouton historique, dont le clic
+// explique que l'expert n'est pas disponible (503 ci-dessous).
+router.get("/experts", requireAuth, (_req, res) => {
+  res.json({ experts: claudeExpertEnabled() ? enabledExperts() : [] });
+});
+
+const openSchema = z.object({ expert: z.string().min(1).max(40).optional() });
+
+// Ouvre (ou retrouve) LA conversation de l'appelant avec un expert. Idempotent :
+// un seul canal kind="claude" par utilisateur ET par expert, même sous
+// double-clic — d'où le findFirst avant création plutôt qu'une contrainte dédiée
+// en base. Sans `expert` dans le corps (clients antérieurs) : supervision.
 router.post("/conversation", requireAuth, async (req, res) => {
   if (!claudeExpertEnabled()) {
     return res.status(503).json({ error: "claude_expert_unavailable" });
   }
+  const parsed = openSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: "invalid_payload" });
+  const expert = getEnabledExpert(parsed.data.expert);
+  if (!expert) return res.status(400).json({ error: "unknown_expert" });
+
   const include = {
     memberships: { include: { user: true } },
     messages: { orderBy: { createdAt: "desc" as const }, take: 1 },
   };
 
   const existing = await prisma.channel.findFirst({
-    where: { kind: "claude", memberships: { some: { userId: req.userId } } },
+    where: {
+      kind: "claude",
+      expert: expert.key,
+      memberships: { some: { userId: req.userId } },
+    },
     include,
   });
   if (existing) {
@@ -47,11 +70,12 @@ router.post("/conversation", requireAuth, async (req, res) => {
   const channel = await prisma.channel.create({
     data: {
       kind: "claude",
+      expert: expert.key,
       isDirect: false,
       isPrivate: true,
-      name: CLAUDE_CHANNEL_NAME,
-      description:
-        "Conversation privée avec l'expert Claude de l'application SUPERVISION.",
+      name: expert.name,
+      // Affichée en sous-titre de l'en-tête par le client (ChannelView).
+      description: expert.tagline,
       memberships: { create: [{ userId: req.userId }, { userId: bot.id }] },
     },
     include,

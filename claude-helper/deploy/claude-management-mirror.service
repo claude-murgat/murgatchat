@@ -1,0 +1,7 @@
+[Unit]
+Description=Miroir du dépôt murgat_management (stack de test .203) + commit des notes de l'expert
+
+[Service]
+Type=oneshot
+User=murgat
+ExecStart=/home/murgat/claude-management/bin/sync-mirror

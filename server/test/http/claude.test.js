@@ -21,6 +21,7 @@ afterEach(() => {
   delete process.env.CLAUDE_HELPER_URL;
   delete process.env.CLAUDE_HELPER_TOKEN;
   delete process.env.CLAUDE_CALLBACK_TOKEN;
+  delete process.env.CLAUDE_EXPERTS;
 });
 
 describe("POST /claude/conversation", () => {
@@ -42,6 +43,7 @@ describe("POST /claude/conversation", () => {
     expect(ch.isPrivate).toBe(true);
     expect(ch.isDirect).toBe(false);
     expect(ch.name).toBe("Expert supervision");
+    expect(ch.expert).toBe("supervision"); // sans `expert` dans le corps : l'historique
     const usernames = ch.members.map((m) => m.username).sort();
     expect(usernames).toContain("claude");
     expect(usernames).toContain(u.user.username);
@@ -56,6 +58,58 @@ describe("POST /claude/conversation", () => {
     const v = await registerUser(srv.app);
     const other = await authed(srv.app, v.token).post("/claude/conversation").send({});
     expect(other.body.channel.id).not.toBe(ch.id);
+  });
+});
+
+describe("experts multiples (GET /claude/experts, expert dans le corps)", () => {
+  it("liste vide sans pont ; supervision seul par défaut ; CLAUDE_EXPERTS ouvre les autres", async () => {
+    const u = await registerUser(srv.app);
+    const off = await authed(srv.app, u.token).get("/claude/experts");
+    expect(off.status).toBe(200);
+    expect(off.body.experts).toEqual([]);
+
+    enableBridge();
+    const one = await authed(srv.app, u.token).get("/claude/experts");
+    expect(one.body.experts.map((e) => e.key)).toEqual(["supervision"]);
+
+    process.env.CLAUDE_EXPERTS = "supervision, management, inconnu";
+    const both = await authed(srv.app, u.token).get("/claude/experts");
+    expect(both.body.experts.map((e) => e.key)).toEqual(["supervision", "management"]);
+    expect(both.body.experts[1].name).toBe("Expert Murgat Management");
+    expect(both.body.experts[1].button).toContain("Murgat Management");
+  });
+
+  it("un canal par expert et par utilisateur, nommé d'après l'expert", async () => {
+    enableBridge();
+    process.env.CLAUDE_EXPERTS = "supervision,management";
+    const u = await registerUser(srv.app);
+
+    const sup = (await authed(srv.app, u.token).post("/claude/conversation").send({})).body.channel;
+    const mm = (
+      await authed(srv.app, u.token).post("/claude/conversation").send({ expert: "management" })
+    ).body.channel;
+    expect(mm.id).not.toBe(sup.id);
+    expect(mm.kind).toBe("claude");
+    expect(mm.expert).toBe("management");
+    expect(mm.name).toBe("Expert Murgat Management");
+    expect(mm.description).toContain("Murgat Management");
+    expect(mm.members.map((m) => m.username)).toContain("claude");
+
+    // Idempotent par expert : on retrouve le même canal, pas un doublon.
+    const again = (
+      await authed(srv.app, u.token).post("/claude/conversation").send({ expert: "management" })
+    ).body.channel;
+    expect(again.id).toBe(mm.id);
+  });
+
+  it("400 sur un expert inconnu ou pas ouvert sur ce serveur", async () => {
+    enableBridge(); // CLAUDE_EXPERTS absent → supervision seul
+    const u = await registerUser(srv.app);
+    for (const expert of ["management", "nimporte"]) {
+      const res = await authed(srv.app, u.token).post("/claude/conversation").send({ expert });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("unknown_expert");
+    }
   });
 });
 

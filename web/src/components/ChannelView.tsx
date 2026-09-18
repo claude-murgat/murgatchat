@@ -702,14 +702,15 @@ export default function ChannelView({
     );
   }
 
-  // Conversation avec l'expert Claude : même vue, mais un en-tête sans « # »,
-  // un sous-titre explicatif et pas de gestion de membres (canal figé à
-  // {utilisateur, bot} — voir server/src/routes/claude.ts).
+  // Conversation avec un expert Claude : même vue, mais un en-tête sans « # »,
+  // un sous-titre explicatif (la description du canal = l'expert consulté) et
+  // pas de gestion de membres (canal figé à {utilisateur, bot} — voir
+  // server/src/routes/claude.ts).
   const isClaude = channel.kind === "claude";
   const headerTitle = channel.isDirect
     ? channel.displayName
     : isClaude
-    ? channel.name || "Expert supervision"
+    ? channel.name || "Expert Claude"
     : `# ${channel.name}`;
   const currentNotifyOption =
     NOTIFY_OPTIONS.find((o) => o.value === (channel.notifyLevel || "all")) ||
@@ -782,7 +783,7 @@ export default function ChannelView({
             )
           ) : isClaude ? (
             <div className="text-xs text-slate-500 truncate">
-              Expert de l'application SUPERVISION — les analyses peuvent prendre
+              {channel.description || "Expert Claude"} — les analyses peuvent prendre
               plusieurs minutes
             </div>
           ) : (
