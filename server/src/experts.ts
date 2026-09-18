@@ -27,9 +27,9 @@ export const EXPERTS: Record<string, ExpertDef> = {
   },
   management: {
     key: "management",
-    name: "Expert Murgat Management",
+    name: "Expert MM",
     tagline: "Expert de Murgat Management — refonte, stack de test (172.16.1.203)",
-    button: "Consulter l'expert Murgat Management",
+    button: "Consulter l'expert MM",
   },
 };
 

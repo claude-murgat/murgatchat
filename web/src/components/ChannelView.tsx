@@ -269,6 +269,7 @@ export default function ChannelView({
   const composerRef = useRef<ComposerHandle | null>(null);
   const dragDepth = useRef(0);
   const [dragging, setDragging] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   function isFileDrag(e: React.DragEvent<HTMLElement>) {
     return Array.from(e.dataTransfer?.types || []).includes("Files");
@@ -605,6 +606,20 @@ export default function ChannelView({
     }
   }
 
+  async function clearConversation() {
+    if (!channel) return;
+    setShowClearConfirm(false);
+    try {
+      await api.clearClaudeConversation(channel.id);
+      setMessages([]);
+      setFirstUnreadId(null);
+      setScheduled([]);
+      alert("Conversation vidée et session réinitialisée.");
+    } catch (e) {
+      alert("Erreur en vidant la conversation: " + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+
   function send(payload: SendPayload) {
     if (!channel || !socket) return;
     const parentId = replyingTo?.id || null;
@@ -826,6 +841,15 @@ export default function ChannelView({
             <span aria-hidden="true">⏰</span>
             <span className="ml-1">({scheduled.length})</span>
           </button>
+          {isClaude && (
+            <button
+              onClick={() => setShowClearConfirm(true)}
+              className="text-xs px-2 py-1.5 rounded-sm border border-slate-300 hover:bg-slate-100"
+              title="Vider l'historique et réinitialiser la session"
+            >
+              Vider
+            </button>
+          )}
           <div className="relative" ref={notifyMenuRef}>
             <button
               onClick={() => setShowNotifyMenu((v) => !v)}
@@ -1022,6 +1046,31 @@ export default function ChannelView({
           onClose={() => setForwardingMessage(null)}
           onPick={forwardMessage}
         />
+      )}
+
+      {showClearConfirm && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50">
+          <div className="bg-white rounded-lg shadow-xl max-w-sm mx-4 p-6">
+            <h2 className="text-lg font-bold mb-2">Vider la conversation ?</h2>
+            <p className="text-sm text-slate-600 mb-6">
+              Cela supprimera tous les messages et réinitialisera la session avec l'expert. Cette action est irréversible.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowClearConfirm(false)}
+                className="px-4 py-2 text-sm border border-slate-300 rounded-sm hover:bg-slate-100"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={clearConversation}
+                className="px-4 py-2 text-sm bg-red-600 text-white rounded-sm hover:bg-red-700"
+              >
+                Vider
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   );

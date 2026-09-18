@@ -75,8 +75,8 @@ describe("experts multiples (GET /claude/experts, expert dans le corps)", () => 
     process.env.CLAUDE_EXPERTS = "supervision, management, inconnu";
     const both = await authed(srv.app, u.token).get("/claude/experts");
     expect(both.body.experts.map((e) => e.key)).toEqual(["supervision", "management"]);
-    expect(both.body.experts[1].name).toBe("Expert Murgat Management");
-    expect(both.body.experts[1].button).toContain("Murgat Management");
+    expect(both.body.experts[1].name).toBe("Expert MM");
+    expect(both.body.experts[1].button).toContain("MM");
   });
 
   it("un canal par expert et par utilisateur, nommé d'après l'expert", async () => {
@@ -91,7 +91,7 @@ describe("experts multiples (GET /claude/experts, expert dans le corps)", () => 
     expect(mm.id).not.toBe(sup.id);
     expect(mm.kind).toBe("claude");
     expect(mm.expert).toBe("management");
-    expect(mm.name).toBe("Expert Murgat Management");
+    expect(mm.name).toBe("Expert MM");
     expect(mm.description).toContain("Murgat Management");
     expect(mm.members.map((m) => m.username)).toContain("claude");
 
@@ -233,5 +233,73 @@ describe("canaux claude figés", () => {
       `/channels/${channel.id}/members/${bot.id}`
     );
     expect(kick.status).toBe(404);
+  });
+});
+
+describe("POST /claude/conversation/:channelId/clear", () => {
+  it("efface les messages et réinitialise la session", async () => {
+    enableBridge();
+    const u = await registerUser(srv.app);
+    const channel = (
+      await authed(srv.app, u.token).post("/claude/conversation").send({})
+    ).body.channel;
+
+    // Ajouter un message artificiel à la base.
+    const bot = await prisma.user.findUnique({ where: { username: "claude" } });
+    if (!bot) throw new Error("Bot user not found");
+    await prisma.message.create({
+      data: {
+        channelId: channel.id,
+        authorId: bot.id,
+        body: "Test message",
+        searchableBody: "test message",
+      },
+    });
+
+    // Vérifier qu'il y a 1 message.
+    let msgs = await prisma.message.count({ where: { channelId: channel.id } });
+    expect(msgs).toBe(1);
+
+    // Vider la conversation.
+    const clear = await authed(srv.app, u.token).post(
+      `/claude/conversation/${channel.id}/clear`
+    );
+    expect(clear.status).toBe(200);
+
+    // Vérifier que les messages ont été supprimés.
+    msgs = await prisma.message.count({ where: { channelId: channel.id } });
+    expect(msgs).toBe(0);
+  });
+
+  it("403 si l'utilisateur n'est pas membre du canal", async () => {
+    enableBridge();
+    const u = await registerUser(srv.app);
+    const other = await registerUser(srv.app);
+    const channel = (
+      await authed(srv.app, u.token).post("/claude/conversation").send({})
+    ).body.channel;
+
+    const clear = await authed(srv.app, other.token).post(
+      `/claude/conversation/${channel.id}/clear`
+    );
+    expect(clear.status).toBe(403);
+  });
+
+  it("404 si le canal n'existe pas ou n'est pas un canal claude", async () => {
+    enableBridge();
+    const u = await registerUser(srv.app);
+    const salon = (
+      await authed(srv.app, u.token).post("/channels").send({ name: `salon-${Date.now()}` })
+    ).body.channel;
+
+    const clear = await authed(srv.app, u.token).post(
+      `/claude/conversation/inexistant/clear`
+    );
+    expect(clear.status).toBe(404);
+
+    const clearSalon = await authed(srv.app, u.token).post(
+      `/claude/conversation/${salon.id}/clear`
+    );
+    expect(clearSalon.status).toBe(404);
   });
 });

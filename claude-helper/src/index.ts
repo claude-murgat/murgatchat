@@ -21,6 +21,7 @@ import { z } from "zod";
 import { enqueueTurn, queueDepth } from "./queue.ts";
 import { runSupportTurn } from "./support.ts";
 import { DEFAULT_EXPERT, knownExperts, workspaceFor } from "./experts.ts";
+import { resetSessionFor } from "./agent.ts";
 
 const PORT = Number(process.env.PORT || 7070);
 
@@ -106,6 +107,26 @@ app.post("/support-turn", async (req, res) => {
   } finally {
     supportRunning--;
   }
+});
+
+// Réinitialiser la session d'une conversation (effacer l'historique côté Claude).
+// Appelé quand l'utilisateur clique « vider la conversation » dans le chat.
+const resetSchema = z.object({
+  conversationKey: z.string().min(1).max(60),
+});
+
+app.post("/reset-session", (req, res) => {
+  const auth = req.headers.authorization || "";
+  const provided = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (!tokenMatches(provided)) return res.status(401).json({ error: "unauthorized" });
+
+  const parsed = resetSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: "invalid_payload" });
+
+  const { conversationKey } = parsed.data;
+  resetSessionFor(conversationKey);
+  console.log(`[helper] session réinitialisée pour ${conversationKey}`);
+  res.json({ ok: true });
 });
 
 for (const name of ["HELPER_TOKEN", "CALLBACK_URL", "CALLBACK_TOKEN"]) {
