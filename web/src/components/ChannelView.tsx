@@ -48,7 +48,65 @@ interface SendAck {
 type ScrollMode =
   | { type: "bottom" }
   | { type: "unread" }
-  | { type: "preserve"; prevHeight: number; prevTop: number };
+  // `anchorId` : le message le plus ancien AVANT l'ajout de la page d'anciens.
+  | { type: "preserve"; prevHeight: number; prevTop: number; anchorId: string };
+
+/**
+ * Fil affiché et pagination vers le passé, dans un seul état : une
+ * resynchronisation décide de garder ou non l'historique déjà chargé d'après la
+ * liste COURANTE (dans un updater), et doit mettre à jour les deux ensemble.
+ */
+interface Timeline {
+  /** Salon auquel appartient ce fil : il n'est affiché que pour ce salon. */
+  channelId: string | null;
+  messages: Message[];
+  /** Le serveur a des messages plus anciens que `messages[0]` (curseur `before`). */
+  hasMore: boolean;
+}
+
+const EMPTY_TIMELINE: Timeline = { channelId: null, messages: [], hasMore: false };
+const NO_MESSAGES: Message[] = [];
+
+/** Évènement temps réel sur le fil du salon ouvert. */
+type LiveEvent =
+  | { type: "new"; message: Message }
+  | { type: "updated"; message: Message }
+  | { type: "deleted"; id: string }
+  | { type: "reaction"; messageId: string; reactions: Reaction[] };
+
+function applyLiveEvent(messages: Message[], ev: LiveEvent): Message[] {
+  switch (ev.type) {
+    case "new":
+      return messages.some((m) => m.id === ev.message.id) ? messages : [...messages, ev.message];
+    case "updated":
+      return messages.map((m) => (m.id === ev.message.id ? ev.message : m));
+    case "deleted":
+      return messages.filter((m) => m.id !== ev.id);
+    case "reaction":
+      return messages.map((m) => (m.id === ev.messageId ? { ...m, reactions: ev.reactions } : m));
+  }
+}
+
+// N'applique `ev` qu'au fil du salon `channelId` : celui d'une autre conversation
+// (en cours de remplacement) n'est jamais touché.
+function applyToTimeline(t: Timeline, channelId: string | undefined, ev: LiveEvent): Timeline {
+  if (t.channelId !== channelId) return t;
+  const messages = applyLiveEvent(t.messages, ev);
+  return messages === t.messages ? t : { ...t, messages };
+}
+
+// Resynchronisation : la page la plus récente fait foi sur sa fenêtre (messages
+// manqués, modifiés ou supprimés pendant une coupure). L'historique déjà chargé
+// au-dessus n'est gardé que s'il la rejoint — son 1er message figure dans le fil —
+// sinon (plus d'une page manquée) on repart de cette page seule.
+function mergeLatestPage(t: Timeline, res: MessagesResponse): Timeline {
+  const page = res.messages;
+  if (res.hasMore) {
+    const joint = t.messages.findIndex((m) => m.id === page[0]?.id);
+    if (joint !== -1) return { ...t, messages: [...t.messages.slice(0, joint), ...page] };
+  }
+  return { ...t, messages: page, hasMore: !!res.hasMore };
+}
 
 function fmtBytes(n: number) {
   if (n < 1024) return `${n} o`;
@@ -214,11 +272,22 @@ export default function ChannelView({
   // Sur desktop (md+), le bouton est masqué et la sidebar reste à gauche en permanence.
   onBackToList,
 }: ChannelViewProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
   // Pagination par curseur : 200 messages les plus récents à l'ouverture, puis
   // « charger les plus anciens » par paquets de 200 (cf. loadOlder + l'API `before`).
-  const [hasMore, setHasMore] = useState(false);
-  const [oldestCursor, setOldestCursor] = useState<string | null>(null);
+  const [timeline, setTimeline] = useState<Timeline>(EMPTY_TIMELINE);
+  // Le fil n'est montré — ni exploité : pagination, recherche, défilement — que
+  // s'il appartient au salon ouvert : jamais celui de la conversation précédente
+  // pendant que la nouvelle charge, ni si ce chargement échoue.
+  const timelineShown = !!channel && timeline.channelId === channel.id;
+  const messages = timelineShown ? timeline.messages : NO_MESSAGES;
+  const hasMore = timelineShown && timeline.hasMore;
+  // Salon dont le chargement initial a échoué : erreur + « Réessayer », qui
+  // incrémente `retryKey` pour relancer l'effet de chargement.
+  const [failedChannelId, setFailedChannelId] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
+  // Évènements temps réel reçus pendant un chargement en cours (null : aucun).
+  // La page renvoyée a pu être lue en base AVANT eux : ils sont rejoués dessus.
+  const pendingLiveRef = useRef<LiveEvent[] | null>(null);
   // Id du 1er message non lu à l'ouverture (frontière renvoyée par le serveur) :
   // on s'y positionne, et un séparateur « Nouveaux messages » le marque.
   const [firstUnreadId, setFirstUnreadId] = useState<string | null>(null);
@@ -319,46 +388,91 @@ export default function ChannelView({
   useEffect(() => {
     if (!activeChannelId) return;
     let cancelled = false;
+    // Plusieurs chargements peuvent se chevaucher (ouverture, reconnexion, retour
+    // au premier plan) : seule la réponse du DERNIER fait foi, et le premier qui
+    // aboutit tient lieu d'ouverture.
+    let latest = 0;
+    let opened = false;
+    setFailedChannelId(null);
+    setScheduled([]);
+    setLoadingOlder(false);
     setTypingUserIds([]);
     setClaudeStatus("");
     setReplyingTo(null);
-    setHasMore(false);
-    setOldestCursor(null);
     setFirstUnreadId(null);
-    // Le 2e paramètre (`before`) est facultatif à l'exécution, mais api.ts ne
-    // l'annote pas encore comme tel : ce cast — purement statique — rétablit la
-    // signature réelle sans rien changer à l'appel.
-    (
-      api.messages as (
-        channelId: string,
-        before?: string | null
-      ) => Promise<MessagesResponse>
-    )(activeChannelId).then((res) => {
-      if (cancelled) return;
-      // Ouverture : sur le PREMIER message non lu s'il y en a un (et qu'il est
-      // dans la page chargée), sinon en bas (dernier message).
-      const fuId =
-        res.firstUnreadId && res.messages.some((m) => m.id === res.firstUnreadId)
-          ? res.firstUnreadId
-          : null;
-      setFirstUnreadId(fuId);
-      scrollModeRef.current = fuId ? { type: "unread" } : { type: "bottom" };
-      setMessages(res.messages);
-      setHasMore(!!res.hasMore);
-      setOldestCursor(res.nextCursor || null);
-      // Marquer lu APRÈS la réponse : le serveur a calculé `firstUnreadId` à
-      // partir de l'ancien `lastReadAt` ; l'émettre avant l'aurait effacé
-      // (course entre le GET et le socket channel:read).
-      if (isWindowFocused()) socket?.emit("channel:read", { channelId: activeChannelId });
-    });
+
+    // Charge la page la plus récente. Rejoué à chaque (re)connexion du socket et
+    // à chaque retour au premier plan : ce qui a été posté pendant une coupure
+    // (PWA en arrière-plan, veille, changement de réseau) n'a jamais été poussé
+    // par le socket, et n'apparaîtrait sinon qu'en rouvrant la conversation.
+    const load = () => {
+      const attempt = ++latest;
+      pendingLiveRef.current = [];
+      api
+        .messages(activeChannelId)
+        .then((res: MessagesResponse) => {
+          if (cancelled || attempt !== latest) return;
+          const live = pendingLiveRef.current ?? [];
+          pendingLiveRef.current = null;
+          if (!opened) {
+            opened = true;
+            // Ouverture : sur le PREMIER message non lu s'il y en a un (et qu'il est
+            // dans la page chargée), sinon en bas (dernier message).
+            const fuId =
+              res.firstUnreadId && res.messages.some((m) => m.id === res.firstUnreadId)
+                ? res.firstUnreadId
+                : null;
+            setFirstUnreadId(fuId);
+            scrollModeRef.current = fuId ? { type: "unread" } : { type: "bottom" };
+            setTimeline({
+              channelId: activeChannelId,
+              messages: live.reduce(applyLiveEvent, res.messages),
+              hasMore: !!res.hasMore,
+            });
+          } else {
+            // Resynchronisation : même règle de défilement qu'un message temps réel.
+            const el = scrollRef.current;
+            const nearBottom = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 150;
+            scrollModeRef.current = nearBottom ? { type: "bottom" } : null;
+            setTimeline((t) => {
+              if (t.channelId !== activeChannelId) return t;
+              const merged = mergeLatestPage(t, res);
+              return { ...merged, messages: live.reduce(applyLiveEvent, merged.messages) };
+            });
+          }
+          // Marquer lu APRÈS la réponse : le serveur a calculé `firstUnreadId` à
+          // partir de l'ancien `lastReadAt` ; l'émettre avant l'aurait effacé
+          // (course entre le GET et le socket channel:read).
+          if (isWindowFocused()) socket?.emit("channel:read", { channelId: activeChannelId });
+        })
+        .catch(() => {
+          if (cancelled || attempt !== latest) return;
+          pendingLiveRef.current = null;
+          // Une resynchro ratée laisse le fil tel quel ; à l'ouverture, on le signale.
+          if (!opened) setFailedChannelId(activeChannelId);
+        });
+    };
+    load();
     api.scheduled(activeChannelId).then((res: { scheduled: ScheduledMessage[] }) => {
       if (!cancelled) setScheduled(res.scheduled);
     });
     socket?.emit("channel:join", activeChannelId);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    socket?.on("connect", load);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
+      pendingLiveRef.current = null;
+      socket?.off("connect", load);
+      document.removeEventListener("visibilitychange", onVisible);
+      // Vidé en QUITTANT le salon (et non à l'ouverture du suivant) : rouvert plus
+      // tard — retour à la liste sur mobile puis le même salon —, il ne doit pas
+      // réafficher son ancien fil, le temps d'un rendu, avant de recharger.
+      setTimeline(EMPTY_TIMELINE);
     };
-  }, [activeChannelId, socket]);
+  }, [activeChannelId, socket, retryKey]);
 
   // Recherche (#319) : dès que le message ciblé est présent dans la page chargée,
   // on le fait défiler + on le met en évidence, puis on relâche le focus côté App.
@@ -390,6 +504,12 @@ export default function ChannelView({
 
   useEffect(() => {
     if (!socket) return;
+    // Applique un évènement au fil du salon ouvert ; pendant un chargement, il est
+    // aussi consigné pour être rejoué sur la page attendue (cf. pendingLiveRef).
+    function live(ev: LiveEvent) {
+      pendingLiveRef.current?.push(ev);
+      setTimeline((t) => applyToTimeline(t, activeChannelId, ev));
+    }
     function onNew(msg: Message) {
       if (!activeChannelId || msg.channelId !== activeChannelId) return;
       // La réponse de l'expert est arrivée : l'étape en cours n'a plus lieu d'être.
@@ -404,24 +524,21 @@ export default function ChannelView({
       // L'intention de scroll est posée AVANT l'updater : React peut rejouer un
       // updater, ce qui réécrirait le ref après que le useLayoutEffect l'a déjà
       // consommé et remis à null — d'où un saut de scroll parasite. Un message
-      // en double (le `some` ci-dessous) repasserait ici sans rien changer :
+      // en double (ignoré par applyLiveEvent) repasserait ici sans rien changer :
       // « bottom » alors qu'on y est déjà, ou null, dans les deux cas sans effet.
       scrollModeRef.current = nearBottom ? { type: "bottom" } : null;
-      setMessages((prev) => {
-        if (prev.some((m) => m.id === msg.id)) return prev;
-        return [...prev, msg];
-      });
+      live({ type: "new", message: msg });
       // `socket` est garanti non-nul par le `return` en tête d'effet, mais TS perd
       // ce raffinement dans une fonction déclarée (hoistée) — d'où l'assertion.
       if (isWindowFocused()) socket!.emit("channel:read", { channelId: activeChannelId });
     }
     function onUpdated(msg: Message) {
       if (!activeChannelId || msg.channelId !== activeChannelId) return;
-      setMessages((prev) => prev.map((m) => (m.id === msg.id ? msg : m)));
+      live({ type: "updated", message: msg });
     }
     function onDeleted({ id, channelId }: { id: string; channelId: string }) {
       if (!activeChannelId || channelId !== activeChannelId) return;
-      setMessages((prev) => prev.filter((m) => m.id !== id));
+      live({ type: "deleted", id });
       // Don't keep an orphaned reply-target if it just vanished.
       setReplyingTo((curr) => (curr?.id === id ? null : curr));
     }
@@ -432,9 +549,7 @@ export default function ChannelView({
       messageId: string;
       reactions: Reaction[];
     }) {
-      setMessages((prev) =>
-        prev.map((m) => (m.id === messageId ? { ...m, reactions } : m))
-      );
+      live({ type: "reaction", messageId, reactions });
     }
     function onTyping({ channelId, userId }: { channelId: string; userId: string }) {
       if (!activeChannelId || channelId !== activeChannelId || userId === currentUser?.id) return;
@@ -502,9 +617,14 @@ export default function ChannelView({
         }
       });
     } else if (mode.type === "preserve") {
-      el.scrollTop = el.scrollHeight - mode.prevHeight + mode.prevTop;
-      stickBottomRef.current = false;
-      unreadAnchorRef.current = false;
+      // Seulement si la page a bien été préfixée devant son ancre : vide ou
+      // ignorée (périmée), l'intention n'est consommée qu'à une maj ultérieure
+      // du fil, où elle ferait sauter la vue d'un lecteur.
+      if (messages.findIndex((m) => m.id === mode.anchorId) > 0) {
+        el.scrollTop = el.scrollHeight - mode.prevHeight + mode.prevTop;
+        stickBottomRef.current = false;
+        unreadAnchorRef.current = false;
+      }
     }
     scrollModeRef.current = null;
   }, [messages]);
@@ -557,26 +677,31 @@ export default function ChannelView({
   // Charge les 200 messages antérieurs au plus ancien affiché et les préfixe,
   // en conservant la position de lecture (la hauteur grandit par le haut).
   function loadOlder() {
-    if (loadingOlder || !hasMore || !oldestCursor || !channel) return;
+    const cursor = messages[0]?.id;
+    if (loadingOlder || !hasMore || !cursor || !channel) return;
+    const channelId = channel.id;
     setLoadingOlder(true);
     api
-      .messages(channel.id, oldestCursor)
+      .messages(channelId, cursor)
       .then((res: MessagesResponse) => {
         const el = scrollRef.current;
         const prevHeight = el ? el.scrollHeight : 0;
         const prevTop = el ? el.scrollTop : 0;
         // Posée avant l'updater, pour la même raison qu'au-dessus (un updater
-        // peut être rejoué). Si aucun message ancien n'est réellement ajouté, on
-        // demande de « préserver » une position inchangée : opération neutre.
-        scrollModeRef.current = { type: "preserve", prevHeight, prevTop };
-        setMessages((prev) => {
-          const seen = new Set(prev.map((m) => m.id));
+        // peut être rejoué) ; sans effet si la page n'est finalement pas préfixée.
+        scrollModeRef.current = { type: "preserve", prevHeight, prevTop, anchorId: cursor };
+        setTimeline((t) => {
+          // Page périmée — autre conversation ouverte entre-temps, ou fil reparti
+          // d'une page plus récente : son ancre n'est plus en tête, on l'ignore.
+          if (t.channelId !== channelId || t.messages[0]?.id !== cursor) return t;
+          const seen = new Set(t.messages.map((m) => m.id));
           const older = (res.messages || []).filter((m) => !seen.has(m.id));
-          if (!older.length) return prev;
-          return [...older, ...prev];
+          return {
+            ...t,
+            messages: older.length ? [...older, ...t.messages] : t.messages,
+            hasMore: !!res.hasMore,
+          };
         });
-        setHasMore(!!res.hasMore);
-        setOldestCursor(res.nextCursor || null);
       })
       .finally(() => setLoadingOlder(false));
   }
@@ -611,7 +736,7 @@ export default function ChannelView({
     setShowClearConfirm(false);
     try {
       await api.clearClaudeConversation(channel.id);
-      setMessages([]);
+      setTimeline((t) => (t.channelId === channel.id ? { ...t, messages: [], hasMore: false } : t));
       setFirstUnreadId(null);
       setScheduled([]);
       alert("Conversation vidée et session réinitialisée.");
@@ -683,7 +808,7 @@ export default function ChannelView({
   async function editMessage(id: string, body: string) {
     try {
       const res: { message: Message } = await api.editMessage(id, body);
-      setMessages((prev) => prev.map((m) => (m.id === id ? res.message : m)));
+      setTimeline((t) => applyToTimeline(t, channel?.id, { type: "updated", message: res.message }));
       return true;
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e));
@@ -695,7 +820,7 @@ export default function ChannelView({
     if (!window.confirm("Supprimer ce message ?")) return;
     try {
       await api.deleteMessage(message.id);
-      setMessages((prev) => prev.filter((m) => m.id !== message.id));
+      setTimeline((t) => applyToTimeline(t, channel?.id, { type: "deleted", id: message.id }));
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e));
     }
@@ -978,10 +1103,25 @@ export default function ChannelView({
             </div>
           );
         })}
-        {messages.length === 0 && (
-          <div className="text-center text-slate-400 mt-12 text-sm">
-            Premier message dans cette conversation.
+        {timelineShown ? (
+          messages.length === 0 && (
+            <div className="text-center text-slate-400 mt-12 text-sm">
+              Premier message dans cette conversation.
+            </div>
+          )
+        ) : failedChannelId === channel.id ? (
+          <div className="text-center text-slate-500 mt-12 text-sm">
+            Impossible de charger les messages.{" "}
+            <button
+              type="button"
+              onClick={() => setRetryKey((k) => k + 1)}
+              className="text-aubergine-700 hover:underline"
+            >
+              Réessayer
+            </button>
           </div>
+        ) : (
+          <div className="text-center text-slate-400 mt-12 text-sm">Chargement…</div>
         )}
       </div>
 

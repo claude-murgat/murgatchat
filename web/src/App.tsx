@@ -77,6 +77,26 @@ function saveLastChannelId(
   }
 }
 
+// Resynchronisation de la liste des conversations : la réponse du serveur fait
+// foi, sans défaire ce qu'un évènement temps réel a apporté PENDANT la requête —
+// un aperçu local plus récent est gardé avec son non-lu, et un salon absent de la
+// réponse (créé ou rejoint entre-temps) est conservé. Le salon ouvert reste lu.
+function mergeChannels(prev: Channel[], fresh: Channel[], activeId: string | null) {
+  const merged = fresh.map((c) => {
+    const local = prev.find((p) => p.id === c.id);
+    const newerLocally =
+      local?.lastMessage &&
+      (!c.lastMessage ||
+        new Date(local.lastMessage.createdAt) > new Date(c.lastMessage.createdAt));
+    const next = newerLocally
+      ? { ...c, lastMessage: local.lastMessage, unread: local.unread || c.unread }
+      : c;
+    return next.id === activeId ? { ...next, unread: false } : next;
+  });
+  const known = new Set(fresh.map((c) => c.id));
+  return [...merged, ...prev.filter((c) => !known.has(c.id))];
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [bootstrapped, setBootstrapped] = useState(false);
@@ -468,6 +488,36 @@ export default function App() {
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("desktop:presence", onDesktopPresence);
       clearInterval(iv);
+    };
+  }, [socket]);
+
+  // Barre latérale : rattrape non-lus, aperçus et salons à chaque (re)connexion
+  // du socket et à chaque retour au premier plan. Ce qui s'est passé pendant une
+  // coupure (PWA en arrière-plan, veille, changement de réseau) n'a jamais été
+  // poussé, et les badges resteraient figés jusqu'au rechargement de l'app.
+  useEffect(() => {
+    if (!socket) return;
+    let cancelled = false;
+    let latest = 0;
+    const resync = () => {
+      const attempt = ++latest;
+      api
+        .listChannels()
+        .then((res) => {
+          if (cancelled || attempt !== latest) return;
+          setChannels((prev) => mergeChannels(prev, res.channels, activeChannelIdRef.current));
+        })
+        .catch(() => {});
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") resync();
+    };
+    socket.on("connect", resync);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      socket.off("connect", resync);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [socket]);
 
