@@ -250,6 +250,10 @@ interface ChannelViewProps {
   focusMessageId?: string | null;
   /** Appelé une fois la mise en évidence effectuée, pour relâcher `focusMessageId`. */
   onFocusHandled?: () => void;
+  /** Photos reçues via la feuille de partage de l'OS (Web Share Target, #346). */
+  sharedFiles?: File[] | null;
+  /** Appelé une fois les fichiers partagés attachés, pour relâcher `sharedFiles`. */
+  onSharedFilesHandled?: () => void;
   onBackToList?: (() => void) | null;
 }
 
@@ -268,6 +272,9 @@ export default function ChannelView({
   // Message ciblé par la recherche (#319) + accusé de prise en compte.
   focusMessageId,
   onFocusHandled,
+  // Photos partagées vers la PWA (#346) + accusé de prise en compte.
+  sharedFiles,
+  onSharedFilesHandled,
   // Mobile-only : retour à la liste des canaux (annule activeChannelId dans App.jsx).
   // Sur desktop (md+), le bouton est masqué et la sidebar reste à gauche en permanence.
   onBackToList,
@@ -371,6 +378,17 @@ export default function ChannelView({
     const files = Array.from(e.dataTransfer?.files || []);
     if (files.length) composerRef.current?.ingestFiles(files);
   }
+
+  // Photos partagées vers la PWA (#346) : une fois une conversation ouverte, on
+  // les attache au Composer (même chemin que le glisser-déposer) puis on accuse
+  // réception pour que App.jsx relâche l'état. Si aucune conversation n'est
+  // encore ouverte au boot, on patiente : l'effet se rejoue quand `channel`
+  // devient disponible.
+  useEffect(() => {
+    if (!sharedFiles?.length || !channel) return;
+    composerRef.current?.ingestFiles(sharedFiles);
+    onSharedFilesHandled?.();
+  }, [sharedFiles, channel, onSharedFilesHandled]);
 
   // Scroll to a message (clicked from a quote bubble) and flash it for 1.5 s.
   function jumpToMessage(id: string) {

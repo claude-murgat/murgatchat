@@ -157,6 +157,57 @@ async function storePendingNavigation(url: string) {
   }
 }
 
+// ── Web Share Target (#346) ────────────────────────────────────────────────
+//
+// Quand l'utilisateur partage des photos vers la PWA (feuille de partage de
+// l'OS), la plateforme POSTe un multipart/form-data sur l'`action` déclarée au
+// manifest (`/share-target`). Une page ne peut pas lire ce corps POST après la
+// navigation, donc le SW l'intercepte, met les fichiers de côté dans Cache
+// Storage, puis redirige (303 → GET) vers `/?share-target=1`. Au boot, le
+// client (pwa.ts) consomme ces fichiers et les attache au Composer.
+
+const SHARE_CACHE = "murgat-shared-v1";
+
+self.addEventListener("fetch", (event) => {
+  const { request } = event;
+  if (request.method !== "POST") return;
+  const url = new URL(request.url);
+  if (url.pathname !== "/share-target") return;
+  event.respondWith(handleShareTarget(request));
+});
+
+async function handleShareTarget(request: Request): Promise<Response> {
+  try {
+    const form = await request.formData();
+    const files = form.getAll("photos").filter((f): f is File => f instanceof File);
+    const cache = await caches.open(SHARE_CACHE);
+    // Repart d'un cache propre : un partage précédent non consommé ne doit pas
+    // se mélanger aux fichiers du nouveau.
+    for (const key of await cache.keys()) await cache.delete(key);
+    let i = 0;
+    for (const file of files) {
+      // Une entrée Cache Storage par fichier : le Blob garde son type MIME, et
+      // le nom d'origine voyage dans un en-tête (non ré-exposé au réseau).
+      await cache.put(
+        `/__shared__/${i}`,
+        new Response(file, {
+          headers: {
+            "Content-Type": file.type || "application/octet-stream",
+            "X-Shared-Filename": encodeURIComponent(file.name || `photo-${i}`),
+          },
+        })
+      );
+      i++;
+    }
+  } catch (err) {
+    // Non bloquant : on redirige quand même pour ouvrir l'app proprement.
+    console.warn("[sw] share-target handler failed:", (err as Error)?.message || err);
+  }
+  // 303 : force la navigation suivante en GET (sinon le navigateur rejouerait le
+  // POST). URL absolue : Response.redirect rejette les URL relatives.
+  return Response.redirect(new URL("/?share-target=1", self.location.origin).href, 303);
+}
+
 // ── Push subscription rotation ────────────────────────────────────────────
 
 self.addEventListener("pushsubscriptionchange", (event) => {

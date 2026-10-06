@@ -106,6 +106,9 @@ export default function App() {
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   // Message à mettre en évidence après ouverture depuis la recherche (#319).
   const [focusMessageId, setFocusMessageId] = useState<string | null>(null);
+  // Photos reçues via la feuille de partage de l'OS (Web Share Target, #346),
+  // à attacher au Composer de la conversation ouverte.
+  const [sharedFiles, setSharedFiles] = useState<File[] | null>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [showNewChannel, setShowNewChannel] = useState(false);
   // Pre-fills the create-channel modal name when launched from the search field.
@@ -403,6 +406,20 @@ export default function App() {
     }
     window.addEventListener("pwa:deeplink", onDeepLink);
     return () => window.removeEventListener("pwa:deeplink", onDeepLink);
+  }, [user]);
+
+  // Partage entrant (Web Share Target, #346) : pwa.ts émet `pwa:share` avec les
+  // fichiers déposés par le service worker. On les mémorise ici ; ChannelView
+  // les attachera au Composer de la conversation ouverte (câblage robuste à
+  // l'ordre de montage, comme focusMessageId).
+  useEffect(() => {
+    if (!user) return;
+    function onShare(e: Event) {
+      const files = (e as CustomEvent<{ files?: File[] }>).detail?.files;
+      if (files?.length) setSharedFiles(files);
+    }
+    window.addEventListener("pwa:share", onShare);
+    return () => window.removeEventListener("pwa:share", onShare);
   }, [user]);
 
   // PWA cold-start hardening (#95): on launch we reopen the last viewed
@@ -843,6 +860,8 @@ export default function App() {
             channels={channels}
             focusMessageId={focusMessageId}
             onFocusHandled={() => setFocusMessageId(null)}
+            sharedFiles={sharedFiles}
+            onSharedFilesHandled={() => setSharedFiles(null)}
             onSwitchChannel={onSelectChannel}
             onAddMembers={() => setShowAddMembers(true)}
             onShowMembers={() => setShowMembers(true)}

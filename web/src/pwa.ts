@@ -19,6 +19,8 @@ import { isTauri } from "./desktop.ts";
 
 const PENDING_CACHE = "murgat-pending-nav-v1";
 const PENDING_KEY = "/__pending_nav__";
+// Cache où le SW dépose les fichiers reçus via la Web Share Target (#346).
+const SHARE_CACHE = "murgat-shared-v1";
 
 // `undefined` fait partie du domaine : getRegistration() le renvoie quand aucun
 // service worker n'est enregistré (les gardes `if (!swRegistration)` couvrent les deux).
@@ -94,6 +96,13 @@ export async function ensurePwaReady() {
     const pending = await consumePendingNavigation();
     if (pending) {
       window.dispatchEvent(new CustomEvent("pwa:deeplink", { detail: { url: pending } }));
+    }
+
+    // Web Share Target (#346) : si on a été ouvert par un partage, récupère les
+    // fichiers déposés par le SW et laisse l'app les attacher au Composer.
+    const shared = await consumeSharedFiles();
+    if (shared.length) {
+      window.dispatchEvent(new CustomEvent("pwa:share", { detail: { files: shared } }));
     }
     return { supported: true, registration: reg };
   } catch (e) {
@@ -274,6 +283,52 @@ async function consumePendingNavigation() {
     return url;
   } catch {
     return null;
+  }
+}
+
+// Récupère les fichiers d'un partage entrant (Web Share Target, #346) : ne fait
+// rien hors d'un boot `/?share-target=...`. Reconstruit des File depuis les
+// Response mises en cache par le SW, vide le cache et nettoie l'URL pour qu'un
+// rafraîchissement ne rejoue pas le partage. Renvoie toujours un tableau.
+async function consumeSharedFiles(): Promise<File[]> {
+  try {
+    if (typeof window === "undefined" || typeof caches === "undefined") return [];
+    if (!new URLSearchParams(window.location.search).has("share-target")) return [];
+    const cache = await caches.open(SHARE_CACHE);
+    // Ordre stable : les clés sont `/__shared__/0`, `/__shared__/1`, … → on trie
+    // sur l'index numérique pour préserver l'ordre de sélection de l'utilisateur.
+    const keys = (await cache.keys()).slice().sort((a, b) => shareIndex(a.url) - shareIndex(b.url));
+    const files: File[] = [];
+    for (const key of keys) {
+      const res = await cache.match(key);
+      if (!res) continue;
+      const blob = await res.blob();
+      const name = decodeURIComponent(res.headers.get("X-Shared-Filename") || "photo");
+      files.push(new File([blob], name, { type: res.headers.get("Content-Type") || blob.type }));
+    }
+    await Promise.all(keys.map((k) => cache.delete(k)));
+    clearShareParam();
+    return files;
+  } catch (e) {
+    console.warn("[pwa] share consume failed:", (e as Error)?.message || e);
+    return [];
+  }
+}
+
+function shareIndex(url: string): number {
+  const n = Number(new URL(url).pathname.split("/").pop());
+  return Number.isFinite(n) ? n : 0;
+}
+
+// Retire `?share-target` de la barre d'adresse sans recharger, pour qu'un reload
+// ne redéclenche pas la consommation (le cache est déjà vidé de toute façon).
+function clearShareParam() {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("share-target");
+    window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+  } catch {
+    // Non-fatal.
   }
 }
 
