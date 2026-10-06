@@ -42,6 +42,24 @@ export default defineConfig({
           { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
           { src: "/icons/icon-512-maskable.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
         ],
+        // Web Share Target (#346) : déclare la PWA comme cible de partage pour
+        // que « Partager » (pellicule photo, etc.) propose Murgat Chat. Partage
+        // de fichiers → POST multipart, intercepté par le service worker qui
+        // stocke les fichiers puis redirige vers `/?share-target=1` (voir sw.ts).
+        // ⚠ iOS/Safari n'implémente pas encore cette API : cette déclaration
+        // active le partage sur Android/Chromium (et le futur iOS), sans effet
+        // négatif ailleurs.
+        share_target: {
+          action: "/share-target",
+          method: "POST",
+          enctype: "multipart/form-data",
+          params: {
+            title: "title",
+            text: "text",
+            url: "url",
+            files: [{ name: "photos", accept: ["image/*"] }],
+          },
+        },
       },
       injectManifest: {
         // The precache manifest covers the app shell so it boots offline on
