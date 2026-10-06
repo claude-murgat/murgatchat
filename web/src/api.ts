@@ -121,7 +121,8 @@ async function request(
   if (!res.ok) {
     const message = errorMessage(data.error, res.statusText);
     logEvent("warn", `API ${res.status} ${method} ${path}${message ? ` (${message})` : ""}`);
-    throw Object.assign(new Error(message), { data });
+    // Le statut permet à l'appelant de distinguer un refus (401) d'une panne.
+    throw Object.assign(new Error(message), { data, status: res.status });
   }
   return data;
 }
