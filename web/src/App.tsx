@@ -139,18 +139,65 @@ export default function App() {
   // The Tauri Update object from the last desktop update check (installed on demand).
   const desktopUpdateRef = useRef<DesktopUpdate>(null);
 
+  // Reprise de la session enregistrée. Seul un refus explicite du serveur (401/403 :
+  // jeton invalide ou expiré, compte désactivé) déconnecte. Une erreur réseau ou un
+  // serveur indisponible garde le jeton : l'écran de connexion le signale et la
+  // reprise est retentée en arrière-plan. L'ancien `.catch(() => setToken(null))`
+  // déconnectait au moindre échec — l'app desktop, lancée à l'ouverture de session
+  // (TSE) souvent avant que le réseau soit prêt, perdait ainsi sa session au
+  // démarrage. Même règle que l'app mobile (#42). « Réessayer » incrémente resumeKey.
+  const [resumeFailed, setResumeFailed] = useState(false);
+  const [resumeKey, setResumeKey] = useState(0);
+  const signedIn = !!user;
   useEffect(() => {
-    const token = getToken();
-    if (!token) {
+    if (signedIn) return;
+    if (!getToken()) {
       setBootstrapped(true);
       return;
     }
-    api
-      .me()
-      .then((res) => setUser(res.user))
-      .catch(() => setToken(null))
-      .finally(() => setBootstrapped(true));
-  }, []);
+    let cancelled = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const resume = (attempt: number) => {
+      api
+        .me()
+        .then((res) => {
+          if (cancelled) return;
+          setUser(res.user);
+          setResumeFailed(false);
+        })
+        .catch((e) => {
+          if (cancelled) return;
+          const status = (e as { status?: number }).status;
+          if (status === 401 || status === 403) {
+            setToken(null);
+            setResumeFailed(false);
+          } else {
+            setResumeFailed(true);
+            retry = setTimeout(() => {
+              retry = undefined;
+              resume(attempt + 1);
+            }, Math.min(30_000, 2_000 * 2 ** attempt));
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setBootstrapped(true);
+        });
+    };
+    // Retour du réseau : inutile d'attendre la fin du délai en cours.
+    const onOnline = () => {
+      if (retry === undefined) return;
+      clearTimeout(retry);
+      retry = undefined;
+      resume(0);
+    };
+    resume(0);
+    window.addEventListener("online", onOnline);
+    return () => {
+      cancelled = true;
+      clearTimeout(retry);
+      window.removeEventListener("online", onOnline);
+    };
+  }, [signedIn, resumeKey]);
 
   useEffect(() => {
     channelsRef.current = channels;
@@ -602,6 +649,7 @@ export default function App() {
 
   const onLoggedIn = useCallback((u: User) => {
     setUser(u);
+    setResumeFailed(false);
   }, []);
 
   const onLogout = useCallback(() => {
@@ -761,7 +809,15 @@ export default function App() {
     );
   }
 
-  if (!user) return <Login onLoggedIn={onLoggedIn} />;
+  if (!user) {
+    return (
+      <Login
+        onLoggedIn={onLoggedIn}
+        resumeFailed={resumeFailed}
+        onRetryResume={() => setResumeKey((k) => k + 1)}
+      />
+    );
+  }
 
   const activeChannel = channels.find((c) => c.id === activeChannelId) || null;
   const showUpdate =

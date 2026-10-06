@@ -44,6 +44,10 @@ interface ResetInfo {
 
 interface LoginProps {
   onLoggedIn: (user: User) => void;
+  /** Session enregistrée non reprise faute de serveur joignable (jeton conservé). */
+  resumeFailed?: boolean;
+  /** Relance immédiate de la reprise de session (sinon retentée en arrière-plan). */
+  onRetryResume?: () => void;
 }
 
 function tokenFromUrl(key: string) {
@@ -66,7 +70,7 @@ function clearUrlQuery() {
   }
 }
 
-export default function Login({ onLoggedIn }: LoginProps) {
+export default function Login({ onLoggedIn, resumeFailed, onRetryResume }: LoginProps) {
   const urlInvite = tokenFromUrl("invite");
   const urlReset = tokenFromUrl("reset");
   const initialMode: Mode = urlReset ? "reset" : urlInvite ? "register" : "login";
@@ -348,6 +352,23 @@ export default function Login({ onLoggedIn }: LoginProps) {
               </div>
             )}
           </div>
+
+          {mode === "login" && resumeFailed && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+              <div className="font-semibold">Serveur injoignable</div>
+              <div className="opacity-90 mt-0.5">
+                Votre session n'a pas pu être reprise : le serveur ne répond pas. Elle sera
+                reprise automatiquement dès son retour — inutile de vous reconnecter.
+              </div>
+              <button
+                type="button"
+                onClick={onRetryResume}
+                className="mt-2 font-semibold underline"
+              >
+                Réessayer maintenant
+              </button>
+            </div>
+          )}
 
           {mode === "login" && needsBootstrap && (
             <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
