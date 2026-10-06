@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-10-06** (**1.3.1** : synchro du fil de discussion — un message reçu s'affiche toujours, y compris pendant l'ouverture d'une conversation ou après une coupure du socket (PWA en arrière-plan, veille, réseau), et changer de conversation n'affiche plus jamais le fil de la précédente ; **1.3.0** : recherche par mot-clé dans les conversations (#319) et, PR #339, la section CLAUDE devient multi-experts et accueille l'expert **Murgat Management** — refonte `clean_v3`, stack de test .203, jamais la vraie prod ; **1.2.3** : le logo de l'expert Claude s'anime pendant la rédaction de sa réponse dans la barre latérale (#314) ; **1.2.2** : release de maintenance — ESLint 10.9.1, Prisma 7.10.0, @types/react-dom 19.2.5 et claude-code-action 1.0.208 relevés, aucun changement fonctionnel ; **1.2.1** : le support in-app passe vraiment par l'abonnement — relais SDK via la VM claude-helper, le mode OAuth brut de la 1.2.0 étant throttlé par politique ; **1.2.0** : l'expert et le support in-app peuvent tourner sur l'abonnement Claude (OAuth) faute de crédits API, messages d'erreur clairs + retry ; **1.1.0** : la section CLAUDE devient un expert de l'appli supervision (VM auxiliaire, accès lecture seule, progression en direct) + sections de la barre latérale repliables ; **1.0.2** : release de maintenance — dompurify, Vite/plugin-react, Vitest et claude-code-action relevés, aucun changement fonctionnel ; **1.0.1** : correctif des modales qui se fermaient sur un glisser sortant du panneau (#191), **Prisma 6 → 7** — adaptateur de driver et `prisma.config.ts` —, groupage Dependabot repensé pour que les paquets indissociables voyagent ensemble, et une trentaine de dépendances relevées ; **1.0.0 — sortie d'alpha** : SemVer strict + canal de pré-release ; socle modernisé (Node 24 LTS, React 19, Tailwind 4, Vite 8, Express 5, Prisma 6, zod 4, ESLint 10, Vitest 4) ; **dépôt 100 % TypeScript**, les trois phases du typage livrées ; quatre bugs révélés par l'outillage ; 0.7.6 : modales plein écran lisibles sur mobile (bouton de validation visible), clic sur notification web qui ouvre la conversation, pièces jointes jusqu'à 50 Mo configurables via `.env` + fix du crash desktop sur fichier trop lourd ; 0.7.5 : aperçu intégré Word/Excel/CSV/texte + PDF réparé, clic notification desktop par protocole, purge du résidu de démarrage TSE, DM triés par récence + non-lus plus visibles, ouverture sur le 1er message non lu + auto-chargement des anciens, mentions surlignées à la saisie ; 0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages).
+Dernière mise à jour : **2026-10-06** (**1.3.2** : maintenance des dépendances (7 PR Dependabot, dont la pile Tauri 2.12 et nodemailer 10) et **release desktop réparée** — paquets npm et crates Rust Tauri désalignés depuis la 1.3.0, contrôle ajouté en CI ; les postes desktop passent directement de 1.2.3 à 1.3.2 ; **1.3.1** (jamais publiée en desktop) : synchro du fil de discussion — un message reçu s'affiche toujours, y compris pendant l'ouverture d'une conversation ou après une coupure du socket (PWA en arrière-plan, veille, réseau), et changer de conversation n'affiche plus jamais le fil de la précédente ; **1.3.0** : recherche par mot-clé dans les conversations (#319) et, PR #339, la section CLAUDE devient multi-experts et accueille l'expert **Murgat Management** — refonte `clean_v3`, stack de test .203, jamais la vraie prod ; **1.2.3** : le logo de l'expert Claude s'anime pendant la rédaction de sa réponse dans la barre latérale (#314) ; **1.2.2** : release de maintenance — ESLint 10.9.1, Prisma 7.10.0, @types/react-dom 19.2.5 et claude-code-action 1.0.208 relevés, aucun changement fonctionnel ; **1.2.1** : le support in-app passe vraiment par l'abonnement — relais SDK via la VM claude-helper, le mode OAuth brut de la 1.2.0 étant throttlé par politique ; **1.2.0** : l'expert et le support in-app peuvent tourner sur l'abonnement Claude (OAuth) faute de crédits API, messages d'erreur clairs + retry ; **1.1.0** : la section CLAUDE devient un expert de l'appli supervision (VM auxiliaire, accès lecture seule, progression en direct) + sections de la barre latérale repliables ; **1.0.2** : release de maintenance — dompurify, Vite/plugin-react, Vitest et claude-code-action relevés, aucun changement fonctionnel ; **1.0.1** : correctif des modales qui se fermaient sur un glisser sortant du panneau (#191), **Prisma 6 → 7** — adaptateur de driver et `prisma.config.ts` —, groupage Dependabot repensé pour que les paquets indissociables voyagent ensemble, et une trentaine de dépendances relevées ; **1.0.0 — sortie d'alpha** : SemVer strict + canal de pré-release ; socle modernisé (Node 24 LTS, React 19, Tailwind 4, Vite 8, Express 5, Prisma 6, zod 4, ESLint 10, Vitest 4) ; **dépôt 100 % TypeScript**, les trois phases du typage livrées ; quatre bugs révélés par l'outillage ; 0.7.6 : modales plein écran lisibles sur mobile (bouton de validation visible), clic sur notification web qui ouvre la conversation, pièces jointes jusqu'à 50 Mo configurables via `.env` + fix du crash desktop sur fichier trop lourd ; 0.7.5 : aperçu intégré Word/Excel/CSV/texte + PDF réparé, clic notification desktop par protocole, purge du résidu de démarrage TSE, DM triés par récence + non-lus plus visibles, ouverture sur le 1er message non lu + auto-chargement des anciens, mentions surlignées à la saisie ; 0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages).
 
 ---
 
@@ -1117,6 +1117,35 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      se perdre.
 
 
+## Itération 2026-10-06 (suite) — dépendances & release desktop réparée (1.3.2)
+
+101. **La release desktop était cassée depuis la 1.3.0** — le job `desktop` de
+     `release.yml` échouait : `tauri build` refuse de construire si un paquet npm
+     `@tauri-apps/*` et sa crate Rust n'ont pas le même majeur.mineur, et
+     Dependabot avait relevé le côté npm seul (updater 2.11.0 vs crate 2.10.1,
+     notification 2.4.0 vs 2.3.3). Il ne gère pas l'écosystème `cargo` et la CI
+     des PR ne construit pas l'app desktop : rien ne le signalait avant le tag.
+     Résultat : `v1.3.0` et `v1.3.1` restées en **brouillon**, postes desktop
+     figés en 1.2.3 (le web/PWA, lui, était bien déployé). Correctifs : crates
+     alignées dans `Cargo.lock` (`cargo update --precise`, via l'image Docker
+     `rust:1-slim`, Rust n'étant pas installé sur pc-rouge) et nouveau contrôle
+     `web/scripts/check-tauri-versions.cjs`, lancé par `npm run lint` du web
+     (donc par le job `lint` de la CI ; brancher une étape dans `tests.yml`
+     demanderait un jeton avec le scope `workflow`) — une PR Dependabot Tauri
+     échoue désormais tant que `Cargo.lock` n'est pas aligné.
+102. **Maintenance des dépendances (sept PR Dependabot)** — fusionnées une à une,
+     CI verte, rebasées par Dependabot quand un lockfile entrait en conflit :
+     multer 2.4.0 (#343), **nodemailer 10.0.12** (#345 ; seul changement cassant :
+     Node ≥ 20, images en Node 24), claude-code-action 1.0.234 (#347),
+     `@types/node` / supertest / vitest (#348), ESLint 10.11 / typescript-eslint
+     8.71 / `@eslint-react` 5.22 (#354, qui remplace #349), Vite 8.3.1 (#350) et
+     **la pile Tauri 2.12** (#353 : api, cli et les cinq plugins, qui remplace
+     #351) avec ses crates alignées dans la même PR — tauri 2.12.1, tauri-build
+     2.7.1, autostart 2.6.0, notification 2.5.1, opener 2.6.0, process 2.4.0,
+     updater 2.13.1 ; `cargo check` de l'app desktop OK (Linux, Docker). Versions
+     portées à 1.3.2 dans les cinq fichiers.
+
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
@@ -1153,5 +1182,6 @@ dépendances relevées, aucune fonctionnalité nouvelle.
 > **1.2.1** (support in-app relayé au SDK de la VM #311 — l'OAuth brut de la 1.2.0 était une impasse ; docs #312),
 > **1.2.2** (maintenance : ESLint #309, Prisma #307, @types/react-dom #308, claude-code-action #306),
 > **1.2.3** (logo de l'expert Claude animé pendant la rédaction #314),
-> **1.3.0** (recherche par mot-clé dans les conversations #319/#338, second expert Murgat Management #339),
-> **1.3.1** (synchro du fil : messages reçus pendant l'ouverture ou une coupure du socket, plus jamais le fil d'une autre conversation).
+> **1.3.0** (recherche par mot-clé dans les conversations #319/#338, second expert Murgat Management #339 — web seulement, release desktop restée en brouillon),
+> **1.3.1** (synchro du fil : messages reçus pendant l'ouverture ou une coupure du socket, plus jamais le fil d'une autre conversation #352 — web seulement, release desktop restée en brouillon),
+> **1.3.2** (release desktop réparée : crates Tauri alignées + contrôle en CI ; dépendances #343/#345/#347/#348/#350/#353/#354 dont Tauri 2.12 et nodemailer 10 ; la desktop passe de 1.2.3 à 1.3.2).
