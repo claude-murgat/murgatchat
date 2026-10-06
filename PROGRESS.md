@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-09-18** (**non versionné, PR #339** : la section CLAUDE devient multi-experts et accueille l'expert **Murgat Management** — refonte `clean_v3`, stack de test .203, jamais la vraie prod ; **1.2.3** : le logo de l'expert Claude s'anime pendant la rédaction de sa réponse dans la barre latérale (#314) ; **1.2.2** : release de maintenance — ESLint 10.9.1, Prisma 7.10.0, @types/react-dom 19.2.5 et claude-code-action 1.0.208 relevés, aucun changement fonctionnel ; **1.2.1** : le support in-app passe vraiment par l'abonnement — relais SDK via la VM claude-helper, le mode OAuth brut de la 1.2.0 étant throttlé par politique ; **1.2.0** : l'expert et le support in-app peuvent tourner sur l'abonnement Claude (OAuth) faute de crédits API, messages d'erreur clairs + retry ; **1.1.0** : la section CLAUDE devient un expert de l'appli supervision (VM auxiliaire, accès lecture seule, progression en direct) + sections de la barre latérale repliables ; **1.0.2** : release de maintenance — dompurify, Vite/plugin-react, Vitest et claude-code-action relevés, aucun changement fonctionnel ; **1.0.1** : correctif des modales qui se fermaient sur un glisser sortant du panneau (#191), **Prisma 6 → 7** — adaptateur de driver et `prisma.config.ts` —, groupage Dependabot repensé pour que les paquets indissociables voyagent ensemble, et une trentaine de dépendances relevées ; **1.0.0 — sortie d'alpha** : SemVer strict + canal de pré-release ; socle modernisé (Node 24 LTS, React 19, Tailwind 4, Vite 8, Express 5, Prisma 6, zod 4, ESLint 10, Vitest 4) ; **dépôt 100 % TypeScript**, les trois phases du typage livrées ; quatre bugs révélés par l'outillage ; 0.7.6 : modales plein écran lisibles sur mobile (bouton de validation visible), clic sur notification web qui ouvre la conversation, pièces jointes jusqu'à 50 Mo configurables via `.env` + fix du crash desktop sur fichier trop lourd ; 0.7.5 : aperçu intégré Word/Excel/CSV/texte + PDF réparé, clic notification desktop par protocole, purge du résidu de démarrage TSE, DM triés par récence + non-lus plus visibles, ouverture sur le 1er message non lu + auto-chargement des anciens, mentions surlignées à la saisie ; 0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages).
+Dernière mise à jour : **2026-10-06** (**1.3.1** : synchro du fil de discussion — un message reçu s'affiche toujours, y compris pendant l'ouverture d'une conversation ou après une coupure du socket (PWA en arrière-plan, veille, réseau), et changer de conversation n'affiche plus jamais le fil de la précédente ; **1.3.0** : recherche par mot-clé dans les conversations (#319) et, PR #339, la section CLAUDE devient multi-experts et accueille l'expert **Murgat Management** — refonte `clean_v3`, stack de test .203, jamais la vraie prod ; **1.2.3** : le logo de l'expert Claude s'anime pendant la rédaction de sa réponse dans la barre latérale (#314) ; **1.2.2** : release de maintenance — ESLint 10.9.1, Prisma 7.10.0, @types/react-dom 19.2.5 et claude-code-action 1.0.208 relevés, aucun changement fonctionnel ; **1.2.1** : le support in-app passe vraiment par l'abonnement — relais SDK via la VM claude-helper, le mode OAuth brut de la 1.2.0 étant throttlé par politique ; **1.2.0** : l'expert et le support in-app peuvent tourner sur l'abonnement Claude (OAuth) faute de crédits API, messages d'erreur clairs + retry ; **1.1.0** : la section CLAUDE devient un expert de l'appli supervision (VM auxiliaire, accès lecture seule, progression en direct) + sections de la barre latérale repliables ; **1.0.2** : release de maintenance — dompurify, Vite/plugin-react, Vitest et claude-code-action relevés, aucun changement fonctionnel ; **1.0.1** : correctif des modales qui se fermaient sur un glisser sortant du panneau (#191), **Prisma 6 → 7** — adaptateur de driver et `prisma.config.ts` —, groupage Dependabot repensé pour que les paquets indissociables voyagent ensemble, et une trentaine de dépendances relevées ; **1.0.0 — sortie d'alpha** : SemVer strict + canal de pré-release ; socle modernisé (Node 24 LTS, React 19, Tailwind 4, Vite 8, Express 5, Prisma 6, zod 4, ESLint 10, Vitest 4) ; **dépôt 100 % TypeScript**, les trois phases du typage livrées ; quatre bugs révélés par l'outillage ; 0.7.6 : modales plein écran lisibles sur mobile (bouton de validation visible), clic sur notification web qui ouvre la conversation, pièces jointes jusqu'à 50 Mo configurables via `.env` + fix du crash desktop sur fichier trop lourd ; 0.7.5 : aperçu intégré Word/Excel/CSV/texte + PDF réparé, clic notification desktop par protocole, purge du résidu de démarrage TSE, DM triés par récence + non-lus plus visibles, ouverture sur le 1er message non lu + auto-chargement des anciens, mentions surlignées à la saisie ; 0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages).
 
 ---
 
@@ -1086,6 +1086,37 @@ dépendances relevées, aucune fonctionnalité nouvelle.
     package-lock.json, Cargo.toml, Cargo.lock, tauri.conf.json) + PROGRESS.md.
 
 
+## Itération 2026-10-06 — synchro du fil de discussion (1.3.1)
+
+100. **Le fil se resynchronise et n'affiche plus une autre conversation** — deux
+     bugs remontés sur la PWA, même code React côté desktop Tauri, corrigés dans
+     `ChannelView` et `App` (aucun changement serveur) :
+     - **message reçu non affiché** : arrivé *pendant* le chargement d'une
+       conversation, il était écrasé par la réponse HTTP (lue en base avant lui) —
+       les évènements temps réel reçus pendant un chargement sont désormais
+       rejoués sur la page renvoyée ; et après une **coupure du socket** (PWA en
+       arrière-plan, écran verrouillé, veille, changement de réseau), rien ne
+       rattrapait les messages manqués — le fil **et** la liste des conversations
+       (non-lus, aperçus) sont maintenant resynchronisés à chaque (re)connexion du
+       socket et à chaque retour au premier plan (`visibilitychange`). La page la
+       plus récente fait foi sur sa fenêtre ; l'historique déjà chargé au-dessus
+       est gardé s'il la rejoint ;
+     - **fil de la conversation précédente** : la liste n'était pas vidée au
+       changement de conversation (ancien fil affiché pendant le chargement,
+       indéfiniment si la requête échouait), et une page « plus anciens » encore
+       en vol se greffait sur la conversation suivante. Le fil porte désormais le
+       salon auquel il appartient et n'est rendu que pour lui (« Chargement… »,
+       erreur + « Réessayer ») ; le curseur des plus anciens est dérivé du plus
+       ancien message affiché et une page périmée est ignorée.
+
+     Test e2e de régression `e2e/tests/sync.spec.js` (4 scénarios rendus
+     déterministes : réponse retenue ou en échec via `page.route`, socket coupé
+     depuis la page) — rouges sur 1.3.0, verts avec le correctif. Reste connu, non
+     traité : le serveur branche ses écouteurs socket après un `await`
+     (`server/src/socket.ts`), donc un message envoyé pile à la reconnexion peut
+     se perdre.
+
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
@@ -1120,4 +1151,7 @@ dépendances relevées, aucune fonctionnalité nouvelle.
 > **1.1.0** (section CLAUDE = expert supervision #299/#300 + progression #301, barre latérale repliable #298),
 > **1.2.0** (auth abonnement/OAuth pour l'expert & le support #304, messages d'erreur clairs + retry #303),
 > **1.2.1** (support in-app relayé au SDK de la VM #311 — l'OAuth brut de la 1.2.0 était une impasse ; docs #312),
-> **1.2.2** (maintenance : ESLint #309, Prisma #307, @types/react-dom #308, claude-code-action #306).
+> **1.2.2** (maintenance : ESLint #309, Prisma #307, @types/react-dom #308, claude-code-action #306),
+> **1.2.3** (logo de l'expert Claude animé pendant la rédaction #314),
+> **1.3.0** (recherche par mot-clé dans les conversations #319/#338, second expert Murgat Management #339),
+> **1.3.1** (synchro du fil : messages reçus pendant l'ouverture ou une coupure du socket, plus jamais le fil d'une autre conversation).
