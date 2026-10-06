@@ -319,3 +319,31 @@ test("après une coupure du socket, les messages manqués apparaissent (fil + no
   await send(other, "Général", "apres-la-reconnexion");
   await expect(chat(page).getByText("apres-la-reconnexion")).toBeVisible();
 });
+
+// #341 : reproduction littérale du signalement — une conversation est déjà
+// ouverte, un simple clic sur une AUTRE dans la liste doit basculer la zone de
+// messages (sans aucune réponse retenue ni en échec, contrairement au 1er test
+// qui cible la course de chargement). Garde-fou contre toute régression où
+// l'ancien fil resterait figé à l'écran sur le trajet nominal.
+test("un simple clic sur une autre conversation bascule l'affichage (#341)", async ({
+  browser,
+  request,
+}) => {
+  const { admin, priv } = await setup(request);
+  const page = await openAs(browser, admin);
+
+  await openChannel(page, "Général");
+  await send(page, "Général", "ligne-general");
+  await openChannel(page, priv.name);
+  await send(page, priv.name, "ligne-privee");
+
+  // priv est la conversation affichée ; clic simple vers Général → la vue bascule.
+  await page.getByRole("button", { name: /Général/ }).first().click();
+  await expect(chat(page).getByText("ligne-general")).toBeVisible();
+  await expect(chat(page).getByText("ligne-privee")).toHaveCount(0);
+
+  // Et retour vers priv, toujours au clic simple.
+  await page.getByRole("button", { name: new RegExp(priv.name) }).first().click();
+  await expect(chat(page).getByText("ligne-privee")).toBeVisible();
+  await expect(chat(page).getByText("ligne-general")).toHaveCount(0);
+});
