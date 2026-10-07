@@ -1179,6 +1179,62 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      `.env` de prod retirée.
 
 
+## Itération 2026-10-07 — comptes désactivés/supprimés & accès aux salons privés (1.4.0)
+
+105. **Un compte désactivé ne peut plus utiliser le chat** (signalé : il continuait
+     à envoyer et recevoir des messages) — seul `requireAuth` (HTTP) relisait le
+     statut en base. La poignée de main Socket.IO ne vérifiait que la signature du
+     JWT (30 j) et les sockets déjà ouvertes n'étaient jamais revérifiées ; le
+     téléchargement des pièces jointes (`?token=`) non plus. Désormais une seule
+     fonction `authenticate()` (`server/src/auth.ts`) sert les trois accès, et la
+     désactivation coupe sur-le-champ les sessions ouvertes (`revokeUserSessions` :
+     évènement `session:revoked` puis déconnexion ; statut relu aussi après
+     l'entrée dans la room `user:` pour ne pas rater une reconnexion simultanée).
+     Le compte désactivé ne reçoit plus de notification ni de push (qui portait
+     l'extrait du message), et ses messages programmés restent en attente (ils
+     partent s'il est réactivé). Côté web/desktop : retour à l'écran de connexion
+     avec « Session fermée » ; un refus « unauthorized » à la reconnexion
+     (compte désactivé pendant une coupure, jeton expiré) déconnecte aussi, tout
+     autre refus du serveur est retenté (socket.io ne retente pas seul).
+106. **Suppression définitive d'un utilisateur** — bouton « Supprimer
+     définitivement » dans Administration → Utilisateurs, proposé seulement pour
+     un compte **déjà désactivé** (deux gestes pour une action irréversible, imposé
+     aussi par le serveur : `409 must_disable_first`) ; mêmes droits que la
+     désactivation (propriétaire requis pour un admin, propriétaire intouchable).
+     `DELETE /auth/users/:id` → `server/src/userPurge.ts` : compte, messages,
+     réactions, fichiers chiffrés sur disque, DM à deux, notes personnelles et
+     conversations d'expert supprimés ; les réponses des autres à ses messages
+     sont conservées (sans la citation), un DM de groupe garde ses survivants, les
+     rapports de bug restent (auteur à `null`) et ses invitations passent à l'admin
+     qui supprime (liens déjà envoyés toujours valides). Les autres clients sont
+     mis à jour en direct (`channel:removed`, `channel:members`, `user:deleted`).
+     Le compte technique « Claude » (bot des experts) est protégé et retiré de la
+     liste d'administration. **Migration** `20261007000000_attachment_uploader_nullable` :
+     `Attachment.uploadedBy` était `NOT NULL` alors que sa clé étrangère est
+     `ON DELETE SET NULL` — toute suppression d'un utilisateur ayant envoyé un
+     fichier échouait. Tests : 9 backend (244 au total) + e2e
+     `e2e/tests/admin-users.spec.js`. L'app Android native (gelée depuis le pivot
+     PWA) n'a pas le bouton, mais les refus côté serveur s'y appliquent.
+107. **Salons privés : aucun accès sans en être membre** — audit de tous les
+     chemins vers un salon. Faille principale : l'évènement Socket.IO
+     `channel:join` faisait entrer n'importe quel compte connecté dans la room d'un
+     salon privé ou d'un DM dont il connaissait l'id — il en recevait tout le trafic
+     en direct (messages, réactions, saisie, liste des membres). Corrigé :
+     `channel:join` vérifie l'appartenance en base, l'indicateur de saisie n'est
+     relayé que depuis une room du salon, et les appartenances sont relues après
+     chaque entrée en room (un retrait concurrent ne laisse plus de socket
+     abonnée). Un membre retiré (`removeMember`, commun au départ et à l'exclusion)
+     quitte la room aussitôt, ne peut plus modifier ni supprimer ses anciens
+     messages, perd ses messages programmés dans le salon (et le dispatcher
+     abandonne ceux d'un auteur qui n'est plus membre), et n'a plus accès aux
+     pièces jointes du salon — même les siennes. Le salon `support-dev` (réservé
+     aux admins) est retiré sur-le-champ à un admin rétrogradé, et sa
+     réconciliation coupe aussi les sockets. Recherche, lecture des messages et
+     réactions vérifiaient déjà l'appartenance. 8 tests backend (252 au total),
+     tous rouges sur l'ancien code (vérifié en réintroduisant l'ancien
+     comportement).
+
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
@@ -1218,4 +1274,5 @@ dépendances relevées, aucune fonctionnalité nouvelle.
 > **1.3.0** (recherche par mot-clé dans les conversations #319/#338, second expert Murgat Management #339 — web seulement, release desktop jamais publiée),
 > **1.3.1** (synchro du fil : messages reçus pendant l'ouverture ou une coupure du socket, plus jamais le fil d'une autre conversation #352 — web seulement, release desktop jamais publiée),
 > **1.3.2** (plus de déconnexion quand le serveur est injoignable au démarrage — TSE ; release desktop réparée : crates Tauri alignées + contrôle en CI ; dépendances #343/#345/#347/#348/#350/#353/#354 dont Tauri 2.12 et nodemailer 10 ; la desktop passe de 1.2.3 à 1.3.2),
-> **1.3.3** (maintenance : dépendances compatibles serveur + web, plugins Tauri 2.7 avec crates alignées).
+> **1.3.3** (maintenance : dépendances compatibles serveur + web, plugins Tauri 2.7 avec crates alignées),
+> **1.4.0** (compte désactivé vraiment coupé — sockets, pièces jointes, push, planifiés ; suppression définitive d'un utilisateur depuis l'administration ; aucun accès à un salon privé sans en être membre).

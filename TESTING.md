@@ -7,7 +7,7 @@ organisée en quatre couches de test, par ordre de valeur (plus des garde-fous
 
 | Couche | Outil | Ce qu'elle protège | Vérifiée |
 | --- | --- | --- | --- |
-| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 210 tests |
+| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 252 tests |
 | **E2E Web** (priorité 2) | Playwright | Câblage de l'UI web (auth, envoi, édition, suppression, threads, persistance) | ✅ parcours vert |
 | **Mobile** (priorité 3) | `expo export` + smoke APK | Le bundle RN se compile ; l'app se lance | Documentée |
 | **Charge** (k6) | k6 (HTTP + Socket.IO) | Tenue à 150 utilisateurs simultanés (REST + temps réel) | ✅ script validé (smoke) |
@@ -68,10 +68,17 @@ npm test -- test/http/auth.test.js   # un fichier
   `GET /auth/users` admin-only ; `PATCH /auth/users/:id` avec permissions par champ : owner
   seul pour `isAdmin`, owner-pour-admin pour `status=disabled` ; auto-disable/transfer interdits ;
   `POST /auth/transfer-ownership` ; soft delete : login refusé + JWT invalidé via re-check
-  du status dans `requireAuth` ; `ensureOwner()` self-heal des bases pré-0.4.0), channels (create/list/public/join/dm/membres/leave +
-  règles du salon par défaut), messages (edit/delete/thread), planifiés (list/patch/delete +
-  dispatch), réactions (toggle/agrégation), non-lus.
-- `test/socket/` — `message:new`/`updated`/`deleted`, `thread:reply`,
+  du status (`authenticate`, partagé par `requireAuth`, la poignée de main Socket.IO et
+  `GET /uploads/:id?token=`) ; sockets déjà ouvertes coupées (`session:revoked`), plus de
+  push ni de messages planifiés ; **suppression définitive** (`DELETE /auth/users/:id`,
+  compte désactivé seulement : purge messages/PJ/DM, réponses des autres conservées,
+  rapports de bug gardés, bot protégé) ; `ensureOwner()` self-heal des bases pré-0.4.0), channels (create/list/public/join/dm/membres/leave +
+  règles du salon par défaut ; membre retiré d'un salon privé : plus d'édition/suppression de ses
+  messages, planifiés abandonnés), messages (edit/delete/thread), planifiés (list/patch/delete +
+  dispatch, auteur désactivé ou plus membre), pièces jointes (réservées aux membres du salon, auteur
+  compris), réactions (toggle/agrégation), non-lus.
+- `test/socket/` — accès aux salons privés (`channel:join` et `typing` refusés à un non-membre,
+  membre retiré sorti de la room, admin rétrogradé sorti du salon du pipeline), `message:new`/`updated`/`deleted`, `thread:reply`,
   `reaction:update`, `presence`, `typing`, `channel:read`, événements de membres,
   handshake `auth.platform`, et le **gating push** (`notifyMembers` : actif → pas
   de push ; absent + token + non-DND → push ; DND → rien ; purge
