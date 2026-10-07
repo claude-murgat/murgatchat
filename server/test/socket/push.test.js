@@ -112,6 +112,19 @@ describe("push gating (notifyMembers)", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("sends no push to a disabled member (it would carry the message excerpt)", async () => {
+    const fetchMock = mockExpo();
+    const { author, recipient, channelId } = await setup();
+    // author = bootstrap owner; the disabled recipient stays a channel member.
+    await authed(srv.app, author.token)
+      .patch(`/auth/users/${recipient.user.id}`)
+      .send({ status: "disabled" });
+    const aSock = await ready(author.token, channelId);
+
+    await send(aSock, { channelId, body: "tu n'es plus là" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("prunes a token Expo reports as DeviceNotRegistered", async () => {
     const fetchMock = mockExpo([{ status: "error", details: { error: "DeviceNotRegistered" } }]);
     const { author, channelId, pushToken } = await setup();

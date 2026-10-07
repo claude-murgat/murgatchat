@@ -55,6 +55,53 @@ describe("socket auth handshake", () => {
   it("rejects a connection without a valid token", async () => {
     await expect(connectSocket(srv.url, "not-a-token")).rejects.toBeTruthy();
   });
+
+  it("rejects a disabled account even though its JWT is still valid", async () => {
+    const owner = await registerUser(srv.app);
+    const victim = await registerUser(srv.app);
+    await authed(srv.app, owner.token)
+      .patch(`/auth/users/${victim.user.id}`)
+      .send({ status: "disabled" });
+    await expect(connectSocket(srv.url, victim.token)).rejects.toThrow("unauthorized");
+  });
+});
+
+describe("account revocation", () => {
+  it("disabling an account closes its live sockets: session:revoked, then disconnect", async () => {
+    const { alice, bob, channelId } = await pairInChannel();
+    const bSock = await ready(bob.token, channelId);
+    const revoked = waitForEvent(bSock, "session:revoked");
+    const closed = new Promise((resolve) => bSock.once("disconnect", resolve));
+
+    await authed(srv.app, alice.token)
+      .patch(`/auth/users/${bob.user.id}`)
+      .send({ status: "disabled" });
+
+    expect(await revoked).toEqual({ reason: "disabled" });
+    // Server-side disconnect: socket.io won't reconnect on its own…
+    expect(await closed).toBe("io server disconnect");
+    // …and a fresh attempt is refused.
+    await expect(connectSocket(srv.url, bob.token)).rejects.toThrow("unauthorized");
+  });
+
+  it("deleting an account tells the others: 1-to-1 DM removed, members refreshed, user:deleted", async () => {
+    const { alice, bob, channelId } = await pairInChannel();
+    const dm = (await authed(srv.app, alice.token).post("/channels/dm").send({ userIds: [bob.user.id] }))
+      .body.channel;
+    await authed(srv.app, alice.token)
+      .patch(`/auth/users/${bob.user.id}`)
+      .send({ status: "disabled" });
+    const aSock = await ready(alice.token, channelId);
+    const removed = waitForEvent(aSock, "channel:removed", (e) => e.channelId === dm.id);
+    const members = waitForEvent(aSock, "channel:members", (e) => e.channelId === channelId);
+    const deleted = waitForEvent(aSock, "user:deleted");
+
+    expect((await authed(srv.app, alice.token).delete(`/auth/users/${bob.user.id}`)).status).toBe(200);
+
+    await removed;
+    expect((await members).members.map((m) => m.id)).toEqual([alice.user.id]);
+    expect(await deleted).toEqual({ userId: bob.user.id });
+  });
 });
 
 describe("message:send", () => {

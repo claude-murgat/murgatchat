@@ -35,9 +35,22 @@ export function verifyToken(token: unknown): AuthTokenPayload | null {
   }
 }
 
-// Loads the user from DB so that a soft-deleted account (`status='disabled'`)
-// is rejected immediately, even with a still-valid JWT. The user row is exposed
-// as `req.user` so admin middlewares don't have to re-fetch.
+// Résout un jeton en utilisateur ACTIF : le JWT seul ne suffit pas, la ligne est
+// relue en base pour qu'un compte désactivé (`status='disabled'`) ou supprimé
+// soit refusé immédiatement, même avec un jeton encore valide. Seule porte
+// d'entrée pour TOUS les accès authentifiés — requireAuth (HTTP), la poignée de
+// main Socket.IO et le téléchargement des pièces jointes (`?token=`) : un accès
+// qui ne vérifierait que la signature laisserait un compte désactivé continuer
+// à utiliser le chat.
+export async function authenticate(token: unknown): Promise<User | null> {
+  const payload = verifyToken(token);
+  if (!payload) return null;
+  const user = await prisma.user.findUnique({ where: { id: payload.sub } });
+  if (!user || user.status === "disabled") return null;
+  return user;
+}
+
+// The user row is exposed as `req.user` so admin middlewares don't have to re-fetch.
 // ⚠ `req` est générique sur les PARAMÈTRES de route (`P`) : ce middleware ne lit
 // jamais `req.params`, et l'annoter avec le `Request` par défaut figerait `P` sur
 // `ParamsDictionary` pour TOUTES les routes qui le montent — `req.params.id`
@@ -50,12 +63,8 @@ export async function requireAuth<P>(
 ) {
   const header = req.headers.authorization || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : null;
-  const payload = token ? verifyToken(token) : null;
-  if (!payload) return res.status(401).json({ error: "unauthorized" });
-  const user = await prisma.user.findUnique({ where: { id: payload.sub } });
-  if (!user || user.status === "disabled") {
-    return res.status(401).json({ error: "unauthorized" });
-  }
+  const user = await authenticate(token);
+  if (!user) return res.status(401).json({ error: "unauthorized" });
   req.userId = user.id;
   req.user = user;
   next();

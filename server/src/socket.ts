@@ -1,7 +1,7 @@
 import { Server } from "socket.io";
 import type { Server as HttpServer } from "node:http";
 import type { User } from "@prisma/client";
-import { verifyToken } from "./auth.ts";
+import { authenticate } from "./auth.ts";
 import { prisma } from "./db.ts";
 import { serializeMessage } from "./routes/channels.ts";
 import { encryptBody } from "./crypto.ts";
@@ -125,6 +125,9 @@ export async function notifyMembers(
   checkContract(NotificationEventSchema, notifPayload, "emit notification");
   for (const cm of members) {
     if (cm.userId === authorId) continue;
+    // Compte désactivé : il reste membre (réactivable) mais ne reçoit plus rien —
+    // un push porterait encore l'extrait du message jusqu'à son téléphone.
+    if (cm.user.status === "disabled") continue;
     if (cm.notifyLevel === "none") continue;
     if (cm.notifyLevel === "mentions" && !isMentioned(cm.user, serialized.body)) continue;
     if (isUserDnd(cm.user)) continue;
@@ -180,6 +183,21 @@ export async function notifyMembers(
   }
 }
 
+// Ferme sur-le-champ les sessions temps réel d'un compte désactivé ou supprimé.
+// Son JWT reste valide jusqu'à expiration : c'est la relecture du statut à
+// chaque accès (authenticate) qui le neutralise, ceci ne fait que couper ce qui
+// est déjà ouvert. `session:revoked` part avant la coupure (les paquets sont
+// émis dans l'ordre, le transport n'est fermé qu'une fois vidé) : le client
+// revient à l'écran de connexion au lieu de rester affiché, hors ligne.
+export function revokeUserSessions(
+  io: Server,
+  userId: string,
+  reason: "disabled" | "deleted"
+) {
+  io.to(`user:${userId}`).emit("session:revoked", { reason });
+  io.in(`user:${userId}`).disconnectSockets(true);
+}
+
 export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
   const io = new Server(httpServer, {
     cors: { origin: corsOrigin || "*", credentials: false },
@@ -188,13 +206,23 @@ export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
   // userId -> number of active sockets (a user can have several tabs/devices)
   const online = new Map<string, number>();
 
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     const token =
       socket.handshake.auth?.token ||
       socket.handshake.headers?.authorization?.replace(/^Bearer /, "");
-    const payload = token ? verifyToken(token) : null;
-    if (!payload) return next(new Error("unauthorized"));
-    socket.data.userId = payload.sub;
+    // Même contrôle que requireAuth : un compte désactivé ou supprimé est refusé
+    // malgré un JWT encore valide (les clients se déconnectent sur
+    // « unauthorized »). Une base injoignable n'est PAS un refus : erreur
+    // distincte, pour qu'aucun client ne ferme sa session sur un incident passager.
+    let user;
+    try {
+      user = await authenticate(token);
+    } catch (e) {
+      console.error("[socket] handshake:", e instanceof Error ? e.message : e);
+      return next(new Error("server_error"));
+    }
+    if (!user) return next(new Error("unauthorized"));
+    socket.data.userId = user.id;
     socket.data.platform = socket.handshake.auth?.platform || "web";
     next();
   });
@@ -203,8 +231,18 @@ export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
     const userId = socket.data.userId;
     socket.join(`user:${userId}`);
 
-    const memberships = await prisma.membership.findMany({ where: { userId } });
-    for (const m of memberships) socket.join(`channel:${m.channelId}`);
+    // Statut relu APRÈS l'entrée dans la room `user:` : un compte désactivé
+    // entre la poignée de main et cette ligne a échappé à revokeUserSessions
+    // (qui vise la room) — il est rattrapé ici, avant de rejoindre un salon.
+    const me = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { status: true, memberships: { select: { channelId: true } } },
+    });
+    if (!me || me.status === "disabled") {
+      revokeUserSessions(io, userId, me ? "disabled" : "deleted");
+      return;
+    }
+    for (const m of me.memberships) socket.join(`channel:${m.channelId}`);
 
     const prevCount = online.get(userId) || 0;
     online.set(userId, prevCount + 1);
@@ -403,7 +441,10 @@ export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
 export async function dispatchScheduledMessages(io: Server) {
   const now = new Date();
   const due = await prisma.message.findMany({
-    where: { delivered: false, scheduledAt: { lte: now } },
+    // Un compte désactivé n'envoie plus rien, pas même ce qu'il avait programmé :
+    // ses messages restent en attente (ils partiront s'il est réactivé). Filtré
+    // dans la requête, et non sauté dans la boucle, pour ne pas boucher la file.
+    where: { delivered: false, scheduledAt: { lte: now }, author: { status: { not: "disabled" } } },
     include: { author: true, channel: { select: { kind: true, expert: true } } },
     take: 50,
   });

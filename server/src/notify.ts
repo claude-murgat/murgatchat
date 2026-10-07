@@ -12,7 +12,8 @@ import { prisma } from "./db.ts";
 import { encryptBody } from "./crypto.ts";
 import { serializeMessage } from "./routes/channels.ts";
 
-const BOT_USERNAME = "claude";
+// Exporté : le panneau d'admin écarte ce compte technique (routes/auth.ts).
+export const BOT_USERNAME = "claude";
 
 function token() {
   return process.env.SUPPORT_NOTIFY_TOKEN || "";

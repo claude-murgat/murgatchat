@@ -9,6 +9,9 @@ import { signToken, requireAuth } from "../auth.ts";
 import { broadcastMembers } from "./channels.ts";
 import { sendInvitationEmail, sendPasswordResetEmail, inviteLink } from "../mail.ts";
 import { getVapidPublicKey } from "../webpush.ts";
+import { revokeUserSessions } from "../socket.ts";
+import { purgeUser } from "../userPurge.ts";
+import { BOT_USERNAME } from "../notify.ts";
 
 const router = Router();
 
@@ -477,15 +480,20 @@ router.get("/users", requireAuth, requireAdmin, async (req, res) => {
   const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string, 10) || 50));
   const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
 
-  const where: Prisma.UserWhereInput = q
-    ? {
-        OR: [
-          { displayName: { contains: q, mode: "insensitive" } },
-          { username: { contains: q, mode: "insensitive" } },
-          { email: { contains: q, mode: "insensitive" } },
-        ],
-      }
-    : {};
+  // Le bot (compte technique, jamais connecté) n'a rien à faire ici : le
+  // désactiver, le promouvoir ou lui céder la propriété n'aurait aucun sens.
+  const where: Prisma.UserWhereInput = {
+    username: { not: BOT_USERNAME },
+    ...(q
+      ? {
+          OR: [
+            { displayName: { contains: q, mode: "insensitive" } },
+            { username: { contains: q, mode: "insensitive" } },
+            { email: { contains: q, mode: "insensitive" } },
+          ],
+        }
+      : {}),
+  };
 
   const [total, users] = await Promise.all([
     prisma.user.count({ where }),
@@ -559,7 +567,36 @@ router.patch("/users/:id", requireAuth, requireAdmin, async (req, res) => {
   }
 
   const updated = await prisma.user.update({ where: { id: target.id }, data });
+  // Ses requêtes HTTP et ses reconnexions sont refusées dès maintenant
+  // (authenticate relit le statut) ; restent les sockets déjà ouvertes, que rien
+  // ne revérifie — sans cette coupure, le compte continuerait à recevoir et envoyer.
+  if (status === "disabled") revokeUserSessions(req.io, updated.id, "disabled");
   res.json({ user: publicUser(updated) });
+});
+
+// Admin-only: PERMANENT deletion — same permissions as disabling, of which it is
+// the second step: only an already-disabled account can be deleted, so an
+// irreversible purge always takes two distinct actions. What goes away (and what
+// survives) is detailed in userPurge.ts.
+router.delete("/users/:id", requireAuth, requireAdmin, async (req, res) => {
+  // Même assertion que pour PATCH /users/:id (voir plus haut).
+  const target = await prisma.user.findUnique({ where: { id: req.params.id as string } });
+  if (!target) return res.status(404).json({ error: "not_found" });
+
+  // `requireAuth` + `requireAdmin` garantissent `req.user` sur cette route.
+  const me = req.user!;
+  if (target.isOwner) return res.status(403).json({ error: "owner_protected" });
+  if (target.id === me.id) return res.status(403).json({ error: "self_delete_forbidden" });
+  // Auteur des réponses des experts Claude et du fil du pipeline : le supprimer
+  // effacerait toutes ces conversations.
+  if (target.username === BOT_USERNAME) return res.status(403).json({ error: "bot_protected" });
+  if (target.isAdmin && !me.isOwner) {
+    return res.status(403).json({ error: "owner_required_for_admin" });
+  }
+  if (target.status !== "disabled") return res.status(409).json({ error: "must_disable_first" });
+
+  await purgeUser(req.io, target.id, me.id);
+  res.json({ ok: true });
 });
 
 const transferSchema = z.object({ targetUserId: z.string().min(1) });
