@@ -3,6 +3,7 @@ import { createServer } from "../../src/index.ts";
 import { dispatchScheduledMessages } from "../../src/socket.ts";
 import { registerUser, authed } from "../helpers/api.js";
 import { seedMessage } from "../helpers/seed.js";
+import { prisma } from "../helpers/db.js";
 
 let app, io;
 beforeAll(() => {
@@ -99,5 +100,41 @@ describe("dispatchScheduledMessages", () => {
     expect(msgs.body.messages.some((m) => m.id === due.id && m.body === "due now")).toBe(true);
     const scheduled = await authed(app, owner.token).get(`/channels/${channelId}/scheduled`);
     expect(scheduled.body.scheduled.find((x) => x.id === due.id)).toBeUndefined();
+  });
+
+  it("drops a due message whose author is no longer a member instead of posting it", async () => {
+    const { owner, member, channelId } = await setup();
+    const due = await seedMessage({
+      channelId, authorId: member.user.id, body: "posté après le départ",
+      delivered: false, scheduledAt: new Date(Date.now() - 1000),
+    });
+    // Membership gone behind removeMember's back (older rows, concurrent scheduling).
+    await prisma.membership.deleteMany({ where: { channelId, userId: member.user.id } });
+
+    await dispatchScheduledMessages(io);
+
+    expect(await prisma.message.findUnique({ where: { id: due.id } })).toBeNull();
+    const msgs = await authed(app, owner.token).get(`/channels/${channelId}/messages`);
+    expect(msgs.body.messages.some((m) => m.body === "posté après le départ")).toBe(false);
+  });
+
+  it("holds back a disabled author's due messages (they go out if re-enabled)", async () => {
+    const { owner, member, channelId } = await setup();
+    const due = await seedMessage({
+      channelId, authorId: member.user.id, body: "programmé avant",
+      delivered: false, scheduledAt: new Date(Date.now() - 1000),
+    });
+    const setStatus = (status) =>
+      authed(app, owner.token).patch(`/auth/users/${member.user.id}`).send({ status });
+    const delivered = async () =>
+      (await prisma.message.findUnique({ where: { id: due.id } })).delivered;
+
+    await setStatus("disabled");
+    await dispatchScheduledMessages(io);
+    expect(await delivered()).toBe(false);
+
+    await setStatus("active");
+    await dispatchScheduledMessages(io);
+    expect(await delivered()).toBe(true);
   });
 });

@@ -106,7 +106,9 @@ model Message {
 model Attachment {
   id          String   @id @default(cuid())
   messageId   String?
-  uploadedBy  String
+  // Nullable comme la relation (SetNull) : une pièce jointe de rapport de bug
+  // survit à la suppression définitive de son auteur.
+  uploadedBy  String?
   filename    String
   mimeType    String
   size        Int      // plaintext size; the on-disk blob is larger when encrypted

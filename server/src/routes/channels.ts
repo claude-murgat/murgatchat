@@ -50,6 +50,41 @@ export async function broadcastMembers(
   });
 }
 
+// L'appartenance en base est la seule source de vérité de l'accès à un salon :
+// chaque lecture ou écriture la revérifie (HTTP comme Socket.IO).
+export async function isMember(userId: string, channelId: string) {
+  const m = await prisma.membership.findUnique({
+    where: { userId_channelId: { userId, channelId } },
+    select: { id: true },
+  });
+  return m !== null;
+}
+
+// Retire un membre (départ, exclusion, admin rétrogradé du salon du pipeline) :
+// membership, messages programmés qui n'y partiront plus (et leurs fichiers), et
+// abonnements temps réel — ses sockets quittent la room, ses appareils retirent
+// le salon de leur liste.
+export async function removeMember(
+  io: Server | null | undefined,
+  channelId: string,
+  userId: string
+) {
+  const pending = await prisma.message.findMany({
+    where: { channelId, authorId: userId, delivered: false },
+    include: { attachments: { select: { storagePath: true } } },
+  });
+  await prisma.$transaction([
+    prisma.membership.deleteMany({ where: { channelId, userId } }),
+    prisma.message.deleteMany({ where: { id: { in: pending.map((m) => m.id) } } }),
+  ]);
+  await Promise.all(
+    pending.flatMap((m) => m.attachments).map((a) => safeUnlink(a.storagePath))
+  );
+  io?.to(`user:${userId}`).emit("channel:removed", { channelId });
+  io?.in(`user:${userId}`).socketsLeave(`channel:${channelId}`);
+  await broadcastMembers(io, channelId);
+}
+
 router.get("/", requireAuth, async (req, res) => {
   const memberships = await prisma.membership.findMany({
     where: { userId: req.userId },
@@ -239,6 +274,7 @@ router.get("/:id/messages", requireAuth, async (req, res) => {
 
 router.get("/:id/scheduled", requireAuth, async (req, res) => {
   const { id } = req.params;
+  if (!(await isMember(req.userId, id))) return res.status(403).json({ error: "not_a_member" });
   const scheduled = await prisma.message.findMany({
     where: {
       channelId: id,
@@ -277,6 +313,9 @@ router.patch("/scheduled/:messageId", requireAuth, async (req, res) => {
   if (!msg || msg.authorId !== req.userId || msg.delivered) {
     return res.status(404).json({ error: "not_found" });
   }
+  if (!(await isMember(req.userId, msg.channelId))) {
+    return res.status(403).json({ error: "not_a_member" });
+  }
 
   const data: Prisma.MessageUpdateInput = {};
   if (typeof body === "string") {
@@ -312,6 +351,11 @@ router.patch("/messages/:messageId", requireAuth, async (req, res) => {
   const msg = await prisma.message.findUnique({ where: { id: messageId } });
   if (!msg || msg.authorId !== req.userId || !msg.delivered) {
     return res.status(404).json({ error: "not_found" });
+  }
+  // Retiré du salon (privé ou non) : plus aucune écriture, pas même sur ses
+  // anciens messages — l'édition serait diffusée à tout le salon.
+  if (!(await isMember(req.userId, msg.channelId))) {
+    return res.status(403).json({ error: "not_a_member" });
   }
 
   const trimmed = typeof body === "string" ? body.trim() : "";
@@ -355,6 +399,9 @@ router.delete("/messages/:messageId", requireAuth, async (req, res) => {
   });
   if (!msg || msg.authorId !== req.userId || !msg.delivered) {
     return res.status(404).json({ error: "not_found" });
+  }
+  if (!(await isMember(req.userId, msg.channelId))) {
+    return res.status(403).json({ error: "not_a_member" });
   }
   const blobs = [
     ...msg.attachments,
@@ -491,10 +538,7 @@ router.post("/:id/leave", requireAuth, async (req, res) => {
   if (!channel || channel.isDirect || channel.kind === "claude")
     return res.status(404).json({ error: "not_found" });
   if (channel.isDefault) return res.status(403).json({ error: "cannot_leave_default" });
-  await prisma.membership.deleteMany({ where: { channelId: id, userId: req.userId } });
-  req.io?.to(`user:${req.userId}`).emit("channel:removed", { channelId: id });
-  req.io?.in(`user:${req.userId}`).socketsLeave(`channel:${id}`);
-  await broadcastMembers(req.io, id);
+  await removeMember(req.io, id, req.userId);
   res.json({ ok: true });
 });
 
@@ -510,10 +554,7 @@ router.delete("/:id/members/:userId", requireAuth, async (req, res) => {
     where: { userId_channelId: { userId: req.userId, channelId: id } },
   });
   if (!requester) return res.status(403).json({ error: "not_a_member" });
-  await prisma.membership.deleteMany({ where: { channelId: id, userId } });
-  req.io?.to(`user:${userId}`).emit("channel:removed", { channelId: id });
-  req.io?.in(`user:${userId}`).socketsLeave(`channel:${id}`);
-  await broadcastMembers(req.io, id);
+  await removeMember(req.io, id, userId);
   res.json({ ok: true });
 });
 

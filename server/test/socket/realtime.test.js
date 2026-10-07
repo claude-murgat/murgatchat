@@ -55,6 +55,132 @@ describe("socket auth handshake", () => {
   it("rejects a connection without a valid token", async () => {
     await expect(connectSocket(srv.url, "not-a-token")).rejects.toBeTruthy();
   });
+
+  it("rejects a disabled account even though its JWT is still valid", async () => {
+    const owner = await registerUser(srv.app);
+    const victim = await registerUser(srv.app);
+    await authed(srv.app, owner.token)
+      .patch(`/auth/users/${victim.user.id}`)
+      .send({ status: "disabled" });
+    await expect(connectSocket(srv.url, victim.token)).rejects.toThrow("unauthorized");
+  });
+});
+
+describe("account revocation", () => {
+  it("disabling an account closes its live sockets: session:revoked, then disconnect", async () => {
+    const { alice, bob, channelId } = await pairInChannel();
+    const bSock = await ready(bob.token, channelId);
+    const revoked = waitForEvent(bSock, "session:revoked");
+    const closed = new Promise((resolve) => bSock.once("disconnect", resolve));
+
+    await authed(srv.app, alice.token)
+      .patch(`/auth/users/${bob.user.id}`)
+      .send({ status: "disabled" });
+
+    expect(await revoked).toEqual({ reason: "disabled" });
+    // Server-side disconnect: socket.io won't reconnect on its own…
+    expect(await closed).toBe("io server disconnect");
+    // …and a fresh attempt is refused.
+    await expect(connectSocket(srv.url, bob.token)).rejects.toThrow("unauthorized");
+  });
+
+  it("deleting an account tells the others: 1-to-1 DM removed, members refreshed, user:deleted", async () => {
+    const { alice, bob, channelId } = await pairInChannel();
+    const dm = (await authed(srv.app, alice.token).post("/channels/dm").send({ userIds: [bob.user.id] }))
+      .body.channel;
+    await authed(srv.app, alice.token)
+      .patch(`/auth/users/${bob.user.id}`)
+      .send({ status: "disabled" });
+    const aSock = await ready(alice.token, channelId);
+    const removed = waitForEvent(aSock, "channel:removed", (e) => e.channelId === dm.id);
+    const members = waitForEvent(aSock, "channel:members", (e) => e.channelId === channelId);
+    const deleted = waitForEvent(aSock, "user:deleted");
+
+    expect((await authed(srv.app, alice.token).delete(`/auth/users/${bob.user.id}`)).status).toBe(200);
+
+    await removed;
+    expect((await members).members.map((m) => m.id)).toEqual([alice.user.id]);
+    expect(await deleted).toEqual({ userId: bob.user.id });
+  });
+});
+
+describe("private channel access", () => {
+  // alice + bob in a private channel; mallory is connected but not a member.
+  async function privateTrio() {
+    const alice = await registerUser(srv.app);
+    const bob = await registerUser(srv.app);
+    const mallory = await registerUser(srv.app);
+    const ch = (
+      await authed(srv.app, alice.token)
+        .post("/channels")
+        .send({ name: "secret", isPrivate: true, memberIds: [bob.user.id] })
+    ).body.channel;
+    return { alice, bob, mallory, channelId: ch.id };
+  }
+
+  // Connected, with the server's listeners registered: presence:state is emitted
+  // in the same synchronous block (for a socket that joins no channel room).
+  async function outsider(token) {
+    const s = track(newSocket(srv.url, token));
+    const state = waitForEvent(s, "presence:state");
+    await waitConnect(s);
+    await state;
+    return s;
+  }
+
+  const inRoom = (socket, channelId) =>
+    !!srv.io.sockets.adapter.rooms.get(`channel:${channelId}`)?.has(socket.id);
+  // channel:join is checked against the DB: give the handler time to run.
+  const settle = () => new Promise((r) => setTimeout(r, 300));
+
+  it("an outsider can't subscribe with channel:join nor see the channel's traffic", async () => {
+    const { alice, bob, mallory, channelId } = await privateTrio();
+    const aSock = await ready(alice.token, channelId);
+    const bSock = await ready(bob.token, channelId);
+    const mSock = await outsider(mallory.token);
+
+    mSock.emit("channel:join", channelId);
+    await settle();
+    expect(inRoom(mSock, channelId)).toBe(false);
+
+    const leak = expectNoEvent(mSock, "message:new", 800);
+    const delivered = waitForEvent(bSock, "message:new", (m) => m.channelId === channelId);
+    await send(aSock, { channelId, body: "confidentiel" });
+    await delivered; // members still get it
+    await leak;
+  });
+
+  it("an outsider can't show a typing indicator in a private channel", async () => {
+    const { bob, mallory, channelId } = await privateTrio();
+    const bSock = await ready(bob.token, channelId);
+    const mSock = await outsider(mallory.token);
+
+    const silent = expectNoEvent(bSock, "typing:update", 800);
+    mSock.emit("typing", { channelId });
+    await silent;
+  });
+
+  it("a removed member's socket leaves the room at once and can't join it back", async () => {
+    const { alice, bob, channelId } = await privateTrio();
+    const aSock = await ready(alice.token, channelId);
+    const bSock = await ready(bob.token, channelId);
+    // A member's own channel:join is still honoured.
+    bSock.emit("channel:join", channelId);
+    await settle();
+    expect(inRoom(bSock, channelId)).toBe(true);
+
+    const removed = waitForEvent(bSock, "channel:removed", (e) => e.channelId === channelId);
+    await authed(srv.app, alice.token).delete(`/channels/${channelId}/members/${bob.user.id}`);
+    await removed;
+    expect(inRoom(bSock, channelId)).toBe(false);
+
+    bSock.emit("channel:join", channelId);
+    await settle();
+    expect(inRoom(bSock, channelId)).toBe(false);
+    const leak = expectNoEvent(bSock, "message:new", 800);
+    await send(aSock, { channelId, body: "après ton départ" });
+    await leak;
+  });
 });
 
 describe("message:send", () => {

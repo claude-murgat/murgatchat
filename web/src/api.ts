@@ -227,6 +227,9 @@ export const api = {
   },
   patchUser: (id: string, patch: unknown) =>
     request(`/auth/users/${encodeURIComponent(id)}`, { method: "PATCH", body: patch }),
+  // Suppression définitive (compte déjà désactivé) — irréversible.
+  deleteUser: (id: string) =>
+    request(`/auth/users/${encodeURIComponent(id)}`, { method: "DELETE" }),
   transferOwnership: (targetUserId: string) =>
     request("/auth/transfer-ownership", { method: "POST", body: { targetUserId } }),
   createInvitation: (email: string) =>

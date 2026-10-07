@@ -151,6 +151,8 @@ export default function App() {
   // démarrage. Même règle que l'app mobile (#42). « Réessayer » incrémente resumeKey.
   const [resumeFailed, setResumeFailed] = useState(false);
   const [resumeKey, setResumeKey] = useState(0);
+  // Pourquoi le serveur a fermé la session (affiché sur l'écran de connexion).
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
   const signedIn = !!user;
   useEffect(() => {
     if (signedIn) return;
@@ -339,6 +341,13 @@ export default function App() {
         prev.map((c) => (c.id === channelId ? { ...c, members } : c))
       );
     };
+    // Compte supprimé par un admin : ses messages ont disparu, aperçus compris
+    // (même traitement que message:deleted ; la resynchro suivante complète).
+    const onUserDeleted = ({ userId }: { userId: string }) => {
+      setChannels((prev) =>
+        prev.map((c) => (c.lastMessage?.authorId === userId ? { ...c, lastMessage: null } : c))
+      );
+    };
 
     const onPresenceState = ({ userIds }: { userIds: string[] }) =>
       setOnlineUserIds(new Set(userIds));
@@ -384,6 +393,7 @@ export default function App() {
     s.on("channel:created", onCreated);
     s.on("channel:removed", onRemoved);
     s.on("channel:members", onMembers);
+    s.on("user:deleted", onUserDeleted);
     s.on("message:updated", onUpdated);
     s.on("message:deleted", onDeleted);
     s.on("presence:state", onPresenceState);
@@ -396,6 +406,7 @@ export default function App() {
       s.off("channel:created", onCreated);
       s.off("channel:removed", onRemoved);
       s.off("channel:members", onMembers);
+      s.off("user:deleted", onUserDeleted);
       s.off("message:updated", onUpdated);
       s.off("message:deleted", onDeleted);
       s.off("presence:state", onPresenceState);
@@ -667,6 +678,7 @@ export default function App() {
   const onLoggedIn = useCallback((u: User) => {
     setUser(u);
     setResumeFailed(false);
+    setSessionNotice(null);
   }, []);
 
   const onLogout = useCallback(() => {
@@ -679,6 +691,41 @@ export default function App() {
     setChannels([]);
     setActiveChannelId(null);
   }, []);
+
+  // Fin de session imposée par le serveur : compte désactivé ou supprimé par un
+  // admin, ou jeton refusé. Sans ça l'app resterait affichée, hors ligne, avec
+  // une erreur à chaque action.
+  useEffect(() => {
+    if (!socket) return;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    const end = (notice: string) => {
+      setSessionNotice(notice);
+      onLogout();
+    };
+    const onRevoked = () => end("Votre accès a été retiré par un administrateur.");
+    // Refus du serveur à la (re)connexion : « unauthorized » = jeton refusé
+    // (compte désactivé pendant une coupure, jeton expiré). Tout autre refus est
+    // passager (base indisponible…), mais socket.io ne retente jamais seul après
+    // un refus du serveur (`active` faux) : on relance nous-mêmes.
+    const onConnectError = (err: Error) => {
+      if (socket.active) return; // simple coupure réseau : socket.io retente seul
+      if (err.message === "unauthorized") {
+        end("Votre session n'est plus valide. Reconnectez-vous.");
+        return;
+      }
+      clearTimeout(retry);
+      retry = setTimeout(() => {
+        if (getToken()) socket.connect(); // pas après une déconnexion entre-temps
+      }, 5_000);
+    };
+    socket.on("session:revoked", onRevoked);
+    socket.on("connect_error", onConnectError);
+    return () => {
+      clearTimeout(retry);
+      socket.off("session:revoked", onRevoked);
+      socket.off("connect_error", onConnectError);
+    };
+  }, [socket, onLogout]);
 
   const onSelectChannel = useCallback((c: Channel) => {
     setActiveChannelId(c.id);
@@ -832,6 +879,7 @@ export default function App() {
         onLoggedIn={onLoggedIn}
         resumeFailed={resumeFailed}
         onRetryResume={() => setResumeKey((k) => k + 1)}
+        sessionNotice={sessionNotice}
       />
     );
   }

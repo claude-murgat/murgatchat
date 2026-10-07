@@ -48,6 +48,8 @@ interface LoginProps {
   resumeFailed?: boolean;
   /** Relance immédiate de la reprise de session (sinon retentée en arrière-plan). */
   onRetryResume?: () => void;
+  /** Pourquoi le serveur a fermé la session en cours (compte désactivé…). */
+  sessionNotice?: string | null;
 }
 
 function tokenFromUrl(key: string) {
@@ -70,7 +72,12 @@ function clearUrlQuery() {
   }
 }
 
-export default function Login({ onLoggedIn, resumeFailed, onRetryResume }: LoginProps) {
+export default function Login({
+  onLoggedIn,
+  resumeFailed,
+  onRetryResume,
+  sessionNotice,
+}: LoginProps) {
   const urlInvite = tokenFromUrl("invite");
   const urlReset = tokenFromUrl("reset");
   const initialMode: Mode = urlReset ? "reset" : urlInvite ? "register" : "login";
@@ -352,6 +359,13 @@ export default function Login({ onLoggedIn, resumeFailed, onRetryResume }: Login
               </div>
             )}
           </div>
+
+          {mode === "login" && sessionNotice && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+              <div className="font-semibold">Session fermée</div>
+              <div className="opacity-90 mt-0.5">{sessionNotice}</div>
+            </div>
+          )}
 
           {mode === "login" && resumeFailed && (
             <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-900">

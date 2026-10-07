@@ -270,7 +270,7 @@ Tables (Prisma) :
 - `Channel` (id, name?, isDirect, isPrivate, description?)
 - `Membership` (userId, channelId, joinedAt, lastReadAt) — unique sur la paire
 - `Message` (id, channelId, authorId, body **(chiffré)**, createdAt, scheduledAt?, delivered) — indices `(channelId,createdAt)` et `(scheduledAt,delivered)`
-- `Attachment` (id, messageId?, uploadedBy, filename, mimeType, size, storagePath, createdAt) — indices `(messageId)` et `(uploadedBy)`
+- `Attachment` (id, messageId?, uploadedBy?, filename, mimeType, size, storagePath, createdAt) — indices `(messageId)` et `(uploadedBy)`
 
 ### Migrations
 **Migrations versionnées Prisma** (`server/prisma/migrations/`), appliquées au démarrage par [`server/scripts/db-migrate.js`](server/scripts/db-migrate.js) (lancé par le `Dockerfile` avant le serveur) :
@@ -305,6 +305,9 @@ Génère une clé prod avec : `openssl rand -hex 32`.
 | POST    | `/auth/login`                      | connexion                                    |
 | GET     | `/auth/me`                         | utilisateur courant                          |
 | POST    | `/auth/dnd`                        | `{ minutes }` (0 = désactive DnD)            |
+| GET     | `/auth/users?q=&page=`             | lister les utilisateurs (admin)              |
+| PATCH   | `/auth/users/:id`                  | `{ isAdmin?, status? }` — rôle (propriétaire) ou désactivation (admin ; sessions ouvertes coupées aussitôt) |
+| DELETE  | `/auth/users/:id`                  | suppression définitive d'un compte **déjà désactivé** (admin ; propriétaire pour un admin) — voir `server/src/userPurge.ts` |
 | GET     | `/users?q=`                        | recherche d'utilisateurs                     |
 | GET     | `/channels`                        | mes conversations                            |
 | POST    | `/channels`                        | créer un salon                               |
@@ -448,6 +451,14 @@ Le code est **100 % JS/JSX** — TypeScript sert d'**analyseur**, jamais de comp
 
 ### Auth & sécurité
 - **JWT 30j sans refresh token** pour la simplicité MVP. À ajouter dès qu'on veut une vraie politique d'expiration.
+  Le statut du compte est relu en base à chaque accès (`authenticate()`, HTTP comme Socket.IO) :
+  un compte désactivé est refusé malgré un JWT valide, et ses sockets ouvertes sont coupées.
+- **Accès aux salons = appartenance en base**, revérifiée partout : lecture, écriture (y compris
+  édition/suppression de ses anciens messages), messages programmés (abandonnés si l'auteur n'est
+  plus membre), pièces jointes (réservées aux membres du salon, auteur compris), recherche, et
+  rooms Socket.IO (`channel:join` et l'indicateur de saisie réservés aux membres ; un membre retiré
+  quitte la room aussitôt). Le salon du pipeline (`support-dev`) est réservé aux admins : un admin
+  rétrogradé le perd sur-le-champ.
 - **CORS `*`** : OK en dev, à restreindre en prod.
 - **Pas de HTTPS direct** sur le backend : à reverse-proxier (Caddy/nginx) en prod.
 - **Conteneurs non-root** : serveur en user `node`, web sur base `nginx-unprivileged`

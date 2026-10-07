@@ -9,7 +9,7 @@ import { useOverlayDismiss } from "../hooks/useOverlayDismiss.ts";
 const PAGE_SIZE = 50;
 
 /** Les mutations proposées par ce panneau (le serveur les revalide). */
-type ActionKey = "promote" | "revoke" | "disable" | "enable" | "transfer";
+type ActionKey = "promote" | "revoke" | "disable" | "enable" | "delete" | "transfer";
 
 /** Un bouton d'action proposé pour un utilisateur donné. */
 interface AdminAction {
@@ -48,9 +48,13 @@ function actionsFor(me: User, target: User): AdminAction[] {
         : { key: "promote", label: "Promouvoir admin", danger: false }
     );
   }
-  // Disable / re-enable
+  // Disable / re-enable; permanent deletion only once disabled (two steps for an
+  // irreversible purge — the server enforces it too).
   if (target.status === "disabled") {
     out.push({ key: "enable", label: "Réactiver", danger: false });
+    if (!target.isAdmin || me.isOwner) {
+      out.push({ key: "delete", label: "Supprimer définitivement", danger: true });
+    }
   } else {
     // Admin can disable members; owner can disable admins too.
     if (!target.isAdmin || me.isOwner) {
@@ -62,6 +66,17 @@ function actionsFor(me: User, target: User): AdminAction[] {
     out.push({ key: "transfer", label: "Transférer la propriété", danger: true });
   }
   return out;
+}
+
+function confirmMessage({ target, action }: ConfirmAction) {
+  const name = target.displayName;
+  if (action === "disable") {
+    return `Désactiver ${name} ? Ses sessions ouvertes sont fermées sur-le-champ et le compte ne pourra plus se connecter ni accéder aux conversations. Son historique de messages est conservé ; le compte pourra ensuite être supprimé définitivement.`;
+  }
+  if (action === "delete") {
+    return `Supprimer définitivement ${name} ? Le compte est effacé de la base avec tous ses contenus (messages, fichiers, réactions) ; ses messages directs et ses conversations avec les experts Claude disparaissent aussi pour leurs autres participants. Les réponses des autres membres à ses messages sont conservées. Action irréversible.`;
+  }
+  return `Transférer la propriété à ${name} ? Vous deviendrez simple administrateur ; seul le nouveau propriétaire pourra vous rendre la propriété.`;
 }
 
 function roleBadge(u: User) {
@@ -158,7 +173,12 @@ export default function AdminPanelModal({ currentUser, onClose, onUserUpdated }:
         res = await api.patchUser(target.id, { status: "disabled" });
       else if (action === "enable")
         res = await api.patchUser(target.id, { status: "active" });
-      else if (action === "transfer") {
+      else if (action === "delete") {
+        await api.deleteUser(target.id);
+        setUsers((prev) => prev.filter((u) => u.id !== target.id));
+        setTotal((n) => Math.max(0, n - 1));
+        return;
+      } else if (action === "transfer") {
         await api.transferOwnership(target.id);
         await refreshCurrentView();
         // After transfer the *current* user is no longer owner — bubble it up.
@@ -181,18 +201,14 @@ export default function AdminPanelModal({ currentUser, onClose, onUserUpdated }:
 
   function requestAction(target: User, action: ActionKey) {
     // High-impact actions go through a confirmation prompt.
-    if (action === "disable" || action === "transfer") {
+    if (action === "disable" || action === "delete" || action === "transfer") {
       setConfirmAction({ target, action });
     } else {
       runAction(target, action);
     }
   }
 
-  const confirmText = confirmAction
-    ? confirmAction.action === "disable"
-      ? `Désactiver ${confirmAction.target.displayName} ? L'utilisateur ne pourra plus se connecter et perdra l'accès à toutes les conversations. Son historique de messages est conservé.`
-      : `Transférer la propriété à ${confirmAction.target.displayName} ? Vous deviendrez simple administrateur ; seul le nouveau propriétaire pourra vous rendre la propriété.`
-    : "";
+  const confirmText = confirmAction ? confirmMessage(confirmAction) : "";
 
   return (
     <div className="fixed inset-0 bg-black/50 grid place-items-stretch sm:place-items-center z-50 p-0 sm:p-4" {...overlayDismiss}>
@@ -330,7 +346,11 @@ export default function AdminPanelModal({ currentUser, onClose, onUserUpdated }:
                   disabled={busyId === confirmAction.target.id}
                   className="px-3 py-1.5 rounded-md bg-red-600 text-white text-sm disabled:opacity-50"
                 >
-                  {busyId === confirmAction.target.id ? "…" : "Confirmer"}
+                  {busyId === confirmAction.target.id
+                    ? "…"
+                    : confirmAction.action === "delete"
+                      ? "Supprimer définitivement"
+                      : "Confirmer"}
                 </button>
               </div>
             </div>

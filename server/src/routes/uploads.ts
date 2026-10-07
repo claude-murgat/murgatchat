@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { prisma } from "../db.ts";
-import { requireAuth, verifyToken } from "../auth.ts";
+import { requireAuth, authenticate } from "../auth.ts";
 import { encryptBufferToFile, decryptFile } from "../cryptoFile.ts";
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || "/data/uploads";
@@ -123,38 +123,34 @@ router.get("/:id", async (req, res) => {
   const token =
     (req.headers.authorization || "").replace(/^Bearer /, "") ||
     (req.query.token as string | undefined);
-  const payload = token ? verifyToken(token) : null;
-  if (!payload) return res.status(401).json({ error: "unauthorized" });
-  // `sub` d'un JWT est typé `string | undefined` (et `String.prototype.sub` si le
-  // payload est une chaîne) : nos tokens y mettent toujours l'id utilisateur.
-  const userId = payload.sub as string;
+  // Même contrôle que requireAuth (compte désactivé refusé), le jeton pouvant
+  // aussi venir de la query (`<img src>` ne sait pas poser d'en-tête).
+  const user = await authenticate(token);
+  if (!user) return res.status(401).json({ error: "unauthorized" });
+  const userId = user.id;
 
   const att = await prisma.attachment.findUnique({
     where: { id: req.params.id },
     include: {
       message: {
-        include: { channel: { include: { memberships: true } } },
+        include: {
+          channel: { include: { memberships: { where: { userId }, select: { id: true } } } },
+        },
       },
     },
   });
   if (!att) return res.status(404).json({ error: "not_found" });
 
-  const isUploader = att.uploadedBy === userId;
-  const isMember =
-    att.message?.channel?.memberships?.some((m) => m.userId === userId);
+  // A file posted in a conversation belongs to that conversation: members only,
+  // its uploader included — once removed from a private channel, no more access.
   // Bug-report screenshots (issue #96): the reporter (uploader) always sees them;
   // the team reaches them through the admin backlog, so any admin may fetch one
-  // that is tied to a report. Scoped to bug-report attachments — chat/DM files
-  // (no bugReportId) are untouched, so this doesn't widen access to private chats.
-  let isReportAdmin = false;
-  if (!isUploader && !isMember && att.bugReportId) {
-    const u = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { isAdmin: true },
-    });
-    isReportAdmin = Boolean(u?.isAdmin);
-  }
-  if (!isUploader && !isMember && !isReportAdmin) {
+  // that is tied to a report. Not yet sent (composer) or tied to a support
+  // ticket: the uploader only.
+  const allowed = att.message
+    ? att.message.channel.memberships.length > 0
+    : att.uploadedBy === userId || (Boolean(att.bugReportId) && user.isAdmin);
+  if (!allowed) {
     return res.status(403).json({ error: "forbidden" });
   }
 

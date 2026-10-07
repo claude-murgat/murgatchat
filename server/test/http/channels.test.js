@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer } from "../../src/index.ts";
 import { ensureDefaultChannel } from "../../src/routes/channels.ts";
 import { registerUser, authed } from "../helpers/api.js";
+import { prisma } from "../helpers/db.js";
+import { seedMessage } from "../helpers/seed.js";
 
 let app, io;
 beforeAll(() => {
@@ -196,5 +198,37 @@ describe("members add / remove / leave", () => {
     expect(
       (await authed(app, owner).delete(`/channels/${def.id}/members/${b.id}`)).status
     ).toBe(403);
+  });
+});
+
+describe("after removal from a private channel", () => {
+  it("a removed member can no longer write there; pending scheduled messages are dropped", async () => {
+    const { token: owner } = await registerUser(app);
+    const { token: bTok, user: b } = await registerUser(app);
+    const ch = (
+      await createChannel(owner, { name: "prive", isPrivate: true, memberIds: [b.id] })
+    ).body.channel;
+    const old = await seedMessage({ channelId: ch.id, authorId: b.id, body: "avant" });
+    const pending = await seedMessage({
+      channelId: ch.id,
+      authorId: b.id,
+      body: "plus tard",
+      delivered: false,
+      scheduledAt: new Date(Date.now() + 3_600_000),
+    });
+
+    await authed(app, owner).delete(`/channels/${ch.id}/members/${b.id}`);
+
+    const asB = authed(app, bTok);
+    expect((await asB.patch(`/channels/messages/${old.id}`).send({ body: "modifié" })).status).toBe(
+      403
+    );
+    expect((await asB.delete(`/channels/messages/${old.id}`)).status).toBe(403);
+    expect((await asB.get(`/channels/${ch.id}/scheduled`)).status).toBe(403);
+    // The scheduled message would never be posted there: dropped with the membership.
+    expect(await prisma.message.findUnique({ where: { id: pending.id } })).toBeNull();
+    expect((await prisma.message.findUnique({ where: { id: old.id } })).searchableBody).toBe(
+      "avant"
+    );
   });
 });

@@ -72,7 +72,24 @@ type LiveEvent =
   | { type: "new"; message: Message }
   | { type: "updated"; message: Message }
   | { type: "deleted"; id: string }
-  | { type: "reaction"; messageId: string; reactions: Reaction[] };
+  | { type: "reaction"; messageId: string; reactions: Reaction[] }
+  | { type: "userDeleted"; userId: string };
+
+// Efface d'un message les traces d'un compte supprimé : ses réactions, et la
+// citation d'un de ses messages (le serveur a détaché la réponse). Un message
+// non concerné est rendu tel quel, pour ne pas re-rendre tout le fil.
+function withoutUser(m: Message, userId: string): Message {
+  const quoted = m.parent?.author?.id === userId;
+  const reacted = m.reactions.some((r) => r.users.some((u) => u.id === userId));
+  if (!quoted && !reacted) return m;
+  const reactions = m.reactions
+    .map((r) => {
+      const users = r.users.filter((u) => u.id !== userId);
+      return { ...r, users, count: users.length };
+    })
+    .filter((r) => r.count > 0);
+  return quoted ? { ...m, reactions, parentId: null, parent: null } : { ...m, reactions };
+}
 
 function applyLiveEvent(messages: Message[], ev: LiveEvent): Message[] {
   switch (ev.type) {
@@ -84,6 +101,10 @@ function applyLiveEvent(messages: Message[], ev: LiveEvent): Message[] {
       return messages.filter((m) => m.id !== ev.id);
     case "reaction":
       return messages.map((m) => (m.id === ev.messageId ? { ...m, reactions: ev.reactions } : m));
+    case "userDeleted":
+      return messages
+        .filter((m) => m.author?.id !== ev.userId)
+        .map((m) => withoutUser(m, ev.userId));
   }
 }
 
@@ -569,6 +590,11 @@ export default function ChannelView({
     }) {
       live({ type: "reaction", messageId, reactions });
     }
+    // Compte supprimé par un admin : tout ce qu'il a publié a disparu côté serveur.
+    function onUserDeleted({ userId }: { userId: string }) {
+      live({ type: "userDeleted", userId });
+      setReplyingTo((curr) => (curr?.author?.id === userId ? null : curr));
+    }
     function onTyping({ channelId, userId }: { channelId: string; userId: string }) {
       if (!activeChannelId || channelId !== activeChannelId || userId === currentUser?.id) return;
       setTypingUserIds((prev) => (prev.includes(userId) ? prev : [...prev, userId]));
@@ -591,6 +617,7 @@ export default function ChannelView({
     socket.on("message:updated", onUpdated);
     socket.on("message:deleted", onDeleted);
     socket.on("reaction:update", onReaction);
+    socket.on("user:deleted", onUserDeleted);
     socket.on("typing:update", onTyping);
     return () => {
       socket.off("message:new", onNew);
@@ -598,6 +625,7 @@ export default function ChannelView({
       socket.off("message:updated", onUpdated);
       socket.off("message:deleted", onDeleted);
       socket.off("reaction:update", onReaction);
+      socket.off("user:deleted", onUserDeleted);
       socket.off("typing:update", onTyping);
     };
   }, [socket, activeChannelId, currentUser?.id]);
