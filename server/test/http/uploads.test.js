@@ -3,8 +3,9 @@ import request from "supertest";
 import fs from "node:fs";
 import path from "node:path";
 import { createServer } from "../../src/index.ts";
-import { registerUser } from "../helpers/api.js";
+import { registerUser, authed } from "../helpers/api.js";
 import { prisma } from "../helpers/db.js";
+import { seedMessage } from "../helpers/seed.js";
 
 // supertest auto-parses by Content-Type. Force raw bytes so we can compare
 // the downloaded payload to the original buffer regardless of MIME.
@@ -104,6 +105,34 @@ describe("POST /uploads + GET /uploads/:id", () => {
     const dl = await rawBytes(request(app).get(`/uploads/${att.id}?token=${token}`));
     expect(dl.status).toBe(200);
     expect(dl.body.toString("utf8")).toBe("plain old bytes");
+  });
+
+  it("serves a posted file to channel members only; its uploader loses it once removed", async () => {
+    const owner = await registerUser(app);
+    const bob = await registerUser(app);
+    const outsider = await registerUser(app);
+    const ch = (
+      await authed(app, owner.token)
+        .post("/channels")
+        .send({ name: "prive", isPrivate: true, memberIds: [bob.user.id] })
+    ).body.channel;
+    const up = await request(app)
+      .post("/uploads")
+      .set("Authorization", `Bearer ${bob.token}`)
+      .attach("file", Buffer.from("plan secret"), "plan.txt");
+    const msg = await seedMessage({ channelId: ch.id, authorId: bob.user.id, body: "le plan" });
+    await prisma.attachment.update({
+      where: { id: up.body.attachment.id },
+      data: { messageId: msg.id },
+    });
+    const fetchAs = (u) => request(app).get(`/uploads/${up.body.attachment.id}?token=${u.token}`);
+
+    expect((await fetchAs(owner)).status).toBe(200);
+    expect((await fetchAs(bob)).status).toBe(200);
+    expect((await fetchAs(outsider)).status).toBe(403);
+
+    await authed(app, owner.token).delete(`/channels/${ch.id}/members/${bob.user.id}`);
+    expect((await fetchAs(bob)).status).toBe(403);
   });
 
   it("rejects an unauthenticated download", async () => {

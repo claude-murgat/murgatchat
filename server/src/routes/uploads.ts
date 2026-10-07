@@ -133,21 +133,24 @@ router.get("/:id", async (req, res) => {
     where: { id: req.params.id },
     include: {
       message: {
-        include: { channel: { include: { memberships: true } } },
+        include: {
+          channel: { include: { memberships: { where: { userId }, select: { id: true } } } },
+        },
       },
     },
   });
   if (!att) return res.status(404).json({ error: "not_found" });
 
-  const isUploader = att.uploadedBy === userId;
-  const isMember =
-    att.message?.channel?.memberships?.some((m) => m.userId === userId);
+  // A file posted in a conversation belongs to that conversation: members only,
+  // its uploader included — once removed from a private channel, no more access.
   // Bug-report screenshots (issue #96): the reporter (uploader) always sees them;
   // the team reaches them through the admin backlog, so any admin may fetch one
-  // that is tied to a report. Scoped to bug-report attachments — chat/DM files
-  // (no bugReportId) are untouched, so this doesn't widen access to private chats.
-  const isReportAdmin = Boolean(att.bugReportId) && user.isAdmin;
-  if (!isUploader && !isMember && !isReportAdmin) {
+  // that is tied to a report. Not yet sent (composer) or tied to a support
+  // ticket: the uploader only.
+  const allowed = att.message
+    ? att.message.channel.memberships.length > 0
+    : att.uploadedBy === userId || (Boolean(att.bugReportId) && user.isAdmin);
+  if (!allowed) {
     return res.status(403).json({ error: "forbidden" });
   }
 

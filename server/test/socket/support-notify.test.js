@@ -1,7 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import request from "supertest";
-import { startTestServer, connectSocket, waitInRoom, waitForEvent } from "../helpers/server.js";
+import {
+  startTestServer,
+  connectSocket,
+  waitInRoom,
+  waitForEvent,
+  expectNoEvent,
+} from "../helpers/server.js";
 import { registerUser, authed } from "../helpers/api.js";
+import { prisma } from "../helpers/db.js";
 
 let srv;
 beforeAll(async () => {
@@ -73,5 +80,57 @@ describe("POST /support/notify → diffusion temps réel", () => {
 
     const evt = await notif;
     expect(evt.message.body).toContain(PR);
+  });
+});
+
+describe("salon du pipeline : réservé aux admins, temps réel compris", () => {
+  const inRoom = (socket, channelId) =>
+    !!srv.io.sockets.adapter.rooms.get(`channel:${channelId}`)?.has(socket.id);
+
+  it("un admin rétrogradé perd le salon sur-le-champ (membership et room)", async () => {
+    const owner = await registerUser(srv.app);
+    const admin = await registerUser(srv.app);
+    await authed(srv.app, owner.token).patch(`/auth/users/${admin.user.id}`).send({ isAdmin: true });
+    const ch = (
+      await authed(srv.app, owner.token)
+        .post("/channels")
+        .send({ name: "support-dev", isPrivate: true, memberIds: [admin.user.id] })
+    ).body.channel;
+    const s = open[open.push(await connectSocket(srv.url, admin.token)) - 1];
+    await waitInRoom(srv.io, ch.id, s.id);
+    const removed = waitForEvent(s, "channel:removed", (e) => e.channelId === ch.id);
+
+    await authed(srv.app, owner.token).patch(`/auth/users/${admin.user.id}`).send({ isAdmin: false });
+
+    await removed;
+    expect(inRoom(s, ch.id)).toBe(false);
+    const left = await prisma.membership.count({ where: { channelId: ch.id, userId: admin.user.id } });
+    expect(left).toBe(0);
+  });
+
+  it("la réconciliation d'une notification coupe aussi la socket d'un non-admin", async () => {
+    process.env.SUPPORT_NOTIFY_TOKEN = "test-secret";
+    const owner = await registerUser(srv.app);
+    const member = await registerUser(srv.app);
+    // État hérité : un non-admin membre du salon, connecté.
+    const ch = (
+      await authed(srv.app, owner.token)
+        .post("/channels")
+        .send({ name: "support-dev", memberIds: [member.user.id] })
+    ).body.channel;
+    const s = open[open.push(await connectSocket(srv.url, member.token)) - 1];
+    await waitInRoom(srv.io, ch.id, s.id);
+    const removed = waitForEvent(s, "channel:removed", (e) => e.channelId === ch.id);
+    const leak = expectNoEvent(s, "message:new", 1000);
+
+    const res = await request(srv.app)
+      .post("/support/notify")
+      .set("Authorization", "Bearer test-secret")
+      .send({ issueNumber: 9, prUrl: PR });
+    expect(res.status).toBe(200);
+
+    await removed;
+    await leak;
+    expect(inRoom(s, ch.id)).toBe(false);
   });
 });

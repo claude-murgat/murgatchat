@@ -1,9 +1,11 @@
 import { Server } from "socket.io";
+import type { Socket } from "socket.io";
 import type { Server as HttpServer } from "node:http";
 import type { User } from "@prisma/client";
 import { authenticate } from "./auth.ts";
 import { prisma } from "./db.ts";
-import { serializeMessage } from "./routes/channels.ts";
+import { serializeMessage, isMember } from "./routes/channels.ts";
+import { safeUnlink } from "./storage.ts";
 import { encryptBody } from "./crypto.ts";
 import { sendExpoPush } from "./push.ts";
 import { sendWebPush } from "./webpush.ts";
@@ -198,6 +200,24 @@ export function revokeUserSessions(
   io.in(`user:${userId}`).disconnectSockets(true);
 }
 
+// Une room `channel:<id>` reçoit TOUT le trafic d'un salon (messages, réactions,
+// saisie, liste des membres) : seuls ses membres y entrent. Après chaque entrée,
+// les appartenances sont relues et la socket ressort des rooms qu'un retrait
+// concurrent (membership supprimée, PUIS socketsLeave) a vidées entre la lecture
+// et le join — sans quoi elle y resterait abonnée jusqu'à sa reconnexion.
+async function recheckRooms(socket: Socket, userId: string, channelIds: string[]) {
+  try {
+    const rows = await prisma.membership.findMany({
+      where: { userId, channelId: { in: channelIds } },
+      select: { channelId: true },
+    });
+    const still = new Set(rows.map((m) => m.channelId));
+    for (const id of channelIds) if (!still.has(id)) socket.leave(`channel:${id}`);
+  } catch (e) {
+    console.error("[socket] recheckRooms:", e instanceof Error ? e.message : e);
+  }
+}
+
 export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
   const io = new Server(httpServer, {
     cors: { origin: corsOrigin || "*", credentials: false },
@@ -242,7 +262,10 @@ export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
       revokeUserSessions(io, userId, me ? "disabled" : "deleted");
       return;
     }
-    for (const m of me.memberships) socket.join(`channel:${m.channelId}`);
+    const channelIds = me.memberships.map((m) => m.channelId);
+    for (const id of channelIds) socket.join(`channel:${id}`);
+    // Sans attendre : les écouteurs ci-dessous doivent être posés au plus tôt.
+    void recheckRooms(socket, userId, channelIds);
 
     const prevCount = online.get(userId) || 0;
     online.set(userId, prevCount + 1);
@@ -259,12 +282,26 @@ export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
       if (socket.data.platform !== "mobile") markWebInactive(userId, socket.id);
     });
 
-    socket.on("channel:join", (channelId) => {
+    // Le client redemande la room du salon qu'il ouvre. Sans contrôle, n'importe
+    // quel compte connecté s'abonnait à un salon privé ou à un DM dont il
+    // connaissait l'id, et en recevait tout le trafic.
+    socket.on("channel:join", async (channelId) => {
+      if (typeof channelId !== "string" || !channelId) return;
+      try {
+        if (!(await isMember(userId, channelId))) return;
+      } catch (e) {
+        console.error("[socket] channel:join:", e instanceof Error ? e.message : e);
+        return;
+      }
       socket.join(`channel:${channelId}`);
+      await recheckRooms(socket, userId, [channelId]);
     });
 
     socket.on("typing", ({ channelId } = {}) => {
       if (!channelId) return;
+      // Rooms = salons dont l'utilisateur est membre (voir recheckRooms) :
+      // personne d'autre n'affiche « … est en train d'écrire » dans un salon privé.
+      if (!socket.rooms.has(`channel:${channelId}`)) return;
       socket.to(`channel:${channelId}`).emit("typing:update", { channelId, userId });
     });
 
@@ -445,10 +482,22 @@ export async function dispatchScheduledMessages(io: Server) {
     // ses messages restent en attente (ils partiront s'il est réactivé). Filtré
     // dans la requête, et non sauté dans la boucle, pour ne pas boucher la file.
     where: { delivered: false, scheduledAt: { lte: now }, author: { status: { not: "disabled" } } },
-    include: { author: true, channel: { select: { kind: true, expert: true } } },
+    include: {
+      author: true,
+      attachments: { select: { storagePath: true } },
+      channel: { select: { kind: true, expert: true } },
+    },
     take: 50,
   });
   for (const msg of due) {
+    // Auteur retiré du salon depuis la programmation : le message n'y partira
+    // jamais. removeMember le supprime déjà au retrait ; ceci couvre les plus
+    // anciens et une programmation concurrente du retrait.
+    if (!(await isMember(msg.authorId, msg.channelId))) {
+      await prisma.message.delete({ where: { id: msg.id } });
+      await Promise.all(msg.attachments.map((a) => safeUnlink(a.storagePath)));
+      continue;
+    }
     const updated = await prisma.message.update({
       where: { id: msg.id },
       // `scheduledAt` est non-null par construction ici : le `where` ci-dessus ne

@@ -10,7 +10,8 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { prisma } from "./db.ts";
 import { encryptBody } from "./crypto.ts";
-import { serializeMessage } from "./routes/channels.ts";
+import type { Server } from "socket.io";
+import { serializeMessage, isMember, removeMember } from "./routes/channels.ts";
 
 // Exporté : le panneau d'admin écarte ce compte technique (routes/auth.ts).
 export const BOT_USERNAME = "claude";
@@ -60,9 +61,10 @@ export async function ensureBot() {
 // PRIVATE so non-admins can't browse/join it (a public channel is listed by
 // /channels/public and joinable via /channels/:id/join). Membership is
 // reconciled to admins only on every notify: missing admins are added, and any
-// non-admin is removed (covers demotions and rows from when this channel used to
-// mirror every user). So only admins ever see the support pipeline feed.
-async function ensureChannel() {
+// non-admin is removed (rows from when this channel used to mirror every user;
+// demotions are applied at once by leavePipelineChannel). So only admins ever
+// see the support pipeline feed.
+async function ensureChannel(io?: Server) {
   const name = channelName();
   let channel = await prisma.channel.findFirst({
     where: { name, isDirect: false },
@@ -102,16 +104,25 @@ async function ensureChannel() {
     await prisma.membership.createMany({ data: toAdd, skipDuplicates: true });
   }
 
+  // removeMember et non un simple deleteMany : leurs sockets doivent aussi
+  // quitter la room, sinon elles recevraient le fil jusqu'à leur reconnexion.
   const toRemove = existing
     .filter((m) => !adminIds.has(m.userId))
     .map((m) => m.userId);
-  if (toRemove.length) {
-    await prisma.membership.deleteMany({
-      where: { channelId: channel.id, userId: { in: toRemove } },
-    });
-  }
+  for (const userId of toRemove) await removeMember(io, channel.id, userId);
 
   return channel;
+}
+
+// Un admin rétrogradé perd le salon du pipeline sur-le-champ, sans attendre la
+// prochaine notification (seule à réconcilier les membres).
+export async function leavePipelineChannel(io: Server | undefined, userId: string) {
+  const channel = await prisma.channel.findFirst({
+    where: { name: channelName(), isDirect: false },
+  });
+  if (channel && (await isMember(userId, channel.id))) {
+    await removeMember(io, channel.id, userId);
+  }
 }
 
 // Post `text` into an arbitrary channel as the bot, via the normal message path
@@ -137,7 +148,7 @@ export async function postBotMessage(channelId: string, text: string) {
 }
 
 // Post `text` into the team channel as the bot.
-export async function postPipelineMessage(text: string) {
-  const channel = await ensureChannel();
+export async function postPipelineMessage(text: string, io?: Server) {
+  const channel = await ensureChannel(io);
   return postBotMessage(channel.id, text);
 }

@@ -11,7 +11,7 @@ import { sendInvitationEmail, sendPasswordResetEmail, inviteLink } from "../mail
 import { getVapidPublicKey } from "../webpush.ts";
 import { revokeUserSessions } from "../socket.ts";
 import { purgeUser } from "../userPurge.ts";
-import { BOT_USERNAME } from "../notify.ts";
+import { BOT_USERNAME, leavePipelineChannel } from "../notify.ts";
 
 const router = Router();
 
@@ -571,6 +571,8 @@ router.patch("/users/:id", requireAuth, requireAdmin, async (req, res) => {
   // (authenticate relit le statut) ; restent les sockets déjà ouvertes, que rien
   // ne revérifie — sans cette coupure, le compte continuerait à recevoir et envoyer.
   if (status === "disabled") revokeUserSessions(req.io, updated.id, "disabled");
+  // Rétrogradé : le salon du pipeline (réservé aux admins) lui est retiré tout de suite.
+  if (isAdmin === false) await leavePipelineChannel(req.io, updated.id);
   res.json({ user: publicUser(updated) });
 });
 

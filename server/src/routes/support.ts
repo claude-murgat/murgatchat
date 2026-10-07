@@ -298,7 +298,7 @@ router.post("/notify", async (req, res) => {
     `À relire, puis poser le label « revue-ia » sur la PR pour une revue IA automatique.`;
 
   try {
-    const { channelId, authorId, serialized } = await postPipelineMessage(text);
+    const { channelId, authorId, serialized } = await postPipelineMessage(text, req.io);
     if (req.io) {
       req.io.to(`channel:${channelId}`).emit("message:new", serialized);
       await notifyMembers(req.io, channelId, authorId, serialized);
