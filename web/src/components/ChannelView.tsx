@@ -7,7 +7,7 @@ import type { ComposerHandle } from "./Composer.tsx";
 import MessageMarkdown from "./MessageMarkdown.tsx";
 import AttachmentModal from "./AttachmentModal.tsx";
 import ForwardMessageModal from "./ForwardMessageModal.tsx";
-import { api, attachmentUrl } from "../api.ts";
+import { api, attachmentUrl, downloadAttachment } from "../api.ts";
 import { isWindowFocused } from "../desktop.ts";
 import type {
   Attachment,
@@ -149,33 +149,62 @@ function Attachments({ attachments }: AttachmentsProps) {
       <div className="mt-1 flex flex-wrap gap-2">
         {attachments.map((a) => {
           const isImg = a.mimeType?.startsWith("image/");
+          // Issue #366 : un bouton « Télécharger » accessible directement à côté de
+          // chaque pièce jointe, sans avoir à ouvrir l'aperçu au préalable. Le clic
+          // ne doit pas déclencher l'ouverture de l'aperçu (stopPropagation).
           if (isImg) {
             return (
-              <button
-                key={a.id}
-                type="button"
-                onClick={() => setSelected(a)}
-                className="block rounded-sm overflow-hidden focus:outline-hidden focus:ring-2 focus:ring-aubergine-400"
-              >
-                <img
-                  src={attachmentUrl(a.id)}
-                  alt={a.filename}
-                  className="max-h-56 max-w-xs rounded-sm border border-slate-200 object-cover"
-                />
-              </button>
+              <div key={a.id} className="relative inline-block">
+                <button
+                  type="button"
+                  onClick={() => setSelected(a)}
+                  className="block rounded-sm overflow-hidden focus:outline-hidden focus:ring-2 focus:ring-aubergine-400"
+                >
+                  <img
+                    src={attachmentUrl(a.id)}
+                    alt={a.filename}
+                    className="max-h-56 max-w-xs rounded-sm border border-slate-200 object-cover"
+                  />
+                </button>
+                <button
+                  type="button"
+                  title="Télécharger"
+                  aria-label={`Télécharger ${a.filename}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    downloadAttachment(a);
+                  }}
+                  className="absolute top-1 right-1 grid place-items-center w-8 h-8 rounded-sm bg-black/50 hover:bg-black/70 text-white focus:outline-hidden focus:ring-2 focus:ring-aubergine-400"
+                >
+                  ⬇
+                </button>
+              </div>
             );
           }
           return (
-            <button
-              key={a.id}
-              type="button"
-              onClick={() => setSelected(a)}
-              className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 rounded-sm px-2 py-1.5 text-sm text-slate-800 max-w-xs text-left"
-            >
-              <span className="text-lg">📄</span>
-              <span className="flex-1 truncate">{a.filename}</span>
-              <span className="text-slate-500 text-xs">{fmtBytes(a.size)}</span>
-            </button>
+            <div key={a.id} className="flex items-stretch gap-1">
+              <button
+                type="button"
+                onClick={() => setSelected(a)}
+                className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 rounded-sm px-2 py-1.5 text-sm text-slate-800 max-w-xs text-left"
+              >
+                <span className="text-lg">📄</span>
+                <span className="flex-1 truncate">{a.filename}</span>
+                <span className="text-slate-500 text-xs">{fmtBytes(a.size)}</span>
+              </button>
+              <button
+                type="button"
+                title="Télécharger"
+                aria-label={`Télécharger ${a.filename}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  downloadAttachment(a);
+                }}
+                className="shrink-0 grid place-items-center w-8 h-8 rounded-sm bg-slate-100 hover:bg-slate-200 text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-aubergine-400"
+              >
+                ⬇
+              </button>
+            </div>
           );
         })}
       </div>

@@ -1,5 +1,6 @@
 import type { ZodType } from "zod";
-import type { NotifyLevel, SearchResult } from "./types.ts";
+import type { Attachment, NotifyLevel, SearchResult } from "./types.ts";
+import { isTauri, openExternal } from "./desktop.ts";
 import { logEvent } from "./logbuffer.ts";
 import { MessagesResponseSchema } from "../../shared/contracts.ts";
 
@@ -161,6 +162,27 @@ export async function uploadFile(file: File | Blob) {
 export function attachmentUrl(id: string) {
   const token = getToken();
   return `${getApiBaseUrl()}/uploads/${id}?token=${encodeURIComponent(token || "")}`;
+}
+
+// Déclenche le téléchargement d'une pièce jointe (le serveur renvoie alors un
+// Content-Disposition: attachment grâce à `&download=1`). Partagé par l'aperçu
+// (AttachmentModal) et le bouton de téléchargement direct de la liste de messages,
+// pour garder un seul comportement. Sous Tauri, la navigation http(s) de la
+// webview est avalée (#43) : on route vers l'ouvreur système, qui laisse le
+// navigateur de l'OS effectuer le téléchargement.
+export function downloadAttachment(attachment: Attachment) {
+  const downloadUrl = `${attachmentUrl(attachment.id)}&download=1`;
+  if (isTauri()) {
+    openExternal(downloadUrl);
+    return;
+  }
+  const a = document.createElement("a");
+  a.href = downloadUrl;
+  a.download = attachment.filename || "";
+  a.rel = "noreferrer";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 // Vérif non-bloquante d'un contrat de données à une frontière : valide `data`,
