@@ -8,9 +8,13 @@ on:
   workflow_call:
 
 jobs:
+  # Chaque job porte un `timeout-minutes` (environ 5× sa durée habituelle) : sans
+  # lui, une étape bloquée occupe le job jusqu'à la limite GitHub de 6 h. Vu le
+  # 2026-10-08 : `playwright install --with-deps` figé au lieu de ses 23 s.
   backend:
     name: backend (vitest)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     services:
       postgres:
         image: postgres:16-alpine
@@ -49,6 +53,7 @@ jobs:
   e2e:
     name: e2e (playwright)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Start isolated stack
@@ -89,6 +94,7 @@ jobs:
   lint:
     name: lint (eslint)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -129,6 +135,7 @@ jobs:
   sast:
     name: sast (semgrep)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -159,6 +166,7 @@ jobs:
   dast:
     name: dast (zap baseline)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Start isolated stack
