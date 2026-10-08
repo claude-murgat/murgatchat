@@ -157,6 +157,25 @@ test("invitation registration + full web journey", async ({ page, browser }) => 
   await chat.getByRole("button", { name: "✕" }).click();
   await expect(page.getByText("drop-test.txt")).toBeHidden();
 
+  // Issue #366 : un bouton « Télécharger » doit être accessible directement à
+  // côté de chaque pièce jointe dans la conversation, sans ouvrir l'aperçu au
+  // préalable. On joint un fichier, on envoie le message, puis on vérifie que le
+  // clic sur ce bouton déclenche bien le téléchargement — l'aperçu n'ayant jamais
+  // été ouvert.
+  await page
+    .locator('input[type="file"]')
+    .setInputFiles({ name: "telecharge-moi.txt", mimeType: "text/plain", buffer: Buffer.from("un clic suffit") });
+  await expect(page.getByText("telecharge-moi.txt")).toBeVisible();
+  await composer.fill("fichier joint e2e");
+  await composer.press("Enter");
+  const attachRow = messageRow(page, "fichier joint e2e");
+  const directDownload = attachRow.getByRole("button", { name: "Télécharger telecharge-moi.txt" });
+  await expect(directDownload).toBeVisible();
+  const downloadPromise = page.waitForEvent("download");
+  await directDownload.click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe("telecharge-moi.txt");
+
   await composer.fill("hello e2e");
   await composer.press("Enter");
   await expect(page.getByText("hello e2e")).toBeVisible();

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { attachmentUrl } from "../api.ts";
-import { isTauri, openExternal } from "../desktop.ts";
+import { attachmentUrl, downloadAttachment } from "../api.ts";
 import type { Attachment } from "../types.ts";
 import { useOverlayDismiss } from "../hooks/useOverlayDismiss.ts";
 
@@ -574,7 +573,6 @@ interface AttachmentModalProps {
 export default function AttachmentModal({ attachment, onClose }: AttachmentModalProps) {
   const overlayDismiss = useOverlayDismiss(onClose);
   const url = attachmentUrl(attachment.id); // already carries ?token=…
-  const downloadUrl = `${url}&download=1`; // server → Content-Disposition: attachment
   const kind = kindOf(attachment.mimeType, attachment.filename);
   // Everything rendered from fetched bytes (incl. PDF, framed from a blob: URL).
   const isDocument =
@@ -589,20 +587,7 @@ export default function AttachmentModal({ attachment, onClose }: AttachmentModal
   }, [onClose]);
 
   function download() {
-    // Under Tauri, window/anchor navigation to an http(s) URL is swallowed by the
-    // webview (#43) — route through the opener so it reaches the OS browser, which
-    // downloads it (the server sends Content-Disposition: attachment).
-    if (isTauri()) {
-      openExternal(downloadUrl);
-      return;
-    }
-    const a = document.createElement("a");
-    a.href = downloadUrl;
-    a.download = attachment.filename || "";
-    a.rel = "noreferrer";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    downloadAttachment(attachment);
   }
 
   return (
