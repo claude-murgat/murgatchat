@@ -225,12 +225,19 @@ export default function Sidebar({
   const expertsToOpen = claudeExperts.filter(
     (e) => !claudeConvs.some((c) => (c.expert || "supervision") === e.key)
   );
+  // Self-DM (« Mes notes ») : une seule appartenance, celle du lecteur. On la
+  // sort de la liste des DM pour l'épingler en tête de la barre latérale, au
+  // même niveau que les sections, au lieu de la mêler aux conversations
+  // directes (#362).
+  const isSelfDm = (c: Channel) =>
+    c.isDirect && c.members.length === 1 && c.members[0]?.id === user.id;
+  const selfDm = channels.find(isSelfDm);
   // DMs sorted by most-recent activity (SMS-style, #180): the conversation with
   // the latest message floats to the top — which also surfaces unread ones,
   // since they're usually the most recent (see the coloured badge below, #179).
   // .filter() returns a fresh array, so sorting it never mutates the channels state.
   const dms = channels
-    .filter((c) => c.isDirect)
+    .filter((c) => c.isDirect && !isSelfDm(c))
     .sort((a, b) => lastActivity(b) - lastActivity(a));
 
   const dnd = dndLabel(user);
@@ -424,6 +431,23 @@ export default function Sidebar({
           />
         ) : (
           <>
+        {/* « Mes notes » (self-DM) épinglée en première position, au même niveau
+            que les sections, plutôt que fondue dans les messages directs (#362).
+            N'apparaît qu'une fois la conversation ouverte au moins une fois. */}
+        {selfDm && (
+          <DmItem
+            c={selfDm}
+            user={user}
+            active={selfDm.id === activeChannelId}
+            isTyping={(typingByChannel?.[selfDm.id]?.length || 0) > 0}
+            onlineUserIds={onlineUserIds}
+            onClick={() => onSelectChannel(selfDm)}
+            onLongPress={(pos) =>
+              setConvMenu({ channelId: selfDm.id, unread: selfDm.unread, ...pos })
+            }
+          />
+        )}
+
         <SidebarSection id="groups" title="Salons">
           {groups.map((c) => (
             <SidebarItem
