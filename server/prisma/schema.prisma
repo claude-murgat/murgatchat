@@ -53,6 +53,10 @@ model Channel {
   // par expert ; null pour les salons et les DM.
   expert      String?
   description String?
+  // Créateur du salon (POST /channels) : seul lui (ou un admin) peut le
+  // renommer/modifier ou le supprimer. Nullable pour les salons historiques
+  // créés avant cette colonne (gérés par les admins uniquement).
+  createdById String?
   createdAt   DateTime @default(now())
 
   memberships Membership[]

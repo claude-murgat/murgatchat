@@ -122,6 +122,7 @@ router.post("/", requireAuth, async (req, res) => {
       description,
       isPrivate: !!isPrivate,
       isDirect: false,
+      createdById: req.userId,
       memberships: { create: allMembers.map((userId) => ({ userId })) },
     },
     include: {
@@ -578,6 +579,112 @@ router.patch("/:id/notifications", requireAuth, async (req, res) => {
   res.json({ ok: true, notifyLevel: parsed.data.level });
 });
 
+// Un salon (ni DM, ni conversation Claude) peut être renommé / modifié par son
+// créateur ou par un admin. Les salons historiques sans créateur (createdById
+// null, antérieurs à la colonne) sont gérés par les admins uniquement.
+const updateChannelSchema = z.object({
+  name: z.string().min(1).max(80).optional(),
+  description: z.string().max(300).nullable().optional(),
+  isPrivate: z.boolean().optional(),
+});
+
+function canManageChannel(
+  channel: { createdById?: string | null },
+  userId: string,
+  isAdmin: boolean
+) {
+  if (isAdmin) return true;
+  return !!channel.createdById && channel.createdById === userId;
+}
+
+router.patch("/:id", requireAuth, async (req, res) => {
+  const parsed = updateChannelSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const { name, description, isPrivate } = parsed.data;
+  if (name === undefined && description === undefined && isPrivate === undefined) {
+    return res.status(400).json({ error: "nothing_to_update" });
+  }
+
+  const channel = await prisma.channel.findUnique({ where: { id: req.params.id } });
+  if (!channel || channel.isDirect || channel.kind === "claude") {
+    return res.status(404).json({ error: "not_found" });
+  }
+  const isAdmin = !!req.user?.isAdmin;
+  const membership = await prisma.membership.findUnique({
+    where: { userId_channelId: { userId: req.userId, channelId: channel.id } },
+  });
+  // Le créateur doit toujours être membre ; l'admin peut gérer même sans
+  // appartenance (salon privé auquel il n'appartient pas, modération).
+  if (!isAdmin && !membership) return res.status(403).json({ error: "not_a_member" });
+  if (!canManageChannel(channel, req.userId, isAdmin)) {
+    return res.status(403).json({ error: "not_channel_owner" });
+  }
+  // Le salon par défaut reste public et ne change pas de visibilité.
+  if (channel.isDefault && isPrivate !== undefined && isPrivate !== channel.isPrivate) {
+    return res.status(403).json({ error: "cannot_make_default_private" });
+  }
+
+  const data: Prisma.ChannelUpdateInput = {};
+  if (name !== undefined) data.name = name.trim();
+  if (description !== undefined) {
+    const trimmed = typeof description === "string" ? description.trim() : "";
+    data.description = trimmed ? trimmed : null;
+  }
+  if (isPrivate !== undefined) data.isPrivate = isPrivate;
+
+  const updated = await prisma.channel.update({
+    where: { id: channel.id },
+    data,
+    include: {
+      memberships: { include: { user: true } },
+      messages: { orderBy: { createdAt: "desc" }, take: 1, where: { delivered: true } },
+    },
+  });
+  // Diffusion personnalisée par membre (notifyLevel / unread diffèrent), comme
+  // channel:created : chaque appareil met à jour sa liste sans recharger.
+  for (const m of updated.memberships) {
+    req.io?.to(`user:${m.userId}`).emit("channel:updated", serializeChannel(updated, m.userId));
+  }
+  res.json({ channel: serializeChannel(updated, req.userId) });
+});
+
+router.delete("/:id", requireAuth, async (req, res) => {
+  const channel = await prisma.channel.findUnique({ where: { id: req.params.id } });
+  if (!channel || channel.isDirect || channel.kind === "claude") {
+    return res.status(404).json({ error: "not_found" });
+  }
+  if (channel.isDefault) return res.status(403).json({ error: "cannot_delete_default" });
+  const isAdmin = !!req.user?.isAdmin;
+  const membership = await prisma.membership.findUnique({
+    where: { userId_channelId: { userId: req.userId, channelId: channel.id } },
+  });
+  if (!isAdmin && !membership) return res.status(403).json({ error: "not_a_member" });
+  if (!canManageChannel(channel, req.userId, isAdmin)) {
+    return res.status(403).json({ error: "not_channel_owner" });
+  }
+
+  const memberRows = await prisma.membership.findMany({
+    where: { channelId: channel.id },
+    select: { userId: true },
+  });
+  const memberIds = memberRows.map((m) => m.userId);
+  // Pièces jointes liées aux messages du salon : la cascade Prisma supprime les
+  // lignes, mais les blobs sur disque doivent être retirés explicitement.
+  const msgs = await prisma.message.findMany({
+    where: { channelId: channel.id },
+    select: { attachments: { select: { storagePath: true } } },
+  });
+  const blobs = msgs.flatMap((m) => m.attachments.map((a) => a.storagePath));
+  await prisma.channel.delete({ where: { id: channel.id } });
+  await Promise.all(blobs.map((p) => safeUnlink(p)));
+
+  for (const userId of memberIds) {
+    req.io?.to(`user:${userId}`).emit("channel:removed", { channelId: channel.id });
+    req.io?.in(`user:${userId}`).socketsLeave(`channel:${channel.id}`);
+  }
+  res.json({ ok: true });
+});
+
 export function serializeChannel(channel: ChannelWithRelations, viewerId: string) {
   const members = (channel.memberships || []).map((m) => publicUser(m.user));
   let displayName = channel.name;
@@ -613,6 +720,7 @@ export function serializeChannel(channel: ChannelWithRelations, viewerId: string
     kind: channel.kind,
     expert: channel.expert,
     description: channel.description,
+    createdById: channel.createdById ?? null,
     // Niveau de notification de l'appelant pour ce channel (défaut "all" si la
     // membership n'est pas hydratée, p. ex. juste après une création).
     notifyLevel: viewerMembership?.notifyLevel || "all",

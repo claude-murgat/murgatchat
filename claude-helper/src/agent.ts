@@ -15,6 +15,31 @@ const SESSIONS_FILE = join(STATE_DIR, "sessions.json");
 const TURN_TIMEOUT_MS = 15 * 60_000;
 const MAX_REPLY = 20_000; // même plafond que le zod du callback côté MurgaChat
 
+// Modèle des experts : Sonnet (rapide, suffisant pour renseigner vite), alias
+// SDK pour suivre les 5.x sans recâbler. Surchargeable via EXPERT_MODEL.
+// Exporté pour le test.
+export function expertModel(): string {
+  const raw = (process.env.EXPERT_MODEL || "").trim();
+  return raw || "sonnet";
+}
+
+// Borne d'investigation : les experts renseignent vite (lecture seule, marche
+// à suivre simple), pas d'analyse au long cours — au-delà, le garde-fou 15 min
+// trancherait de toute façon (erreur « timeout_15min » vue le 2026-10-08).
+const MAX_TURNS = 30;
+
+// Style imposé à chaque tour, en complément du CLAUDE.md du workspace :
+// réponse courte, structurée, sans jargon — l'expert renseigne et donne une
+// marche à suivre, il ne fait pas un rapport technique.
+const RESPONSE_STYLE = `STYLE DE RÉPONSE (prioritaire) : tu renseignes vite des collègues non
+spécialistes. Réponds en français, en markdown court (~1500 caractères max sauf
+diagnostic complexe, jamais de pavé). Structure : 1) « Constat » (1-2 phrases,
+faits réellement observés uniquement), 2) « Cause probable » (1 phrase),
+3) « Marche à suivre » (3 à 5 étapes numérotées, simples, commandes exactes à
+copier quand une action humaine est nécessaire). Évite le jargon ; explique un
+terme technique si tu dois l'employer. Accès lecture seule : décris ce que
+l'humain doit faire, n'annonce jamais une action que tu exécuterais toi-même.`;
+
 export function loadSessions(): Record<string, string> {
   try {
     return JSON.parse(readFileSync(SESSIONS_FILE, "utf8"));
@@ -110,13 +135,13 @@ async function runOnce(
     const q = query({
       prompt,
       options: {
-        model: "claude-opus-5",
+        model: expertModel(),
         cwd: workspace,
         resume: sessions[key],
         // Charger UNIQUEMENT les réglages du workspace : CLAUDE.md +
         // .claude/settings.json (permissions). Pas de réglages utilisateur.
         settingSources: ["project"],
-        systemPrompt: { type: "preset", preset: "claude_code" },
+        systemPrompt: { type: "preset", preset: "claude_code", append: RESPONSE_STYLE },
         // Auto-approuvés ; le périmètre fin (notes/ en écriture, 3 préfixes
         // Bash, .env interdits en lecture) vit dans .claude/settings.json —
         // c'est lui qui fait autorité, deny d'abord.
@@ -125,7 +150,7 @@ async function runOnce(
         // Tout ce qui n'est pas explicitement permis est refusé net (pas de
         // prompt interactif — personne pour y répondre).
         permissionMode: "dontAsk",
-        maxTurns: 100,
+        maxTurns: MAX_TURNS,
         abortController: ac,
       },
     });

@@ -14,6 +14,7 @@
 //   PORT               défaut 7070
 //   WORKSPACE          workspace de l'expert supervision (défaut /home/murgat/claude-helper)
 //   WORKSPACE_<CLÉ>    workspace des autres experts, ex. WORKSPACE_MANAGEMENT
+//   EXPERT_MODEL       modèle des experts (défaut "sonnet", alias SDK)
 
 import { timingSafeEqual } from "node:crypto";
 import express from "express";

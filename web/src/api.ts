@@ -268,6 +268,10 @@ export const api = {
   listUsers: (q?: string) => request(`/users${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   listChannels: () => request("/channels"),
   createChannel: (body: unknown) => request("/channels", { method: "POST", body }),
+  updateChannel: (id: string, patch: { name?: string; description?: string | null; isPrivate?: boolean }) =>
+    request(`/channels/${encodeURIComponent(id)}`, { method: "PATCH", body: patch }),
+  deleteChannel: (id: string) =>
+    request(`/channels/${encodeURIComponent(id)}`, { method: "DELETE" }),
   publicChannels: (q?: string) =>
     request(`/channels/public${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   joinChannel: (id: string) => request(`/channels/${id}/join`, { method: "POST" }),

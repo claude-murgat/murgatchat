@@ -2,7 +2,7 @@
 
 Le cerveau de la section **CLAUDE** de MurgaChat : un service Node sur la VM
 `claude-help` (`172.16.1.252`) qui pilote des agents Claude (Agent SDK, modèle
-Opus 5), **un par expert**, chacun confiné dans son propre workspace avec un accès
+Sonnet — `EXPERT_MODEL`, défaut `sonnet`), **un par expert**, chacun confiné dans son propre workspace avec un accès
 **strictement lecture seule** au système qu'il observe :
 
 | Expert (clé) | Application | Ce qu'il observe | Workspace sur la VM |
@@ -69,6 +69,7 @@ Les dossiers sur la VM, volontairement séparés :
    PORT=7070
    WORKSPACE=/home/murgat/claude-helper                 # expert supervision
    WORKSPACE_MANAGEMENT=/home/murgat/claude-management  # expert management
+   EXPERT_MODEL=sonnet  # modèle des experts (alias SDK : sonnet/opus/haiku…) — réponses courtes et rapides
    ```
 
 3. `systemctl enable --now claude-helper`.

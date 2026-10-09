@@ -293,6 +293,8 @@ interface ChannelViewProps {
   onlineUserIds?: Set<string>;
   onAddMembers?: () => void;
   onShowMembers?: () => void;
+  /** Le créateur (ou un admin) veut modifier le salon ouvert (renommer, visibilité…). */
+  onEditChannel?: () => void;
   onNotifyLevelChange?: (channelId: string, level: NotifyLevel) => void;
   channels?: Channel[];
   onSwitchChannel?: (channel: Channel) => void;
@@ -314,6 +316,7 @@ export default function ChannelView({
   onlineUserIds,
   onAddMembers,
   onShowMembers,
+  onEditChannel,
   // Persiste le niveau de notification choisi pour ce channel (remonte à App.jsx).
   onNotifyLevelChange,
   // Liste complète des conversations + bascule, pour le transfert de message (#124).
@@ -934,6 +937,15 @@ export default function ChannelView({
     ? channel.members.find((m) => m.id !== currentUser?.id) || channel.members[0]
     : null;
   const dmOnline = dmOther && onlineUserIds?.has(dmOther.id);
+  // Le créateur du salon (ou un admin) peut le modifier / supprimer : bouton
+  // visible dans l'en-tête, en plus du menu contextuel de la barre latérale
+  // (appui long PWA / clic droit desktop). Ni DM, ni conversation Claude.
+  const canManage =
+    !!currentUser &&
+    !channel.isDirect &&
+    !isClaude &&
+    (currentUser.isAdmin ||
+      (!!channel.createdById && channel.createdById === currentUser.id));
 
   let lastDay: string | null = null;
 
@@ -1028,6 +1040,17 @@ export default function ChannelView({
               aria-label="Ajouter des membres"
             >
               <span className="text-xl leading-none">+</span>
+            </button>
+          )}
+          {canManage && onEditChannel && (
+            <button
+              onClick={onEditChannel}
+              className="w-10 h-10 sm:w-auto sm:h-auto sm:px-2 sm:py-1.5 grid place-items-center sm:inline-block text-xs rounded-sm text-slate-600 hover:bg-slate-100 sm:border sm:border-slate-300"
+              title="Modifier le salon"
+              aria-label="Modifier le salon"
+            >
+              <span aria-hidden="true">✏️</span>
+              <span className="hidden sm:inline ml-1">Modifier</span>
             </button>
           )}
           <button

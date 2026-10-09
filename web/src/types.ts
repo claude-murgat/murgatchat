@@ -46,6 +46,8 @@ export interface Channel {
   isDirect: boolean;
   isPrivate: boolean;
   isDefault: boolean;
+  /** Créateur du salon (null = salon historique) : seul lui ou un admin peut le modifier/supprimer. */
+  createdById: string | null;
   /** "claude" = conversation privée avec un expert Claude (section CLAUDE). */
   kind?: "standard" | "claude";
   /** Clé de l'expert consulté (canaux kind="claude") : "supervision", "management"… */

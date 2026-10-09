@@ -19,6 +19,7 @@ import Login from "./components/Login.tsx";
 import Sidebar from "./components/Sidebar.tsx";
 import ChannelView from "./components/ChannelView.tsx";
 import NewChannelModal from "./components/NewChannelModal.tsx";
+import EditChannelModal from "./components/EditChannelModal.tsx";
 import NewDmModal from "./components/NewDmModal.tsx";
 import AddMembersModal from "./components/AddMembersModal.tsx";
 import MembersModal from "./components/MembersModal.tsx";
@@ -117,6 +118,9 @@ export default function App() {
   const [showDnd, setShowDnd] = useState(false);
   const [showAddMembers, setShowAddMembers] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
+  // Salon en cours d'édition par son créateur (ou un admin) : modale partagée
+  // entre le menu contextuel de la Sidebar et le bouton ✏️ de l'en-tête.
+  const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
   const [showInvite, setShowInvite] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
@@ -335,6 +339,20 @@ export default function App() {
     const onRemoved = ({ channelId }: { channelId: string }) => {
       setChannels((prev) => prev.filter((c) => c.id !== channelId));
       setActiveChannelId((curr) => (curr === channelId ? null : curr));
+      setEditingChannel((curr) => (curr?.id === channelId ? null : curr));
+    };
+    // Salon renommé / modifié (par son créateur ou un admin) : on fusionne les
+    // champs stables en gardant le non-lu et le niveau de notif locaux, calculés
+    // pour cet appareil (le payload est personnalisé par membre côté serveur).
+    const onChannelPatched = (updated: Channel) => {
+      setChannels((prev) =>
+        prev.map((c) =>
+          c.id === updated.id
+            ? { ...updated, unread: c.unread, notifyLevel: c.notifyLevel }
+            : c
+        )
+      );
+      setEditingChannel((curr) => (curr?.id === updated.id ? updated : curr));
     };
     const onMembers = ({ channelId, members }: { channelId: string; members: User[] }) => {
       setChannels((prev) =>
@@ -392,6 +410,7 @@ export default function App() {
     s.on("message:new", onNew);
     s.on("channel:created", onCreated);
     s.on("channel:removed", onRemoved);
+    s.on("channel:updated", onChannelPatched);
     s.on("channel:members", onMembers);
     s.on("user:deleted", onUserDeleted);
     s.on("message:updated", onUpdated);
@@ -405,6 +424,7 @@ export default function App() {
       s.off("message:new", onNew);
       s.off("channel:created", onCreated);
       s.off("channel:removed", onRemoved);
+      s.off("channel:updated", onChannelPatched);
       s.off("channel:members", onMembers);
       s.off("user:deleted", onUserDeleted);
       s.off("message:updated", onUpdated);
@@ -833,6 +853,36 @@ export default function App() {
     );
   }, []);
 
+  // Le créateur (ou un admin) a renommé / modifié son salon : on remplace la
+  // version locale et on referme la modale. Le socket channel:updated a déjà pu
+  // le faire (même fusion) : le map par id rend l'opération idempotente.
+  const onChannelUpdated = useCallback((channel: Channel) => {
+    setChannels((prev) => prev.map((c) => (c.id === channel.id ? channel : c)));
+    setEditingChannel(null);
+  }, []);
+
+  // Salon supprimé par son créateur (ou un admin) : on le retire de la liste et
+  // on referme la conversation si c'était celle ouverte, comme channel:removed.
+  const onChannelDeleted = useCallback((channelId: string) => {
+    setChannels((prev) => prev.filter((c) => c.id !== channelId));
+    setActiveChannelId((curr) => (curr === channelId ? null : curr));
+    setEditingChannel(null);
+  }, []);
+
+  // Suppression depuis le menu contextuel : confirmation explicite puis appel
+  // API (la modale d'édition porte sa propre double-confirmation).
+  const onDeleteChannelMenu = useCallback(async (channel: Channel) => {
+    if (channel.isDefault) return;
+    if (!window.confirm(`Supprimer définitivement #${channel.name} et tous ses messages ?`)) return;
+    try {
+      await api.deleteChannel(channel.id);
+      setChannels((prev) => prev.filter((c) => c.id !== channel.id));
+      setActiveChannelId((curr) => (curr === channel.id ? null : curr));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
   const onNotifyLevelChange = useCallback((channelId: string, notifyLevel: NotifyLevel) => {
     setChannels((prev) =>
       prev.map((c) => (c.id === channelId ? { ...c, notifyLevel } : c))
@@ -931,6 +981,8 @@ export default function App() {
             onSelectMessage={onSelectMessage}
             onMarkUnread={onMarkUnread}
             onMarkRead={onMarkRead}
+            onRenameChannel={(c) => setEditingChannel(c)}
+            onDeleteChannel={onDeleteChannelMenu}
             onNewChannel={(name: string) => {
               setNewChannelName(name || "");
               setShowNewChannel(true);
@@ -969,6 +1021,9 @@ export default function App() {
             onSwitchChannel={onSelectChannel}
             onAddMembers={() => setShowAddMembers(true)}
             onShowMembers={() => setShowMembers(true)}
+            onEditChannel={
+              activeChannel ? () => setEditingChannel(activeChannel) : undefined
+            }
             onNotifyLevelChange={onNotifyLevelChange}
             onBackToList={() => {
               if (
@@ -993,6 +1048,14 @@ export default function App() {
             setNewChannelName("");
           }}
           onCreated={onNewChannelCreated}
+        />
+      )}
+      {editingChannel && (
+        <EditChannelModal
+          channel={editingChannel}
+          onClose={() => setEditingChannel(null)}
+          onSaved={onChannelUpdated}
+          onDeleted={onChannelDeleted}
         />
       )}
       {showNewDm && (

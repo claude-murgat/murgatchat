@@ -107,6 +107,13 @@ function lastActivity(c: Channel) {
   return c.lastMessage?.createdAt ? new Date(c.lastMessage.createdAt).getTime() : 0;
 }
 
+// Un salon peut être géré par son créateur ou par un admin (ni DM, ni Claude).
+export function canManageChannel(channel: Channel, user: User) {
+  if (channel.isDirect || channel.kind === "claude") return false;
+  if (user.isAdmin) return true;
+  return !!channel.createdById && channel.createdById === user.id;
+}
+
 interface SidebarProps {
   user: User;
   channels: Channel[];
@@ -116,6 +123,10 @@ interface SidebarProps {
   onSelectMessage: (channelId: string, messageId: string) => void;
   onMarkUnread?: (channelId: string) => void;
   onMarkRead?: (channelId: string) => void;
+  /** Le créateur (ou un admin) veut renommer / modifier ce salon. */
+  onRenameChannel?: (channel: Channel) => void;
+  /** Le créateur (ou un admin) veut supprimer ce salon (confirmé par l'appelant). */
+  onDeleteChannel?: (channel: Channel) => void;
   onNewChannel: (name: string) => void;
   onNewDm: () => void;
   onChannelJoined: (channel: Channel) => void;
@@ -144,6 +155,8 @@ export default function Sidebar({
   onSelectMessage,
   onMarkUnread,
   onMarkRead,
+  onRenameChannel,
+  onDeleteChannel,
   onNewChannel,
   onNewDm,
   onChannelJoined,
@@ -533,50 +546,82 @@ export default function Sidebar({
 
       {/* Menu contextuel d'une conversation (appui long / clic droit). Backdrop
           invisible pour fermer au clic extérieur, comme le menu utilisateur. */}
-      {convMenu && (
-        <>
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setConvMenu(null)}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              setConvMenu(null);
-            }}
-            aria-hidden="true"
-          />
-          <div
-            className="fixed bg-white text-slate-800 rounded-md shadow-lg overflow-hidden z-50 w-56"
-            style={{
-              left: Math.min(convMenu.x, window.innerWidth - 230),
-              top: Math.min(convMenu.y, window.innerHeight - 60),
-            }}
-          >
-            {convMenu.unread ? (
-              <button
-                onClick={() => {
-                  const id = convMenu.channelId;
+      {convMenu &&
+        (() => {
+          const target = channels.find((c) => c.id === convMenu.channelId);
+          const manageable = target ? canManageChannel(target, user) : false;
+          return (
+            <>
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setConvMenu(null)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
                   setConvMenu(null);
-                  onMarkRead?.(id);
                 }}
-                className="block w-full text-left px-3 py-2.5 text-sm hover:bg-slate-100"
-              >
-                Marquer comme lu
-              </button>
-            ) : (
-              <button
-                onClick={() => {
-                  const id = convMenu.channelId;
-                  setConvMenu(null);
-                  onMarkUnread?.(id);
+                aria-hidden="true"
+              />
+              <div
+                className="fixed bg-white text-slate-800 rounded-md shadow-lg overflow-hidden z-50 w-56"
+                style={{
+                  left: Math.min(convMenu.x, window.innerWidth - 230),
+                  top: Math.min(convMenu.y, window.innerHeight - 200),
                 }}
-                className="block w-full text-left px-3 py-2.5 text-sm hover:bg-slate-100"
               >
-                Marquer comme non lu
-              </button>
-            )}
-          </div>
-        </>
-      )}
+                {convMenu.unread ? (
+                  <button
+                    onClick={() => {
+                      const id = convMenu.channelId;
+                      setConvMenu(null);
+                      onMarkRead?.(id);
+                    }}
+                    className="block w-full text-left px-3 py-2.5 text-sm hover:bg-slate-100"
+                  >
+                    Marquer comme lu
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      const id = convMenu.channelId;
+                      setConvMenu(null);
+                      onMarkUnread?.(id);
+                    }}
+                    className="block w-full text-left px-3 py-2.5 text-sm hover:bg-slate-100"
+                  >
+                    Marquer comme non lu
+                  </button>
+                )}
+                {manageable && target && (
+                  <>
+                    <div className="border-t border-slate-200" />
+                    <button
+                      onClick={() => {
+                        const ch = target;
+                        setConvMenu(null);
+                        onRenameChannel?.(ch);
+                      }}
+                      className="block w-full text-left px-3 py-2.5 text-sm hover:bg-slate-100"
+                    >
+                      ✏️ Modifier le salon
+                    </button>
+                    {!target.isDefault && (
+                      <button
+                        onClick={() => {
+                          const ch = target;
+                          setConvMenu(null);
+                          onDeleteChannel?.(ch);
+                        }}
+                        className="block w-full text-left px-3 py-2.5 text-sm text-red-600 hover:bg-red-50"
+                      >
+                        🗑️ Supprimer le salon
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </>
+          );
+        })()}
     </aside>
   );
 }

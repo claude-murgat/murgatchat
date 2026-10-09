@@ -101,7 +101,7 @@ function messageForError(error?: string): string {
     case "auth":
       return "⚠️ L'expert est indisponible : la clé Anthropic est invalide ou expirée. Préviens un administrateur.";
     case "timeout_15min":
-      return "⚠️ L'analyse a dépassé 15 minutes et a été interrompue. Essaie de cibler ta demande (une question à la fois).";
+      return "⚠️ L'analyse a dépassé 15 minutes et a été interrompue. Pose une question à la fois, ou vide la conversation (bouton « Vider ») pour repartir sur une session neuve.";
     case "empty_reply":
       return "⚠️ L'expert n'a rien renvoyé. Reformule ta demande.";
     default:
