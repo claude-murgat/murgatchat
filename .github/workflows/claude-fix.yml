@@ -106,18 +106,65 @@ jobs:
           fi
           for c in unzip jq; do command -v "$c" >/dev/null 2>&1 && echo "✓ $c ok"; done
 
+      # Le runner self-hosted est PERSISTANT : le workspace survit d'un run à
+      # l'autre. Un run précédent a pu y laisser des artefacts gitignorés
+      # (e2e/test-results/, web/dist/, …) déposés par un conteneur Docker — donc
+      # propriété de ROOT. Le checkout par défaut (clean: true → git clean -ffdx)
+      # tentait de les supprimer et échouait : « EACCES: permission denied, unlink
+      # …/e2e/test-results/.last-run.json » (run 38228885934) → le job tombait en
+      # rouge AVANT même d'avoir commencé. On supprime donc nous-mêmes, en amont et
+      # en best-effort (sudo sans mot de passe si dispo, sinon rm), ces artefacts —
+      # sans JAMAIS faire échouer le job : ce qui résiste est de toute façon géré
+      # par le `clean: false` du checkout juste en dessous.
+      - name: Nettoyer le workspace du runner (artefacts root)
+        run: |
+          set +e
+          cd "$GITHUB_WORKSPACE" || { echo "::warning::workspace introuvable → rien à nettoyer"; exit 0; }
+          # Un fichier/répertoire déposé par un conteneur appartient à root : seul
+          # sudo (sans mot de passe) peut le retirer. À défaut, rm best-effort.
+          if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+            RM="sudo -n rm -rf"
+          else
+            RM="rm -rf"
+          fi
+          # Artefacts gitignorés qu'un conteneur (root) peut déposer ici (cf.
+          # .gitignore) + le .env réinjecté à chaque run.
+          for p in e2e/test-results e2e/playwright-report e2e/blob-report \
+                   e2e/.playwright server/.test-uploads .env; do
+            if [ -e "$p" ]; then
+              if $RM -- "$p" 2>/dev/null; then
+                echo "✓ supprimé : $p"
+              else
+                echo "::warning::impossible de supprimer '$p' (fichier root sans sudo sans mot de passe ?) — le checkout en clean: false le tolérera"
+              fi
+            fi
+          done
+          exit 0
+
       # C'est l'action — pas Claude — qui récupère le dernier code avant de remonter
       # les conteneurs. Par défaut actions/checkout fige le SHA de l'événement
       # (« labeled »), qui peut être en retard si main a avancé entre-temps. On force
       # donc la POINTE de main pour bâtir le chat (et brancher le fix) sur le code à jour.
+      #
+      # clean: false — sur un runner persistant, `clean: true` (défaut) fait
+      # `git clean -ffdx`, qui supprime AUSSI les fichiers gitignorés. Si l'un d'eux
+      # appartient à root (artefact déposé par un conteneur dans un run précédent),
+      # le runner non-root ne peut pas le retirer → « EACCES: permission denied » →
+      # le job tombe avant même de commencer (run 38228885934). L'étape de nettoyage
+      # ci-dessus supprime déjà ces artefacts ; `clean: false` garantit qu'un résidu
+      # irrépressible ne puisse PLUS casser le checkout. Le code suivi est ramené
+      # proprement sur main (`git checkout --force main`, qui écrase toute modif
+      # locale sur un fichier suivi) ; seuls les fichiers non suivis/ignorés
+      # survivent, et le .env est réinjecté juste après.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
+          clean: false
 
-      # Le checkout tourne avec `clean: true` (défaut) → `git clean -ffdx` efface
-      # tous les fichiers untracked ET gitignorés du workspace, dont le .env. On
-      # garde donc le .env de référence HORS du workspace, sur la machine du
-      # runner, et on le copie ici avant de démarrer le chat. Crée-le une fois :
+      # Le .env est gardé HORS du workspace (source de vérité unique sur la machine
+      # du runner ; le workspace, lui, est jetable). L'étape de nettoyage ci-dessus
+      # supprime le .env résiduel du run précédent ; on le recopie ici depuis la
+      # source persistante avant de démarrer le chat. Crée-le une fois :
       #   mkdir -p ~/murgatchat-secrets && cp .env.example ~/murgatchat-secrets/.env
       #   # édite les vraies valeurs, puis : chmod 600 ~/murgatchat-secrets/.env
       # Surcharge l'emplacement via la variable de dépôt RUNNER_ENV_FILE si besoin.
