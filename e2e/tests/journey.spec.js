@@ -176,6 +176,39 @@ test("invitation registration + full web journey", async ({ page, browser }) => 
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe("telecharge-moi.txt");
 
+  // Issue #370 : sur écran mobile étroit, un nom de fichier long ne doit pas
+  // déborder ni recouvrir le bouton « Télécharger » voisin — le nom doit être
+  // tronqué (ellipsis) et le bouton rester visible dans le viewport. On rejoue
+  // les conditions du rapport (viewport 360×705) avec un nom très long.
+  await page.setViewportSize({ width: 360, height: 705 });
+  const longName =
+    "rapport-tres-long-nom-de-fichier-qui-depasse-largement-la-largeur-du-salon-2026.pdf";
+  await page
+    .locator('input[type="file"]')
+    .setInputFiles({ name: longName, mimeType: "application/pdf", buffer: Buffer.from("pdf") });
+  await expect(page.getByText(longName)).toBeVisible();
+  await composer.fill("nom long e2e");
+  await composer.press("Enter");
+  const longRow = messageRow(page, "nom long e2e");
+  const longDownload = longRow.getByRole("button", { name: `Télécharger ${longName}` });
+  await expect(longDownload).toBeVisible();
+  // Le chip du nom : son accessible name commence par 📄 (le bouton voisin, lui,
+  // commence par « Télécharger » — regex ancrée pour lever toute ambiguïté).
+  const nameChip = longRow.getByRole("button", { name: /^📄/ });
+  const nameBox = await nameChip.boundingBox();
+  const dlBox = await longDownload.boundingBox();
+  // Le bouton de téléchargement est à droite du nom, sans chevauchement…
+  expect(dlBox.x).toBeGreaterThanOrEqual(nameBox.x + nameBox.width - 1);
+  // …et entièrement contenu dans le viewport 360px (non masqué/hors écran).
+  expect(dlBox.x + dlBox.width).toBeLessThanOrEqual(360);
+  // Le nom doit être réellement tronqué (contenu plus large que la boîte).
+  const truncated = await nameChip.evaluate((btn) => {
+    const label = btn.querySelector(".truncate");
+    return label ? label.scrollWidth > label.clientWidth : false;
+  });
+  expect(truncated).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 720 });
+
   await composer.fill("hello e2e");
   await composer.press("Enter");
   await expect(page.getByText("hello e2e")).toBeVisible();

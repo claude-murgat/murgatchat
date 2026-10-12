@@ -182,15 +182,15 @@ function Attachments({ attachments }: AttachmentsProps) {
             );
           }
           return (
-            <div key={a.id} className="flex items-stretch gap-1">
+            <div key={a.id} className="flex items-stretch gap-1 max-w-full min-w-0">
               <button
                 type="button"
                 onClick={() => setSelected(a)}
-                className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 rounded-sm px-2 py-1.5 text-sm text-slate-800 max-w-xs text-left"
+                className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 rounded-sm px-2 py-1.5 text-sm text-slate-800 max-w-xs min-w-0 text-left"
               >
-                <span className="text-lg">📄</span>
-                <span className="flex-1 truncate">{a.filename}</span>
-                <span className="text-slate-500 text-xs">{fmtBytes(a.size)}</span>
+                <span className="text-lg shrink-0">📄</span>
+                <span className="flex-1 min-w-0 truncate">{a.filename}</span>
+                <span className="shrink-0 text-slate-500 text-xs">{fmtBytes(a.size)}</span>
               </button>
               <button
                 type="button"
