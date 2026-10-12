@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { attachmentUrl, downloadAttachment } from "../api.ts";
+import { fileIcon } from "../fileIcon.ts";
 import type { Attachment } from "../types.ts";
 import { useOverlayDismiss } from "../hooks/useOverlayDismiss.ts";
 
@@ -168,9 +169,11 @@ interface FallbackCardProps {
 }
 
 function FallbackCard({ attachment, onDownload, note }: FallbackCardProps) {
+  // Issue #371 : même icône spécifique au type que dans le fil de messages.
+  const { icon, label } = fileIcon(attachment.mimeType, attachment.filename);
   return (
     <div className="bg-white rounded-lg p-8 text-center text-slate-700 max-w-sm">
-      <div className="text-5xl mb-3">📄</div>
+      <div className="text-5xl mb-3" title={label}>{icon}</div>
       <div className="font-medium truncate">{attachment.filename}</div>
       <div className="text-sm text-slate-500 mt-1">{fmtBytes(attachment.size)}</div>
       <p className="text-sm text-slate-500 mt-3">

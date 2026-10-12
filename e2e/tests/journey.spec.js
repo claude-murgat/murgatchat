@@ -192,9 +192,11 @@ test("invitation registration + full web journey", async ({ page, browser }) => 
   const longRow = messageRow(page, "nom long e2e");
   const longDownload = longRow.getByRole("button", { name: `Télécharger ${longName}` });
   await expect(longDownload).toBeVisible();
-  // Le chip du nom : son accessible name commence par 📄 (le bouton voisin, lui,
-  // commence par « Télécharger » — regex ancrée pour lever toute ambiguïté).
-  const nameChip = longRow.getByRole("button", { name: /^📄/ });
+  // Le chip du nom : son accessible name commence par l'icône du type de fichier
+  // (le bouton voisin, lui, commence par « Télécharger » — regex ancrée pour
+  // lever toute ambiguïté). Issue #371 : un PDF porte désormais l'icône 📕
+  // (spécifique au type) et non plus l'icône générique 📄.
+  const nameChip = longRow.getByRole("button", { name: /^📕/ });
   const nameBox = await nameChip.boundingBox();
   const dlBox = await longDownload.boundingBox();
   // Le bouton de téléchargement est à droite du nom, sans chevauchement…
@@ -208,6 +210,21 @@ test("invitation registration + full web journey", async ({ page, browser }) => 
   });
   expect(truncated).toBe(true);
   await page.setViewportSize({ width: 1280, height: 720 });
+
+  // Issue #371 : un fichier d'un autre type porte une icône différente du PDF —
+  // un document Word (.docx) est préfixé par 📘 et non 📕.
+  await page
+    .locator('input[type="file"]')
+    .setInputFiles({
+      name: "compte-rendu.docx",
+      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      buffer: Buffer.from("docx"),
+    });
+  await expect(page.getByText("compte-rendu.docx")).toBeVisible();
+  await composer.fill("doc joint e2e");
+  await composer.press("Enter");
+  const docRow = messageRow(page, "doc joint e2e");
+  await expect(docRow.getByRole("button", { name: /^📘/ })).toBeVisible();
 
   await composer.fill("hello e2e");
   await composer.press("Enter");

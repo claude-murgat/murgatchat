@@ -8,6 +8,7 @@ import MessageMarkdown from "./MessageMarkdown.tsx";
 import AttachmentModal from "./AttachmentModal.tsx";
 import ForwardMessageModal from "./ForwardMessageModal.tsx";
 import { api, attachmentUrl, downloadAttachment } from "../api.ts";
+import { fileIcon } from "../fileIcon.ts";
 import { isWindowFocused } from "../desktop.ts";
 import type {
   Attachment,
@@ -181,6 +182,10 @@ function Attachments({ attachments }: AttachmentsProps) {
               </div>
             );
           }
+          // Issue #371 : icône spécifique au type de fichier (PDF, Word, Excel…)
+          // plutôt qu'une icône générique unique, pour reconnaître le format d'un
+          // coup d'œil. Les images sont traitées plus haut (vignette d'aperçu).
+          const { icon, label } = fileIcon(a.mimeType, a.filename);
           return (
             <div key={a.id} className="flex items-stretch gap-1 max-w-full min-w-0">
               <button
@@ -188,7 +193,7 @@ function Attachments({ attachments }: AttachmentsProps) {
                 onClick={() => setSelected(a)}
                 className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 rounded-sm px-2 py-1.5 text-sm text-slate-800 max-w-xs min-w-0 text-left"
               >
-                <span className="text-lg shrink-0">📄</span>
+                <span className="text-lg shrink-0" title={label}>{icon}</span>
                 <span className="flex-1 min-w-0 truncate">{a.filename}</span>
                 <span className="shrink-0 text-slate-500 text-xs">{fmtBytes(a.size)}</span>
               </button>
