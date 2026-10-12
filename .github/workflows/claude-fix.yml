@@ -106,65 +106,57 @@ jobs:
           fi
           for c in unzip jq; do command -v "$c" >/dev/null 2>&1 && echo "✓ $c ok"; done
 
-      # Le runner self-hosted est PERSISTANT : le workspace survit d'un run à
-      # l'autre. Un run précédent a pu y laisser des artefacts gitignorés
-      # (e2e/test-results/, web/dist/, …) déposés par un conteneur Docker — donc
-      # propriété de ROOT. Le checkout par défaut (clean: true → git clean -ffdx)
-      # tentait de les supprimer et échouait : « EACCES: permission denied, unlink
-      # …/e2e/test-results/.last-run.json » (run 38228885934) → le job tombait en
-      # rouge AVANT même d'avoir commencé. On supprime donc nous-mêmes, en amont et
-      # en best-effort (sudo sans mot de passe si dispo, sinon rm), ces artefacts —
-      # sans JAMAIS faire échouer le job : ce qui résiste est de toute façon géré
-      # par le `clean: false` du checkout juste en dessous.
-      - name: Nettoyer le workspace du runner (artefacts root)
-        run: |
-          set +e
-          cd "$GITHUB_WORKSPACE" || { echo "::warning::workspace introuvable → rien à nettoyer"; exit 0; }
-          # Un fichier/répertoire déposé par un conteneur appartient à root : seul
-          # sudo (sans mot de passe) peut le retirer. À défaut, rm best-effort.
-          if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
-            RM="sudo -n rm -rf"
-          else
-            RM="rm -rf"
-          fi
-          # Artefacts gitignorés qu'un conteneur (root) peut déposer ici (cf.
-          # .gitignore) + le .env réinjecté à chaque run.
-          for p in e2e/test-results e2e/playwright-report e2e/blob-report \
-                   e2e/.playwright server/.test-uploads .env; do
-            if [ -e "$p" ]; then
-              if $RM -- "$p" 2>/dev/null; then
-                echo "✓ supprimé : $p"
-              else
-                echo "::warning::impossible de supprimer '$p' (fichier root sans sudo sans mot de passe ?) — le checkout en clean: false le tolérera"
-              fi
-            fi
-          done
-          exit 0
-
-      # C'est l'action — pas Claude — qui récupère le dernier code avant de remonter
-      # les conteneurs. Par défaut actions/checkout fige le SHA de l'événement
-      # (« labeled »), qui peut être en retard si main a avancé entre-temps. On force
-      # donc la POINTE de main pour bâtir le chat (et brancher le fix) sur le code à jour.
+      # Récupération du code à jour — checkout git MANUEL (volontairement pas
+      # actions/checkout). On ramène l'arbre SUIVI sur la pointe de `main`, sans
+      # jamais toucher aux fichiers non suivis/ignorés.
       #
-      # clean: false — sur un runner persistant, `clean: true` (défaut) fait
-      # `git clean -ffdx`, qui supprime AUSSI les fichiers gitignorés. Si l'un d'eux
-      # appartient à root (artefact déposé par un conteneur dans un run précédent),
-      # le runner non-root ne peut pas le retirer → « EACCES: permission denied » →
-      # le job tombe avant même de commencer (run 38228885934). L'étape de nettoyage
-      # ci-dessus supprime déjà ces artefacts ; `clean: false` garantit qu'un résidu
-      # irrépressible ne puisse PLUS casser le checkout. Le code suivi est ramené
-      # proprement sur main (`git checkout --force main`, qui écrase toute modif
-      # locale sur un fichier suivi) ; seuls les fichiers non suivis/ignorés
-      # survivent, et le .env est réinjecté juste après.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: main
-          clean: false
+      # POURQUOI pas actions/checkout ici (runs rouges 38228885934 puis 38253933426) :
+      # le runner self-hosted est PERSISTANT, et un run précédent a laissé dans le
+      # workspace des artefacts gitignorés (e2e/test-results/, …) déposés par un
+      # conteneur Docker — donc propriété de ROOT. Dans prepareExistingDirectory(),
+      # actions/checkout peut décider de vider le dossier de travail dès que `remove`
+      # passe à true — INDÉPENDAMMENT de l'input `clean` : .git absent, URL de fetch
+      # qui diffère d'un run à l'autre (persist-credentials réécrit origin),
+      # sous-modules KO, ou une commande git qui throw. Il boucle alors sur les
+      # fichiers et `io.rmRF` THROW sur le fichier root :
+      #   « EACCES: permission denied, unlink '…/e2e/test-results/.last-run.json' »
+      # → le job tombe AVANT même d'avoir commencé. `clean: false` n'y change rien
+      # (vérifié), et un nettoyage amont est vain car le runner n'a PAS sudo sans mot
+      # de passe : il ne peut matériellement pas supprimer ce fichier root.
+      #
+      # Ce checkout manuel ne fait NI `git clean` NI `rm -rf` du dossier : il ne
+      # récupère que `origin/main` puis `checkout --force` + `reset --hard`, qui ne
+      # concernent QUE les fichiers suivis (ceux-là appartiennent au runner → aucune
+      # contrainte de permission). Les artefacts ignorés/root survivent mais, ne
+      # faisant pas partie du checkout, ils ne bloquent plus rien.
+      - name: Récupérer le code à jour sur main (checkout manuel résilient)
+        env:
+          BOT_TOKEN: ${{ secrets.GH_BOT_TOKEN }}
+          REF: main
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          # Autoriser git sur ce dossier même si le propriétaire diffère du user courant.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE" 2>/dev/null || true
+          # URL authentifiée. x-access-token accepte un PAT classique comme jeton.
+          URL="https://x-access-token:${BOT_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # Premier passage sur un workspace vierge : initialise le dépôt si besoin.
+          [ -d .git ] || git init -q
+          git remote set-url origin "$URL" 2>/dev/null || git remote add origin "$URL"
+          # POINTE de main (comme l'ancien `ref: main`) et non le SHA de l'événement
+          # « labeled » : on bâtit le chat sur le code le plus à jour.
+          git fetch -q --no-tags --depth=1 origin "+refs/heads/${REF}:refs/remotes/origin/${REF}"
+          # --force écrase toute modif locale sur un fichier SUIVI ; -B recale la
+          # branche locale sur FETCH_HEAD ; reset --hard synchronise index + arbre.
+          git checkout -q --force -B "$REF" FETCH_HEAD
+          git reset -q --hard FETCH_HEAD
+          echo "✓ workspace sur ${REF} @ $(git rev-parse --short HEAD)"
 
       # Le .env est gardé HORS du workspace (source de vérité unique sur la machine
-      # du runner ; le workspace, lui, est jetable). L'étape de nettoyage ci-dessus
-      # supprime le .env résiduel du run précédent ; on le recopie ici depuis la
-      # source persistante avant de démarrer le chat. Crée-le une fois :
+      # du runner ; le workspace, lui, est jetable). On le recopie ici depuis la
+      # source persistante avant de démarrer le chat : il surécrit le .env du run
+      # précédent (fichier écrit par le runner lui-même, donc à lui et non à root).
+      # Crée-le une fois :
       #   mkdir -p ~/murgatchat-secrets && cp .env.example ~/murgatchat-secrets/.env
       #   # édite les vraies valeurs, puis : chmod 600 ~/murgatchat-secrets/.env
       # Surcharge l'emplacement via la variable de dépôt RUNNER_ENV_FILE si besoin.
