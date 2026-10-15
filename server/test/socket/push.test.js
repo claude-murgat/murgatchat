@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
+import { createECDH, randomBytes } from "node:crypto";
 import webpush from "web-push";
 import {
   startTestServer,
@@ -357,5 +358,53 @@ describe("push gating with presence probe (PWA backgrounded without 'away')", ()
     await settleDeferredPushes();
 
     expect(sendMock).not.toHaveBeenCalled();
+  });
+});
+
+// Les services push rejettent une charge utile chiffrée de plus de 4 Ko (FCM
+// répond 413) : le destinataire d'un long message ne recevait rien.
+describe("push payload size", () => {
+  const PUSH_SERVICE_MAX_BYTES = 4096;
+
+  it("truncates a very long message so the encrypted web push stays under 4 KB", async () => {
+    const fetchMock = mockExpo();
+    const { author, recipient, channelId } = await setup();
+    // Vraies clés d'abonnement (P-256 + secret) : web-push peut chiffrer, on
+    // mesure donc ce qui partirait vraiment au service push.
+    const ecdh = createECDH("prime256v1");
+    ecdh.generateKeys();
+    await prisma.webPushSubscription.create({
+      data: {
+        userId: recipient.user.id,
+        endpoint: `https://fcm.googleapis.com/fcm/send/${recipient.user.id}`,
+        p256dh: ecdh.getPublicKey("base64url"),
+        auth: randomBytes(16).toString("base64url"),
+      },
+    });
+    const encrypted = [];
+    const sendMock = vi
+      .spyOn(webpush, "sendNotification")
+      .mockImplementation(async (sub, payload, options) => {
+        encrypted.push(webpush.generateRequestDetails(sub, payload, options).body);
+        return { statusCode: 201, body: "", headers: {} };
+      });
+    const aSock = await ready(author.token, channelId);
+
+    // Accents (2 octets) et émojis (4 octets) en UTF-8 : bien plus de 4 Ko.
+    const body = "Réunion à 14 h 😀 ".repeat(800).trim();
+    expect(Buffer.byteLength(body)).toBeGreaterThan(PUSH_SERVICE_MAX_BYTES);
+    expect(await send(aSock, { channelId, body })).toMatchObject({ ok: true });
+
+    expect(encrypted).toHaveLength(1);
+    expect(encrypted[0].length).toBeLessThanOrEqual(PUSH_SERVICE_MAX_BYTES);
+    const pushed = JSON.parse(sendMock.mock.calls[0][1]).body;
+    expect(pushed.endsWith("…")).toBe(true);
+    expect(pushed.isWellFormed()).toBe(true);
+    expect(body.startsWith(pushed.slice(0, -1))).toBe(true);
+
+    // Même extrait côté Expo, dont la limite est aussi de 4 Ko par message.
+    const [expoMessage] = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(expoMessage.body).toBe(pushed);
+    expect(Buffer.byteLength(JSON.stringify(expoMessage))).toBeLessThan(PUSH_SERVICE_MAX_BYTES);
   });
 });

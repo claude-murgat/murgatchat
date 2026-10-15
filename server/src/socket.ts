@@ -212,7 +212,7 @@ export async function notifyMembers(
   const push: PushContent = {
     channelId,
     title: serialized.author?.displayName || "Nouveau message",
-    body: serialized.body || "(pièce jointe)",
+    body: pushExcerpt(serialized.body || "(pièce jointe)"),
   };
   if (unconfirmedUserIds.length) {
     deferPush(pushUnlessVisible(io, unconfirmedUserIds, push));
@@ -221,6 +221,38 @@ export async function notifyMembers(
 }
 
 type PushContent = { channelId: string; title: string; body: string };
+
+// Les services push refusent une charge utile de plus de 4 Ko (FCM répond 413,
+// APNs pareil, Expo renvoie MessageTooBig) : le destinataire ne recevrait rien.
+// Le push ne porte donc qu'un extrait du message, borné en caractères pour
+// l'affichage et en octets pour la taille : en UTF-8, une fois échappé par
+// JSON.stringify, un émoji pèse 4 octets et un caractère de contrôle 6.
+const PUSH_BODY_MAX_CHARS = 500;
+const PUSH_BODY_MAX_BYTES = 2000;
+const ELLIPSIS = "…";
+
+// Octets qu'occupe `s` dans le JSON de la charge utile, guillemets exclus.
+function jsonByteLength(s: string) {
+  return Buffer.byteLength(JSON.stringify(s)) - 2;
+}
+
+// Le texte tel quel s'il tient dans les deux bornes, sinon son début suivi de
+// « … ». Découpe par point de code (Array.from) : jamais une paire de
+// substitution coupée en deux, qu'un service push afficherait comme �.
+export function pushExcerpt(text: string) {
+  const chars = Array.from(text);
+  if (chars.length <= PUSH_BODY_MAX_CHARS && jsonByteLength(text) <= PUSH_BODY_MAX_BYTES) {
+    return text;
+  }
+  let excerpt = "";
+  let bytes = jsonByteLength(ELLIPSIS);
+  for (const ch of chars.slice(0, PUSH_BODY_MAX_CHARS - 1)) {
+    bytes += jsonByteLength(ch);
+    if (bytes > PUSH_BODY_MAX_BYTES) break;
+    excerpt += ch;
+  }
+  return excerpt.trimEnd() + ELLIPSIS;
+}
 
 async function pushUnlessVisible(io: Server, userIds: string[], push: PushContent) {
   const visible = await Promise.all(userIds.map((userId) => confirmVisible(io, userId)));
