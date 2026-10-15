@@ -337,7 +337,7 @@ router.delete("/push-token", requireAuth, async (req, res) => {
 // ── Web Push (browser PWA, including iOS Safari) ──────────────────────────
 // Same lifecycle as native push tokens: clients subscribe at login (or when
 // permission is granted), unsubscribe at logout. Sends are gated identically
-// in notifyMembers (DnD + web/desktop idle ≥ 10 min).
+// in notifyMembers (DnD + absence de client web/desktop visible, voir webPresence).
 //
 // Public endpoint — the VAPID public key is required by the client to call
 // pushManager.subscribe(). It's safe to expose (the private key stays server-side).

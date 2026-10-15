@@ -44,20 +44,34 @@ export function isUserDnd(user: DndUser, now = new Date()) {
 // JS before it flushes), so this fallback is what actually resumes pushes for a
 // just-backgrounded phone — at 10 min, users lost notifications for up to 10 min
 // after closing the app. Server-side, so it applies to existing clients too.
+// Pour les clients qui répondent à la sonde de présence, cette fenêtre n'est
+// plus qu'un indice : une socket récente est sondée avant de retenir un push.
 const AWAY_AFTER_MS = 150 * 1000;
-// userId -> Map(socketId -> last activity ms), web/desktop clients only. The
-// client also signals "away" the instant the page is hidden (fast path), and a
-// disconnect removes the socket too. Per-socket so one focused device doesn't
-// suppress pushes meant for another (a desktop in front shouldn't mute the phone).
-const webActivity = new Map<string, Map<string, number>>();
+// Délai de réponse laissé à un client sondé (voir confirmVisible). Un client
+// visible répond en un aller-retour ; au-delà, il est figé (PWA suspendue par
+// l'OS) ou injoignable, et le push part.
+const PROBE_TIMEOUT_MS = 4000;
 
-function markWebActivity(userId: string, socketId: string) {
+// Dernier signe de vie d'une socket web/desktop : `at` = dernier "activity",
+// `probe` = le client sait répondre à "presence:probe" (drapeau de poignée de
+// main `presenceProbe` ; les clients plus anciens ne l'envoient pas).
+type WebSocketPresence = { at: number; probe: boolean };
+
+// userId -> Map(socketId -> presence), web/desktop clients only. The
+// client also signals "away" the instant the page is hidden (fast path), and a
+// disconnect removes the socket too. Per-socket so one device going away doesn't
+// erase another's presence. Note : une socket visible, quel que soit l'appareil,
+// suffit à retenir les pushs de tous les appareils de l'utilisateur (on ne
+// fait pas sonner le téléphone de qui a l'app sous les yeux sur son poste).
+const webActivity = new Map<string, Map<string, WebSocketPresence>>();
+
+function markWebActivity(userId: string, socketId: string, probe: boolean) {
   let sockets = webActivity.get(userId);
   if (!sockets) {
     sockets = new Map();
     webActivity.set(userId, sockets);
   }
-  sockets.set(socketId, Date.now());
+  sockets.set(socketId, { at: Date.now(), probe });
 }
 function markWebInactive(userId: string, socketId: string) {
   const sockets = webActivity.get(userId);
@@ -65,16 +79,68 @@ function markWebInactive(userId: string, socketId: string) {
   sockets.delete(socketId);
   if (sockets.size === 0) webActivity.delete(userId);
 }
-// True when the user has no visible/recent web/desktop socket — i.e. away from
-// their computer, so a push is warranted.
-function webDesktopInactive(userId: string) {
-  const sockets = webActivity.get(userId);
-  if (!sockets || sockets.size === 0) return true;
+// Sockets web/desktop de l'utilisateur qui se sont dites visibles il y a moins
+// de AWAY_AFTER_MS.
+function freshWebSockets(userId: string): [string, WebSocketPresence][] {
   const now = Date.now();
-  for (const ts of sockets.values()) {
-    if (now - ts <= AWAY_AFTER_MS) return false;
-  }
-  return true;
+  return [...(webActivity.get(userId) ?? [])].filter(([, p]) => now - p.at <= AWAY_AFTER_MS);
+}
+
+// Faut-il pousser vers les appareils de l'utilisateur ?
+//   - "away" : aucune socket web/desktop récemment visible → push immédiat ;
+//   - "present" : une socket d'un client antérieur à la sonde est récente → on
+//     la croit sur parole, pas de push (comportement historique) ;
+//   - "unconfirmed" : seules des sockets sondables sont récentes. Leur dernier
+//     "activity" ne prouve pas que l'app est encore à l'écran : une PWA mise en
+//     arrière-plan sans que son "away" parte (l'OS la gèle avant) garde une
+//     socket ouverte jusqu'au timeout ping/pong et un horodatage frais pendant
+//     150 s. Le push était alors sauté, et la notification n'apparaissait
+//     qu'au dégel de la page, au déverrouillage du téléphone. On les sonde.
+type WebPresence = "away" | "present" | "unconfirmed";
+function webPresence(userId: string): WebPresence {
+  const fresh = freshWebSockets(userId);
+  if (fresh.length === 0) return "away";
+  return fresh.every(([, p]) => p.probe) ? "unconfirmed" : "present";
+}
+
+// Demande aux sockets récentes de l'utilisateur si l'app est visible. Vrai dès
+// qu'une répond oui ; faux si toutes répondent non ou se taisent pendant
+// PROBE_TIMEOUT_MS. Une socket qui ne confirme pas est marquée inactive : les
+// messages suivants partent en push sans attendre une nouvelle sonde, jusqu'à
+// son prochain "activity".
+async function confirmVisible(io: Server, userId: string): Promise<boolean> {
+  const answers = freshWebSockets(userId).map(async ([socketId, p]) => {
+    const socket = io.sockets.sockets.get(socketId);
+    try {
+      const res = await socket?.timeout(PROBE_TIMEOUT_MS).emitWithAck("presence:probe");
+      if (res?.visible === true) {
+        markWebActivity(userId, socketId, p.probe);
+        return;
+      }
+    } catch {
+      // Pas de réponse dans le délai : client figé ou injoignable.
+    }
+    markWebInactive(userId, socketId);
+    throw new Error("not visible");
+  });
+  return Promise.any(answers).then(
+    () => true,
+    () => false
+  );
+}
+
+// Pushs suspendus à une sonde de présence (voir notifyMembers) : ils partent
+// après la réponse de l'émetteur, d'où ce suivi, qui permet aux tests
+// d'attendre leur issue au lieu de dormir.
+const deferredPushes = new Set<Promise<void>>();
+function deferPush(task: Promise<void>) {
+  const tracked = task
+    .catch((e) => console.error("[push] deferred:", e instanceof Error ? e.message : e))
+    .finally(() => deferredPushes.delete(tracked));
+  deferredPushes.add(tracked);
+}
+export async function settleDeferredPushes() {
+  await Promise.allSettled([...deferredPushes]);
 }
 
 // Les seuls champs utilisateur consultés pour la détection de mention ; `Partial`
@@ -103,13 +169,17 @@ type NotifiableMessage = {
 
 // Notify channel members (except author) who aren't in DnD: in-app "notification"
 // event, plus a push (Expo for native, Web Push for browser PWAs) for those
-// whose web/desktop has been idle >= 10 min. Web push is the iOS distribution
-// channel since the PWA pivot (no TestFlight build).
+// who aren't looking at a web/desktop client (see webPresence). Web push is the
+// iOS distribution channel since the PWA pivot (no TestFlight build).
 //
 // Chaque membre choisit son niveau par channel (Membership.notifyLevel) : "none"
 // coupe toute notification (le badge non-lu reste, façon Slack/Discord), "mentions"
 // ne notifie que s'il est cité, "all" notifie tout. DnD reste prioritaire et
 // suppressif par-dessus.
+//
+// Les membres absents sont poussés avant le retour ; ceux dont la présence est à
+// confirmer le sont en différé, une fois la sonde revenue, pour ne pas retarder
+// l'accusé de l'émetteur d'un aller-retour (voire de PROBE_TIMEOUT_MS).
 export async function notifyMembers(
   io: Server,
   channelId: string,
@@ -121,6 +191,7 @@ export async function notifyMembers(
     include: { user: true },
   });
   const awayUserIds: string[] = [];
+  const unconfirmedUserIds: string[] = [];
   // Frontière serveur : on valide le payload de notification contre le contrat
   // partagé (non bloquant), une seule fois — il est identique pour tous les membres.
   const notifPayload = { channelId, message: serialized };
@@ -134,55 +205,81 @@ export async function notifyMembers(
     if (cm.notifyLevel === "mentions" && !isMentioned(cm.user, serialized.body)) continue;
     if (isUserDnd(cm.user)) continue;
     io.to(`user:${cm.userId}`).emit("notification", notifPayload);
-    if (webDesktopInactive(cm.userId)) awayUserIds.push(cm.userId);
+    const presence = webPresence(cm.userId);
+    if (presence === "away") awayUserIds.push(cm.userId);
+    else if (presence === "unconfirmed") unconfirmedUserIds.push(cm.userId);
   }
-  if (awayUserIds.length === 0) return;
-  const title = serialized.author?.displayName || "Nouveau message";
-  const body = serialized.body || "(pièce jointe)";
+  const push: PushContent = {
+    channelId,
+    title: serialized.author?.displayName || "Nouveau message",
+    body: serialized.body || "(pièce jointe)",
+  };
+  if (unconfirmedUserIds.length) {
+    deferPush(pushUnlessVisible(io, unconfirmedUserIds, push));
+  }
+  await pushToUsers(awayUserIds, push);
+}
 
+type PushContent = { channelId: string; title: string; body: string };
+
+async function pushUnlessVisible(io: Server, userIds: string[], push: PushContent) {
+  const visible = await Promise.all(userIds.map((userId) => confirmVisible(io, userId)));
+  await pushToUsers(userIds.filter((_, i) => !visible[i]), push);
+}
+
+// Push vers tous les appareils (natifs et navigateurs) des utilisateurs donnés.
+async function pushToUsers(userIds: string[], { channelId, title, body }: PushContent) {
+  if (userIds.length === 0) return;
   const [tokens, webSubs] = await Promise.all([
-    prisma.pushToken.findMany({ where: { userId: { in: awayUserIds } } }),
-    prisma.webPushSubscription.findMany({ where: { userId: { in: awayUserIds } } }),
+    prisma.pushToken.findMany({ where: { userId: { in: userIds } } }),
+    prisma.webPushSubscription.findMany({ where: { userId: { in: userIds } } }),
   ]);
   if (tokens.length === 0 && webSubs.length === 0) {
     console.log(
       "[push] away (web/desktop idle) but no device/web subscription:",
-      awayUserIds.join(",")
+      userIds.join(",")
     );
     return;
   }
   console.log(
-    `[push] notifying ${tokens.length} native + ${webSubs.length} web for ${awayUserIds.length} away user(s)`
+    `[push] notifying ${tokens.length} native + ${webSubs.length} web for ${userIds.length} away user(s)`
   );
+  // Natif et web partent en parallèle : l'un n'attend pas l'aller-retour de l'autre.
+  const sends: Promise<unknown>[] = [];
   // Native pushes (Expo / FCM) for Android (and historically iOS).
   // priority:high + channelId:default => heads-up + verrouillé (sinon
   // Android les retient jusqu'au déverrouillage en Doze).
   if (tokens.length) {
-    await sendExpoPush(
-      tokens.map((t) => ({
-        to: t.token,
-        title,
-        body,
-        sound: "default",
-        priority: "high" as const,
-        channelId: "default",
-        data: { channelId },
-      }))
+    sends.push(
+      sendExpoPush(
+        tokens.map((t) => ({
+          to: t.token,
+          title,
+          body,
+          sound: "default",
+          priority: "high" as const,
+          channelId: "default",
+          data: { channelId },
+        }))
+      )
     );
   }
   // Web pushes (browser / installed PWA, including iOS Safari Add to Home Screen).
   // `url` lets the service worker focus / deep-link to the right conversation.
   if (webSubs.length) {
-    await sendWebPush(webSubs, {
-      title,
-      body,
-      url: `/?channel=${encodeURIComponent(channelId)}`,
-      channelId,
-      // Unique tag per channel: iOS coalesces same-tag notifications so the
-      // dock badge stays accurate but the user only sees the most recent banner.
-      tag: `channel:${channelId}`,
-    });
+    sends.push(
+      sendWebPush(webSubs, {
+        title,
+        body,
+        url: `/?channel=${encodeURIComponent(channelId)}`,
+        channelId,
+        // Unique tag per channel: iOS coalesces same-tag notifications so the
+        // dock badge stays accurate but the user only sees the most recent banner.
+        tag: `channel:${channelId}`,
+      })
+    );
   }
+  await Promise.all(sends);
 }
 
 // Ferme sur-le-champ les sessions temps réel d'un compte désactivé ou supprimé.
@@ -244,12 +341,28 @@ export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
     if (!user) return next(new Error("unauthorized"));
     socket.data.userId = user.id;
     socket.data.platform = socket.handshake.auth?.platform || "web";
+    // Le client répond à "presence:probe" (voir confirmVisible).
+    socket.data.presenceProbe = socket.handshake.auth?.presenceProbe === true;
     next();
   });
 
   io.on("connection", async (socket) => {
     const userId = socket.data.userId;
     socket.join(`user:${userId}`);
+
+    // Présence web/desktop, qui décide des pushs (voir webPresence). Écouteurs
+    // posés AVANT le premier await : le client rapporte son état ("activity" ou
+    // "away") dès la connexion, et Socket.IO jette un évènement arrivé sans
+    // écouteur. Être connecté ne vaut pas présence (une PWA en arrière-plan se
+    // reconnecte aussi) : seul "activity" marque la socket active.
+    if (socket.data.platform !== "mobile") {
+      const probe = socket.data.presenceProbe === true;
+      socket.on("activity", () => markWebActivity(userId, socket.id, probe));
+      // Page hidden / backgrounded -> drop this socket so push resumes right away.
+      // Becoming visible/focused again re-emits "activity".
+      socket.on("away", () => markWebInactive(userId, socket.id));
+      socket.on("disconnect", () => markWebInactive(userId, socket.id));
+    }
 
     // Statut relu APRÈS l'entrée dans la room `user:` : un compte désactivé
     // entre la poignée de main et cette ligne a échappé à revokeUserSessions
@@ -271,16 +384,6 @@ export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
     online.set(userId, prevCount + 1);
     if (prevCount === 0) io.emit("presence:update", { userId, online: true });
     socket.emit("presence:state", { userIds: [...online.keys()] });
-
-    if (socket.data.platform !== "mobile") markWebActivity(userId, socket.id);
-    socket.on("activity", () => {
-      if (socket.data.platform !== "mobile") markWebActivity(userId, socket.id);
-    });
-    // Page hidden / backgrounded -> drop this socket so push resumes right away
-    // (no 10-min wait). Becoming visible/focused again re-emits "activity".
-    socket.on("away", () => {
-      if (socket.data.platform !== "mobile") markWebInactive(userId, socket.id);
-    });
 
     // Le client redemande la room du salon qu'il ouvre. Sans contrôle, n'importe
     // quel compte connecté s'abonnait à un salon privé ou à un DM dont il
@@ -461,7 +564,6 @@ export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
     });
 
     socket.on("disconnect", () => {
-      markWebInactive(userId, socket.id);
       const count = (online.get(userId) || 1) - 1;
       if (count <= 0) {
         online.delete(userId);
