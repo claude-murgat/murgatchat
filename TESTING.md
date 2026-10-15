@@ -7,7 +7,7 @@ organisée en quatre couches de test, par ordre de valeur (plus des garde-fous
 
 | Couche | Outil | Ce qu'elle protège | Vérifiée |
 | --- | --- | --- | --- |
-| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 264 tests |
+| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 270 tests |
 | **E2E Web** (priorité 2) | Playwright | Câblage de l'UI web (auth, envoi, édition, suppression, threads, persistance) | ✅ parcours vert |
 | **Mobile** (priorité 3) | `expo export` + smoke APK | Le bundle RN se compile ; l'app se lance | Documentée |
 | **Charge** (k6) | k6 (HTTP + Socket.IO) | Tenue à 150 utilisateurs simultanés (REST + temps réel) | ✅ script validé (smoke) |
@@ -86,10 +86,13 @@ npm test -- test/http/auth.test.js   # un fichier
   de push ; absent + token + non-DND → push ; DND → rien ; purge
   `DeviceNotRegistered` ; connexion sans `activity` → push ; **sonde de présence**
   `presence:probe` : visible → pas de push, client gelé → push après le délai
-  puis immédiat, caché → push sans attendre, autre appareil visible → pas de push).
+  puis immédiat, caché → push sans attendre, autre appareil visible → pas de push ;
+  **message très long** → extrait tronqué, Web Push chiffré et message Expo sous 4 Ko).
 - `test/unit/webpush.test.js` — en-têtes réellement produits par web-push
   (`Urgency: high`, `TTL: 86400`, pas de `Topic`, VAPID, timeout) et envois en
   parallèle (un service push lent ne retient pas les autres abonnés).
+- `test/unit/pushExcerpt.test.js` — extrait porté par les pushs : 500 caractères
+  « … » compris, 2 000 octets JSON au plus, paire de substitution jamais coupée.
 
 > Note : le handler de connexion Socket.IO enregistre la plupart de ses écouteurs
 > après un `await` (seuls `activity`/`away`/`disconnect` sont posés avant) ; un
