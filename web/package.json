@@ -20,7 +20,7 @@
     "@tauri-apps/plugin-notification": "^2.5.1",
     "@tauri-apps/plugin-opener": "^2.7.0",
     "@tauri-apps/plugin-process": "^2.4.0",
-    "@tauri-apps/plugin-updater": "^2.13.1",
+    "@tauri-apps/plugin-updater": "^2.13.2",
     "dompurify": "^3.4.16",
     "emoji-picker-react": "^4.22.3",
     "mammoth": "^1.13.0",
