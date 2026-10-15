@@ -199,8 +199,15 @@ test("invitation registration + full web journey", async ({ page, browser }) => 
   const nameChip = longRow.getByRole("button", { name: /^📕/ });
   const nameBox = await nameChip.boundingBox();
   const dlBox = await longDownload.boundingBox();
-  // Le bouton de téléchargement est à droite du nom, sans chevauchement…
-  expect(dlBox.x).toBeGreaterThanOrEqual(nameBox.x + nameBox.width - 1);
+  // Le bouton de téléchargement est posé en overlay DANS la carte (il ne prend
+  // plus de largeur à côté d'elle)…
+  expect(dlBox.x).toBeGreaterThanOrEqual(nameBox.x);
+  expect(dlBox.x + dlBox.width).toBeLessThanOrEqual(nameBox.x + nameBox.width + 1);
+  expect(dlBox.y).toBeGreaterThanOrEqual(nameBox.y - 1);
+  expect(dlBox.y + dlBox.height).toBeLessThanOrEqual(nameBox.y + nameBox.height + 1);
+  // …sans recouvrir le nom du fichier, qui s'arrête avant lui…
+  const labelBox = await nameChip.locator(".truncate").first().boundingBox();
+  expect(labelBox.x + labelBox.width).toBeLessThanOrEqual(dlBox.x);
   // …et entièrement contenu dans le viewport 360px (non masqué/hors écran).
   expect(dlBox.x + dlBox.width).toBeLessThanOrEqual(360);
   // Le nom doit être réellement tronqué (contenu plus large que la boîte).

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { attachmentUrl, downloadAttachment } from "../api.ts";
 import { fileIcon } from "../fileIcon.ts";
+import DownloadIcon from "./DownloadIcon.tsx";
 import type { Attachment } from "../types.ts";
 import { useOverlayDismiss } from "../hooks/useOverlayDismiss.ts";
 
@@ -181,9 +182,10 @@ function FallbackCard({ attachment, onDownload, note }: FallbackCardProps) {
       </p>
       <button
         onClick={onDownload}
-        className="mt-4 px-4 py-2 rounded-md bg-aubergine-700 text-white text-sm"
+        className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-md bg-aubergine-700 hover:bg-aubergine-600 text-white text-sm font-medium"
       >
-        ⬇ Télécharger
+        <DownloadIcon />
+        Télécharger
       </button>
     </div>
   );
@@ -603,17 +605,22 @@ export default function AttachmentModal({ attachment, onClose }: AttachmentModal
           {attachment.filename}
           <span className="text-white/60"> · {fmtBytes(attachment.size)}</span>
         </span>
+        {/* Icône seule sur mobile : le libellé laisserait trop peu de place au
+            nom du fichier dans l'en-tête. */}
         <button
           onClick={download}
-          className="px-3 py-1.5 rounded-md bg-white/15 hover:bg-white/25 text-sm font-medium"
+          title="Télécharger"
+          aria-label="Télécharger"
+          className="shrink-0 inline-flex items-center gap-2 h-9 px-2.5 sm:px-3 rounded-md bg-white/15 hover:bg-white/25 text-sm font-medium"
         >
-          ⬇ Télécharger
+          <DownloadIcon className="size-[18px]" />
+          <span className="hidden sm:inline">Télécharger</span>
         </button>
         <button
           onClick={onClose}
           title="Fermer (Échap)"
           aria-label="Fermer"
-          className="w-9 h-9 grid place-items-center rounded-md hover:bg-white/15 text-xl leading-none"
+          className="shrink-0 w-9 h-9 grid place-items-center rounded-md hover:bg-white/15 text-xl leading-none"
         >
           ✕
         </button>
