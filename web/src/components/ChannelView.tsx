@@ -6,9 +6,10 @@ import Composer from "./Composer.tsx";
 import type { ComposerHandle } from "./Composer.tsx";
 import MessageMarkdown from "./MessageMarkdown.tsx";
 import AttachmentModal from "./AttachmentModal.tsx";
+import DownloadIcon from "./DownloadIcon.tsx";
 import ForwardMessageModal from "./ForwardMessageModal.tsx";
 import { api, attachmentUrl, downloadAttachment } from "../api.ts";
-import { fileIcon } from "../fileIcon.ts";
+import { extOf, fileIcon } from "../fileIcon.ts";
 import { isWindowFocused } from "../desktop.ts";
 import type {
   Attachment,
@@ -147,37 +148,55 @@ function Attachments({ attachments }: AttachmentsProps) {
   if (!attachments?.length) return null;
   return (
     <>
-      <div className="mt-1 flex flex-wrap gap-2">
+      <div className="mt-1.5 flex flex-wrap gap-2">
         {attachments.map((a) => {
           const isImg = a.mimeType?.startsWith("image/");
-          // Issue #366 : un bouton « Télécharger » accessible directement à côté de
-          // chaque pièce jointe, sans avoir à ouvrir l'aperçu au préalable. Le clic
-          // ne doit pas déclencher l'ouverture de l'aperçu (stopPropagation).
+          // Issue #366 : un bouton « Télécharger » accessible directement sur
+          // chaque pièce jointe, sans ouvrir l'aperçu au préalable. Il est posé en
+          // overlay (absolu) SUR la vignette / la carte et non plus à côté : il ne
+          // consomme plus de largeur, ne peut plus être poussé hors de l'écran et
+          // reste visible en permanence (pas de survol sur mobile). Le clic ne
+          // doit pas déclencher l'ouverture de l'aperçu (stopPropagation).
+          const download = (e: React.MouseEvent) => {
+            e.stopPropagation();
+            downloadAttachment(a);
+          };
           if (isImg) {
+            // Vignette bornée à la largeur du message (`max-w-full`) : une image
+            // de 320 px faisait déborder le fil sur les mobiles étroits.
+            // `object-scale-down` n'agrandit jamais une petite image, posée sur
+            // un fond neutre aux dimensions minimales de la vignette.
             return (
-              <div key={a.id} className="relative inline-block">
+              <div
+                key={a.id}
+                className="group/att relative max-w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-100 sm:max-w-xs"
+              >
                 <button
                   type="button"
                   onClick={() => setSelected(a)}
-                  className="block rounded-sm overflow-hidden focus:outline-hidden focus:ring-2 focus:ring-aubergine-400"
+                  title={a.filename}
+                  className="block max-w-full focus:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-aubergine-400"
                 >
                   <img
                     src={attachmentUrl(a.id)}
                     alt={a.filename}
-                    className="max-h-56 max-w-xs rounded-sm border border-slate-200 object-cover"
+                    className="block max-h-64 min-h-20 min-w-28 max-w-full object-scale-down"
                   />
                 </button>
+                {/* Légende au survol (souris uniquement : `hover:` ne s'applique
+                    pas aux écrans tactiles), sous le bouton de téléchargement. */}
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t from-black/70 via-black/30 to-transparent pb-2 pl-2.5 pr-14 pt-8 text-white opacity-0 transition-opacity group-hover/att:opacity-100">
+                  <div className="truncate text-xs font-medium">{a.filename}</div>
+                  <div className="text-[11px] text-white/80">{fmtBytes(a.size)}</div>
+                </div>
                 <button
                   type="button"
                   title="Télécharger"
                   aria-label={`Télécharger ${a.filename}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    downloadAttachment(a);
-                  }}
-                  className="absolute top-1 right-1 grid place-items-center w-8 h-8 rounded-sm bg-black/50 hover:bg-black/70 text-white focus:outline-hidden focus:ring-2 focus:ring-aubergine-400"
+                  onClick={download}
+                  className="absolute bottom-2 right-2 grid size-9 place-items-center rounded-full bg-white/90 text-aubergine-700 shadow-md ring-1 ring-black/10 backdrop-blur-sm transition hover:bg-white hover:text-aubergine-800 active:scale-95 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-aubergine-400"
                 >
-                  ⬇
+                  <DownloadIcon className="size-[18px]" />
                 </button>
               </div>
             );
@@ -185,29 +204,42 @@ function Attachments({ attachments }: AttachmentsProps) {
           // Issue #371 : icône spécifique au type de fichier (PDF, Word, Excel…)
           // plutôt qu'une icône générique unique, pour reconnaître le format d'un
           // coup d'œil. Les images sont traitées plus haut (vignette d'aperçu).
-          const { icon, label } = fileIcon(a.mimeType, a.filename);
+          // La carte prend toute la largeur du message sur mobile (une par ligne)
+          // et 20rem au-delà ; `pr-14` réserve la place du bouton en overlay pour
+          // que le nom, tronqué, ne passe jamais dessous.
+          const { icon, label, tone } = fileIcon(a.mimeType, a.filename);
+          const ext = extOf(a.filename);
           return (
-            <div key={a.id} className="flex items-stretch gap-1 max-w-full min-w-0">
+            <div key={a.id} className="relative w-full max-w-full sm:w-80">
               <button
                 type="button"
                 onClick={() => setSelected(a)}
-                className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 rounded-sm px-2 py-1.5 text-sm text-slate-800 max-w-xs min-w-0 text-left"
+                title={a.filename}
+                className="flex w-full min-w-0 items-center gap-3 rounded-lg border border-slate-200 bg-white py-2 pl-2 pr-14 text-left shadow-xs transition-colors hover:border-aubergine-400 hover:bg-slate-50 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-aubergine-400"
               >
-                <span className="text-lg shrink-0" title={label}>{icon}</span>
-                <span className="flex-1 min-w-0 truncate">{a.filename}</span>
-                <span className="shrink-0 text-slate-500 text-xs">{fmtBytes(a.size)}</span>
+                <span
+                  className={`grid size-10 shrink-0 place-items-center rounded-md text-xl ring-1 ring-inset ${tone}`}
+                  title={label}
+                >
+                  {icon}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-slate-800">
+                    {a.filename}
+                  </span>
+                  <span className="block truncate text-xs text-slate-500">
+                    {ext ? ext.toUpperCase() : label} · {fmtBytes(a.size)}
+                  </span>
+                </span>
               </button>
               <button
                 type="button"
                 title="Télécharger"
                 aria-label={`Télécharger ${a.filename}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  downloadAttachment(a);
-                }}
-                className="shrink-0 grid place-items-center w-8 h-8 rounded-sm bg-slate-100 hover:bg-slate-200 text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-aubergine-400"
+                onClick={download}
+                className="absolute right-2 top-1/2 grid size-9 -translate-y-1/2 place-items-center rounded-full bg-aubergine-700 text-white shadow-sm transition hover:bg-aubergine-600 active:scale-95 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-aubergine-400 focus-visible:ring-offset-1"
               >
-                ⬇
+                <DownloadIcon className="size-[18px]" />
               </button>
             </div>
           );
