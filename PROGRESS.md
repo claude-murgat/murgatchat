@@ -5,7 +5,7 @@ au fil des sessions, ainsi que les conventions et l'état du projet. Il sert de
 **mémoire de référence** : à lire en priorité au début d'une session pour savoir
 où on en est. La doc d'architecture détaillée reste dans le [README](README.md).
 
-Dernière mise à jour : **2026-10-08** (**1.4.2** : bouton « Télécharger » directement à côté de chaque pièce jointe du fil, sans passer par l'aperçu (#366) ; **1.4.1** : « Mes notes » (conversation avec soi-même) épinglée en tête de la barre latérale, sortie de la liste des messages directs (#362) ; **1.4.0** : un compte désactivé est vraiment coupé (sockets, pièces jointes, push, messages programmés), suppression définitive d'un utilisateur depuis l'administration, aucun accès à un salon privé sans en être membre ; **1.3.3** : montée des dépendances compatibles (DOMPurify, socket.io, nodemailer, Vite, plugins Tauri 2.7 avec crates alignées…), release de maintenance sans changement fonctionnel ; **1.3.2** : l'app ne déconnecte plus l'utilisateur quand le serveur est injoignable au démarrage (desktop lancée à l'ouverture de session sur le TSE, PWA hors ligne) ; maintenance des dépendances (7 PR Dependabot, dont la pile Tauri 2.12 et nodemailer 10) et **release desktop réparée** — paquets npm et crates Rust Tauri désalignés depuis la 1.3.0, contrôle ajouté en CI ; les postes desktop passent directement de 1.2.3 à 1.3.2 ; **1.3.1** (jamais publiée en desktop) : synchro du fil de discussion — un message reçu s'affiche toujours, y compris pendant l'ouverture d'une conversation ou après une coupure du socket (PWA en arrière-plan, veille, réseau), et changer de conversation n'affiche plus jamais le fil de la précédente ; **1.3.0** : recherche par mot-clé dans les conversations (#319) et, PR #339, la section CLAUDE devient multi-experts et accueille l'expert **Murgat Management** — refonte `clean_v3`, stack de test .203, jamais la vraie prod ; **1.2.3** : le logo de l'expert Claude s'anime pendant la rédaction de sa réponse dans la barre latérale (#314) ; **1.2.2** : release de maintenance — ESLint 10.9.1, Prisma 7.10.0, @types/react-dom 19.2.5 et claude-code-action 1.0.208 relevés, aucun changement fonctionnel ; **1.2.1** : le support in-app passe vraiment par l'abonnement — relais SDK via la VM claude-helper, le mode OAuth brut de la 1.2.0 étant throttlé par politique ; **1.2.0** : l'expert et le support in-app peuvent tourner sur l'abonnement Claude (OAuth) faute de crédits API, messages d'erreur clairs + retry ; **1.1.0** : la section CLAUDE devient un expert de l'appli supervision (VM auxiliaire, accès lecture seule, progression en direct) + sections de la barre latérale repliables ; **1.0.2** : release de maintenance — dompurify, Vite/plugin-react, Vitest et claude-code-action relevés, aucun changement fonctionnel ; **1.0.1** : correctif des modales qui se fermaient sur un glisser sortant du panneau (#191), **Prisma 6 → 7** — adaptateur de driver et `prisma.config.ts` —, groupage Dependabot repensé pour que les paquets indissociables voyagent ensemble, et une trentaine de dépendances relevées ; **1.0.0 — sortie d'alpha** : SemVer strict + canal de pré-release ; socle modernisé (Node 24 LTS, React 19, Tailwind 4, Vite 8, Express 5, Prisma 6, zod 4, ESLint 10, Vitest 4) ; **dépôt 100 % TypeScript**, les trois phases du typage livrées ; quatre bugs révélés par l'outillage ; 0.7.6 : modales plein écran lisibles sur mobile (bouton de validation visible), clic sur notification web qui ouvre la conversation, pièces jointes jusqu'à 50 Mo configurables via `.env` + fix du crash desktop sur fichier trop lourd ; 0.7.5 : aperçu intégré Word/Excel/CSV/texte + PDF réparé, clic notification desktop par protocole, purge du résidu de démarrage TSE, DM triés par récence + non-lus plus visibles, ouverture sur le 1er message non lu + auto-chargement des anciens, mentions surlignées à la saisie ; 0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages).
+Dernière mise à jour : **2026-10-15** (**1.4.4** : pièces jointes lisibles sur mobile — bouton « Télécharger » rond posé en overlay sur la vignette ou dans la carte du fichier (plus à côté), vignettes d'images bornées à la largeur du message (le fil ne défile plus horizontalement), icône et pastille de couleur selon le type de fichier, nom long tronqué sans masquer le bouton (#370/#371) ; barre d'outils du composer qui tient dès 320 px ; **1.4.3** : le créateur d'un salon peut le renommer/modifier ou le supprimer (PWA + desktop), experts Claude sur Sonnet ; **1.4.2** : bouton « Télécharger » directement à côté de chaque pièce jointe du fil, sans passer par l'aperçu (#366) ; **1.4.1** : « Mes notes » (conversation avec soi-même) épinglée en tête de la barre latérale, sortie de la liste des messages directs (#362) ; **1.4.0** : un compte désactivé est vraiment coupé (sockets, pièces jointes, push, messages programmés), suppression définitive d'un utilisateur depuis l'administration, aucun accès à un salon privé sans en être membre ; **1.3.3** : montée des dépendances compatibles (DOMPurify, socket.io, nodemailer, Vite, plugins Tauri 2.7 avec crates alignées…), release de maintenance sans changement fonctionnel ; **1.3.2** : l'app ne déconnecte plus l'utilisateur quand le serveur est injoignable au démarrage (desktop lancée à l'ouverture de session sur le TSE, PWA hors ligne) ; maintenance des dépendances (7 PR Dependabot, dont la pile Tauri 2.12 et nodemailer 10) et **release desktop réparée** — paquets npm et crates Rust Tauri désalignés depuis la 1.3.0, contrôle ajouté en CI ; les postes desktop passent directement de 1.2.3 à 1.3.2 ; **1.3.1** (jamais publiée en desktop) : synchro du fil de discussion — un message reçu s'affiche toujours, y compris pendant l'ouverture d'une conversation ou après une coupure du socket (PWA en arrière-plan, veille, réseau), et changer de conversation n'affiche plus jamais le fil de la précédente ; **1.3.0** : recherche par mot-clé dans les conversations (#319) et, PR #339, la section CLAUDE devient multi-experts et accueille l'expert **Murgat Management** — refonte `clean_v3`, stack de test .203, jamais la vraie prod ; **1.2.3** : le logo de l'expert Claude s'anime pendant la rédaction de sa réponse dans la barre latérale (#314) ; **1.2.2** : release de maintenance — ESLint 10.9.1, Prisma 7.10.0, @types/react-dom 19.2.5 et claude-code-action 1.0.208 relevés, aucun changement fonctionnel ; **1.2.1** : le support in-app passe vraiment par l'abonnement — relais SDK via la VM claude-helper, le mode OAuth brut de la 1.2.0 étant throttlé par politique ; **1.2.0** : l'expert et le support in-app peuvent tourner sur l'abonnement Claude (OAuth) faute de crédits API, messages d'erreur clairs + retry ; **1.1.0** : la section CLAUDE devient un expert de l'appli supervision (VM auxiliaire, accès lecture seule, progression en direct) + sections de la barre latérale repliables ; **1.0.2** : release de maintenance — dompurify, Vite/plugin-react, Vitest et claude-code-action relevés, aucun changement fonctionnel ; **1.0.1** : correctif des modales qui se fermaient sur un glisser sortant du panneau (#191), **Prisma 6 → 7** — adaptateur de driver et `prisma.config.ts` —, groupage Dependabot repensé pour que les paquets indissociables voyagent ensemble, et une trentaine de dépendances relevées ; **1.0.0 — sortie d'alpha** : SemVer strict + canal de pré-release ; socle modernisé (Node 24 LTS, React 19, Tailwind 4, Vite 8, Express 5, Prisma 6, zod 4, ESLint 10, Vitest 4) ; **dépôt 100 % TypeScript**, les trois phases du typage livrées ; quatre bugs révélés par l'outillage ; 0.7.6 : modales plein écran lisibles sur mobile (bouton de validation visible), clic sur notification web qui ouvre la conversation, pièces jointes jusqu'à 50 Mo configurables via `.env` + fix du crash desktop sur fichier trop lourd ; 0.7.5 : aperçu intégré Word/Excel/CSV/texte + PDF réparé, clic notification desktop par protocole, purge du résidu de démarrage TSE, DM triés par récence + non-lus plus visibles, ouverture sur le 1er message non lu + auto-chargement des anciens, mentions surlignées à la saisie ; 0.7.4 : CI durcie lint/SAST/DAST + conteneurs non-root + actions épinglées/Dependabot, migrations Prisma versionnées, brouillons conservés par conversation, clic notification → conversation, badge non-lus PWA+Desktop, marquer non-lu ; 0.7.3 : correctif urgent — pagination par curseur des messages).
 
 ---
 
@@ -1278,6 +1278,49 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      valent aussi quand `release.yml` appelle ce workflow.
 
 
+## Itération 2026-10-09 — salons gérables par leur créateur & experts Sonnet (1.4.3)
+
+111. **Le créateur d'un salon peut le renommer/modifier ou le supprimer** (PWA +
+     desktop) — colonne `createdById` (migration), `PATCH`/`DELETE /channels/:id`
+     réservés au créateur ou à un admin, menu contextuel dans la barre latérale
+     (appui long PWA / clic droit desktop) + bouton « Modifier » dans l'en-tête,
+     événement `channel:updated`, modale `EditChannelModal`. Côté helper Claude,
+     les experts passent sur **Sonnet** (`EXPERT_MODEL`, défaut `sonnet`) avec un
+     style de réponse court et structuré, `maxTurns` 30. Le bump de version avait
+     aussi touché la dépendance `regenerate` du lock (remise en 1.4.2) : **un bump
+     ne modifie que les entrées du paquet racine**, jamais un remplacement global.
+
+## Itération 2026-10-15 — pièces jointes lisibles sur mobile (1.4.4)
+
+112. **Nom de fichier long qui masquait le bouton « Télécharger »** (#370, PR #372,
+     pipeline `claude-fix`) — `min-w-0` manquant : la troncature ne s'appliquait
+     jamais et, à 360 px, le nom recouvrait le bouton voisin.
+113. **Icône selon le type de fichier** (#371, PR #373) — helper `fileIcon()`
+     (`web/src/fileIcon.ts`) : PDF, Word, tableur, présentation, archive, audio,
+     vidéo, texte, repli générique ; MIME d'abord, extension en repli.
+114. **Bouton « Télécharger » en overlay, rendu responsive** (PR #375) — le bouton
+     du #366 était posé *à côté* de la pièce jointe : il prenait une largeur que
+     l'écran n'avait pas, et le glyphe ⬇ se rendait très inégalement (fine flèche,
+     emoji carré bleu iOS/Android). Il devient un bouton rond **posé sur** la
+     vignette ou **dans** la carte, toujours visible, avec une icône SVG partagée
+     (`DownloadIcon.tsx`). Vraie cause du « l'interface casse » : la vignette
+     d'image était bornée à 320 px sans `max-w-full`, plus large que la colonne
+     du message sur un mobile de 360 px → tout le fil défilait horizontalement.
+     Vignettes bornées à la largeur du message (`object-scale-down`, jamais
+     agrandies), légende nom + taille au survol (souris), cartes de fichiers
+     pleine largeur sur mobile avec pastille teintée par type (`tone`) et ligne
+     « PDF · 1.2 Mo ». Nouveau spec `attachments-mobile.spec.js` (360×705) ;
+     il utilise `bypassCSP` car l'API e2e est en `http://` et la CSP nginx
+     n'autorise que `https:` en `img-src` — **aucune image ne se charge en e2e
+     sans ce contournement** (la prod, en https, n'est pas concernée).
+115. **Barre d'outils du composer qui débordait à 320 px** (PR #374) — sous `sm`,
+     « Fichier » et « Planifier » n'affichent que leur icône (`aria-label`
+     conservant le mot visible), `shrink-0` sur « Envoyer » ; spec
+     `composer-mobile.spec.js`. Desktop inchangé.
+116. **CI `claude-fix` : checkout résilient sur le runner persistant** — le
+     checkout échouait en `EACCES` sur des artefacts laissés en root ; checkout
+     git manuel à la place.
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
@@ -1320,4 +1363,6 @@ dépendances relevées, aucune fonctionnalité nouvelle.
 > **1.3.3** (maintenance : dépendances compatibles serveur + web, plugins Tauri 2.7 avec crates alignées),
 > **1.4.0** (compte désactivé vraiment coupé — sockets, pièces jointes, push, planifiés ; suppression définitive d'un utilisateur depuis l'administration ; aucun accès à un salon privé sans en être membre),
 > **1.4.1** (« Mes notes » épinglée en tête de la barre latérale, hors des messages directs #362/#363),
-> **1.4.2** (bouton « Télécharger » direct à côté de chaque pièce jointe #366/#367 ; `timeout-minutes` sur les jobs de CI #365).
+> **1.4.2** (bouton « Télécharger » direct à côté de chaque pièce jointe #366/#367 ; `timeout-minutes` sur les jobs de CI #365),
+> **1.4.3** (le créateur d'un salon peut le renommer/modifier ou le supprimer ; experts Claude sur Sonnet),
+> **1.4.4** (pièces jointes sur mobile : bouton « Télécharger » en overlay #375, vignettes bornées à la largeur du message, icônes par type #371/#373, nom long tronqué #370/#372 ; composer à 320 px #374).
