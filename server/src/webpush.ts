@@ -103,10 +103,25 @@ export function getVapidPublicKey() {
   return vapidPublicKey;
 }
 
+// Options passées à web-push pour chaque envoi (exportées pour les tests, qui
+// vérifient les en-têtes qu'elles produisent).
+//   - TTL long : un TTL trop court fait expirer le push pendant que le
+//     téléphone dort (Doze) → notif visible seulement au déverrouillage.
+//   - urgency high : en-tête `Urgency: high`, réveil immédiat côté FCM / APNs
+//     (sans lui, Android diffère le message jusqu'à la fenêtre Doze suivante).
+//   - timeout : sans lui, web-push attend indéfiniment un service push qui ne
+//     répond pas, et ce service retient tous les envois de la notification.
+//   - pas de `topic` : il ferait remplacer par le service push un message encore
+//     en attente par le suivant, au lieu de les livrer tous.
+export const WEB_PUSH_OPTIONS = { TTL: 86400, urgency: "high", timeout: 10_000 } as const;
+
 // Send a push notification to a list of subscriptions. Failed sends with HTTP
 // 404 (not found) or 410 (gone) result in the subscription being removed from
 // the DB — the user has unsubscribed or the push service has expired the
 // endpoint. Other errors are logged but don't prune.
+//
+// Les envois partent en parallèle : en série, chaque abonné attendait l'aller-
+// retour de tous ceux qui le précédaient (plusieurs secondes sur un gros salon).
 //
 // payload is a plain object that will be JSON.stringify'd. Typically:
 //   { title, body, url?, tag?, channelId? }
@@ -119,7 +134,7 @@ export async function sendWebPush(
   const json = JSON.stringify(payload);
   const toPrune: string[] = [];
   let sent = 0;
-  for (const sub of subscriptions) {
+  await Promise.all(subscriptions.map(async (sub) => {
     try {
       await webpush.sendNotification(
         {
@@ -127,10 +142,7 @@ export async function sendWebPush(
           keys: { p256dh: sub.p256dh, auth: sub.auth },
         },
         json,
-        // TTL long : un TTL trop court fait expirer le push pendant que le
-        // téléphone dort (Doze) → notif visible seulement au déverrouillage.
-        // urgency high : réveil immédiat côté FCM / push service.
-        { TTL: 86400, urgency: "high" }
+        WEB_PUSH_OPTIONS
       );
       sent++;
     } catch (err) {
@@ -145,7 +157,7 @@ export async function sendWebPush(
         console.warn(`[webpush] send failed (${code || "?"}):`, message || err);
       }
     }
-  }
+  }));
   if (toPrune.length) {
     await prisma.webPushSubscription
       .deleteMany({ where: { endpoint: { in: toPrune } } })

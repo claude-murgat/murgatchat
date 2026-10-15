@@ -31,7 +31,10 @@ export function getSocket(token: string): Socket {
   // Resolve the server URL at connect time so it follows the runtime-configured
   // address (set on the login screen), not a value baked at build time.
   socket = io(getApiBaseUrl(), {
-    auth: { token, platform: window.__TAURI__ ? "desktop" : "web" },
+    // presenceProbe : ce client répond à "presence:probe" (voir App.tsx), si
+    // bien que le serveur vérifie qu'il est encore à l'écran avant de retenir
+    // un push au lieu de se fier à son dernier "activity".
+    auth: { token, platform: window.__TAURI__ ? "desktop" : "web", presenceProbe: true },
     transports: ["websocket", "polling"],
   });
   instrument(socket);

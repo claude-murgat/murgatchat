@@ -7,7 +7,7 @@ organisée en quatre couches de test, par ordre de valeur (plus des garde-fous
 
 | Couche | Outil | Ce qu'elle protège | Vérifiée |
 | --- | --- | --- | --- |
-| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 252 tests |
+| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 264 tests |
 | **E2E Web** (priorité 2) | Playwright | Câblage de l'UI web (auth, envoi, édition, suppression, threads, persistance) | ✅ parcours vert |
 | **Mobile** (priorité 3) | `expo export` + smoke APK | Le bundle RN se compile ; l'app se lance | Documentée |
 | **Charge** (k6) | k6 (HTTP + Socket.IO) | Tenue à 150 utilisateurs simultanés (REST + temps réel) | ✅ script validé (smoke) |
@@ -52,8 +52,10 @@ npm test -- test/http/auth.test.js   # un fichier
 - **`test/setup.js`** tronque toutes les tables avant chaque test (isolation).
   Les fichiers tournent en série (`fileParallelism: false`) pour partager sans
   risque l'unique base de test.
-- L'appel Expo push est mocké (`vi.stubGlobal("fetch", …)`) : aucun appel réseau,
-  gating déterministe.
+- L'appel Expo push est mocké (`vi.stubGlobal("fetch", …)`) et Web Push l'est au
+  niveau de `web-push` (`vi.spyOn(webpush, "sendNotification")`) : aucun appel
+  réseau, gating déterministe. Les pushs différés par la sonde de présence
+  s'attendent avec `settleDeferredPushes()` (src/socket.ts) plutôt qu'en dormant.
 
 ### Couverture
 - `test/unit/` — crypto (round-trip `enc1:`, fallback clair, déchiffrement KO),
@@ -82,11 +84,17 @@ npm test -- test/http/auth.test.js   # un fichier
   `reaction:update`, `presence`, `typing`, `channel:read`, événements de membres,
   handshake `auth.platform`, et le **gating push** (`notifyMembers` : actif → pas
   de push ; absent + token + non-DND → push ; DND → rien ; purge
-  `DeviceNotRegistered`).
+  `DeviceNotRegistered` ; connexion sans `activity` → push ; **sonde de présence**
+  `presence:probe` : visible → pas de push, client gelé → push après le délai
+  puis immédiat, caché → push sans attendre, autre appareil visible → pas de push).
+- `test/unit/webpush.test.js` — en-têtes réellement produits par web-push
+  (`Urgency: high`, `TTL: 86400`, pas de `Topic`, VAPID, timeout) et envois en
+  parallèle (un service push lent ne retient pas les autres abonnés).
 
-> Note : le handler de connexion Socket.IO enregistre ses écouteurs après un
-> `await` ; un client qui émet immédiatement après `connect` peut perdre cet
-> événement. Les tests attendent que le serveur ait joint la socket à la room du
+> Note : le handler de connexion Socket.IO enregistre la plupart de ses écouteurs
+> après un `await` (seuls `activity`/`away`/`disconnect` sont posés avant) ; un
+> client qui émet immédiatement après `connect` peut perdre les autres
+> événements. Les tests attendent que le serveur ait joint la socket à la room du
 > salon (`waitInRoom`) avant d'émettre, ce qui est déterministe.
 
 ---

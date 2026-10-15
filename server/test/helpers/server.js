@@ -23,10 +23,11 @@ export async function startTestServer() {
 
 // Create a client socket WITHOUT waiting for connect, so callers can attach
 // listeners (e.g. for the presence:state burst the server sends on connect)
-// before any events arrive.
-export function newSocket(url, token, platform = "web") {
+// before any events arrive. `auth` complète la poignée de main (ex. le
+// drapeau `presenceProbe` des clients web récents).
+export function newSocket(url, token, platform = "web", auth = {}) {
   return ioClient(url, {
-    auth: { token, platform },
+    auth: { token, platform, ...auth },
     transports: ["websocket"],
     reconnection: false,
     forceNew: true,
@@ -41,8 +42,8 @@ export function waitConnect(socket) {
 }
 
 // Connect a Socket.IO client and resolve once it's connected.
-export function connectSocket(url, token, platform = "web") {
-  return waitConnect(newSocket(url, token, platform));
+export function connectSocket(url, token, platform = "web", auth = {}) {
+  return waitConnect(newSocket(url, token, platform, auth));
 }
 
 // Wait until the server has placed `socketId` into `channel:<channelId>`.

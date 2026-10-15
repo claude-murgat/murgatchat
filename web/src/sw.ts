@@ -68,6 +68,12 @@ async function handlePush(event: PushEvent) {
     renotify: !!payload.tag,
   };
 
+  // MANDATORY on iOS: always show a notification, even if the page reacted.
+  // Otherwise Safari's WebKit revokes the subscription after a few "silent" pushes.
+  // Affichée en premier, sans rien attendre : la notification ne dépend ainsi
+  // d'aucune autre étape (ni lenteur ni échec de matchAll ci-dessous).
+  const shown = self.registration.showNotification(title, options);
+
   // Inform any open window(s) so the in-page badge/sound can react too.
   try {
     const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
@@ -78,9 +84,7 @@ async function handlePush(event: PushEvent) {
     // Non-fatal.
   }
 
-  // MANDATORY on iOS: always show a notification, even if the page reacted.
-  // Otherwise Safari's WebKit revokes the subscription after a few "silent" pushes.
-  return self.registration.showNotification(title, options);
+  return shown;
 }
 
 function parsePayload(event: PushEvent): PushPayload {

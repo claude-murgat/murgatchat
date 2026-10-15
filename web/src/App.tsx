@@ -559,6 +559,11 @@ export default function App() {
   // misses; isAppHidden() covers all three). The server then pushes to the
   // user's other devices instead of waiting out the idle window. Re-reported on
   // every (re)connect so a background reconnect isn't seen "active".
+  //
+  // "presence:probe" : avant de retenir un push parce que ce client s'est dit
+  // actif, le serveur lui demande s'il est toujours visible. Un client figé par
+  // l'OS (PWA en arrière-plan dont le "away" n'est pas parti) ne répond pas, et
+  // le push part au bout de quelques secondes au lieu d'être sauté.
   useEffect(() => {
     if (!socket) return;
     const report = () => {
@@ -566,6 +571,10 @@ export default function App() {
     };
     report();
     socket.on("connect", report);
+    const onProbe = (ack?: (res: { visible: boolean }) => void) => {
+      ack?.({ visible: !isAppHidden() });
+    };
+    socket.on("presence:probe", onProbe);
     const onVisibility = () => report();
     const onFocus = () => socket.emit("activity");
     // Desktop (Tauri): the native window was hidden to / restored from the tray.
@@ -579,6 +588,7 @@ export default function App() {
     }, 60_000);
     return () => {
       socket.off("connect", report);
+      socket.off("presence:probe", onProbe);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("desktop:presence", onDesktopPresence);
