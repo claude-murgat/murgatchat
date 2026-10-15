@@ -637,11 +637,16 @@ function Composer(
             className="hidden"
             onChange={onFilesPicked}
           />
+          {/* Sous `sm`, les libellés « Fichier » / « Planifier » sont masqués
+              pour que la barre tienne dès 320 px (sinon « Envoyer » sort de
+              l'écran) : l'icône seule suffit, le nom accessible passe par
+              aria-label, doublé d'un title au survol. */}
           <button
             onClick={() => fileRef.current?.click()}
             disabled={uploading}
             className="text-slate-500 hover:text-slate-800 px-2 py-1 text-sm flex items-center gap-1 disabled:opacity-50"
             title="Joindre un fichier"
+            aria-label={uploading ? "Envoi du fichier en cours" : "Joindre un fichier"}
           >
             {/* Mascotte « Clippy » en SVG inline plutôt que l'emoji 📎 :
                 l'emoji ne s'affiche pas sur toutes les plateformes (Linux/Chrome
@@ -657,7 +662,8 @@ function Composer(
                   - de gros yeux globuleux (contour + pupille) ;
                   - les sourcils expressifs, signature qui le distingue d'un
                     trombone ordinaire.
-                Les <circle> forment les yeux (attendus par le test e2e). */}
+                Les <circle> forment les yeux (attendus par le test e2e).
+                Libellé masqué sur mobile : l'icône pulse pendant l'envoi. */}
             <svg
               width="16"
               height="16"
@@ -668,6 +674,7 @@ function Composer(
               strokeLinecap="round"
               strokeLinejoin="round"
               aria-hidden="true"
+              className={uploading ? "max-sm:animate-pulse" : undefined}
             >
               {/* Corps : fil extérieur replié (boucle haute + boucle basse) puis
                   fil intérieur redescendant, soit la forme classique d'un trombone. */}
@@ -681,7 +688,7 @@ function Composer(
               <path d="M8.6 4.3 11 5" strokeWidth="1.4" />
               <path d="M15.4 4.3 13 5" strokeWidth="1.4" />
             </svg>
-            {uploading ? "Envoi..." : "Fichier"}
+            <span className="hidden sm:inline">{uploading ? "Envoi..." : "Fichier"}</span>
           </button>
           <button
             ref={gifBtnRef}
@@ -697,19 +704,20 @@ function Composer(
               onClick={() => setShowSchedule((v) => !v)}
               className="text-slate-500 hover:text-slate-800 px-2 py-1 text-sm flex items-center gap-1"
               title="Planifier un envoi"
+              aria-label="Planifier un envoi"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                 <circle cx="12" cy="12" r="9" />
                 <path d="M12 7v5l3 2" />
               </svg>
-              Planifier
+              <span className="hidden sm:inline">Planifier</span>
             </button>
           )}
         </div>
         <button
           onClick={() => send(false)}
           disabled={(!text.trim() && attachments.length === 0) || uploading}
-          className="bg-slackgreen text-white px-3 py-1.5 rounded-sm font-medium hover:opacity-90 disabled:opacity-40"
+          className="shrink-0 bg-slackgreen text-white px-3 py-1.5 rounded-sm font-medium hover:opacity-90 disabled:opacity-40"
         >
           Envoyer
         </button>
