@@ -87,24 +87,49 @@ jobs:
       # Espace disque du runner, AVANT tout build. Run rouge 38916492523 : disque
       # plein pendant `docker compose up -d --build` ; le runner lui-même a planté
       # en écrivant son journal `_diag` (« No space left on device »), sans log de
-      # job ni la moindre trace dans l'issue. Le runner est PERSISTANT : chaque run
-      # rebâtit les images du chat, rend orphelines celles du run précédent et
-      # empile du cache de build, jusqu'à remplir le disque.
-      # On purge donc ce qui est récupérable — images orphelines, cache de build
-      # inutilisé depuis 3 jours (le cache récent garde les builds rapides), puis
-      # tout le cache de build si ça ne suffit pas — et on exige une marge avant de
-      # builder ; à défaut, échec propre ET expliqué dans l'issue, comme pour le PAT.
-      # Marge réglable via la variable de dépôt RUNNER_MIN_FREE_GB.
-      - name: Espace disque du runner (purge Docker + garde-fou)
+      # job ni la moindre trace dans l'issue. Le runner est PERSISTANT, et rien de ce
+      # qu'un run laisse derrière lui n'était jamais libéré :
+      #   - les images du chat rebâties à chaque run, celles du run précédent restant
+      #     orphelines, plus le cache de build Docker ;
+      #   - surtout le cache de paquets de Bun : claude-code-action fait un
+      #     `bun install` à chaque run, et ce cache avait atteint 6 Go — le plus gros
+      #     poste, sur un disque de 32 Go partagé avec d'autres runners.
+      # On purge donc ce qui est récupérable : images orphelines, cache de build
+      # inutilisé depuis 3 jours (le cache récent garde les builds rapides), cache
+      # Bun dès qu'il dépasse BUN_CACHE_MAX_GB ; puis, si la marge manque encore,
+      # tout le cache de build et les caches Bun et npm (re-téléchargés à la
+      # demande). On exige ensuite une marge avant de builder ; à défaut, échec
+      # propre ET expliqué dans l'issue, comme pour le PAT.
+      # Marge réglable via la variable de dépôt RUNNER_MIN_FREE_GB (un run demande
+      # ~4-5 Go : images 1,6 Go, pic de build, node_modules, Playwright éventuel).
+      - name: Espace disque du runner (purge Docker et caches + garde-fou)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE: ${{ github.event.issue.number }}
           REPO: ${{ github.repository }}
-          MIN_FREE_GB: ${{ vars.RUNNER_MIN_FREE_GB || '10' }}
+          MIN_FREE_GB: ${{ vars.RUNNER_MIN_FREE_GB || '5' }}
+          BUN_CACHE_MAX_GB: 2
         run: |
           set +e
           # Go libres sur le système de fichiers qui porte "$1" (vide si illisible).
           free_gb() { df -Pk "$1" 2>/dev/null | awk 'NR==2 {print int($4/1048576)}'; }
+          # Go occupés par le dossier "$1" (0 s'il n'existe pas).
+          size_gb() { du -sk "$1" 2>/dev/null | awk '{print int($1/1048576)}'; }
+          # Chemin FIXE sous $HOME — pas de BUN_INSTALL_CACHE_DIR : une variable
+          # vide ou mal réglée ne doit jamais pouvoir élargir la suppression.
+          case "$HOME" in /?*) BUN_CACHE="$HOME/.bun/install/cache" ;; *) BUN_CACHE="" ;; esac
+          # Vide le cache Bun : par Bun lui-même s'il est là, sinon ce seul dossier.
+          clear_bun_cache() {
+            [ -n "$BUN_CACHE" ] || return 0
+            BUN_BIN=$(command -v bun || echo "$HOME/.bun/bin/bun")
+            if [ -x "$BUN_BIN" ] && "$BUN_BIN" pm cache rm >/dev/null 2>&1; then return 0; fi
+            rm -rf -- "$BUN_CACHE"
+          }
+          # Vide le cache npm : `npm cache clean`, sinon le seul dossier _cacache.
+          clear_npm_cache() {
+            npm cache clean --force >/dev/null 2>&1 && return 0
+            case "$HOME" in /?*) rm -rf -- "$HOME/.npm/_cacache" ;; esac
+          }
           DOCKER_ROOT=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null)
           # Chemins trop pleins, ou vide si la marge est partout respectée.
           low_paths() {
@@ -119,10 +144,17 @@ jobs:
           }
           docker image prune -f >/dev/null
           docker builder prune -f --filter until=72h >/dev/null
+          BUN_GB=$(size_gb "$BUN_CACHE")
+          if [ -n "$BUN_CACHE" ] && [ "${BUN_GB:-0}" -ge "$BUN_CACHE_MAX_GB" ]; then
+            echo "Cache Bun à ${BUN_GB} Go (plafond ${BUN_CACHE_MAX_GB} Go) → vidé"
+            clear_bun_cache
+          fi
           LOW=$(low_paths)
           if [ -n "$LOW" ]; then
-            echo "Marge insuffisante après purge douce → purge complète du cache de build"
+            echo "Marge insuffisante après purge douce → cache de build Docker + caches Bun et npm"
             docker builder prune -af >/dev/null
+            clear_bun_cache
+            clear_npm_cache
             LOW=$(low_paths)
           fi
           if [ -z "$LOW" ]; then echo "✓ espace disque suffisant"; exit 0; fi
@@ -131,10 +163,10 @@ jobs:
           BODY=$(printf '%s\n' \
             "⚠️ **Le développement automatique n'a pas pu démarrer** : $RAISON." \
             "" \
-            "Rien n'a été modifié sur le dépôt (images Docker orphelines et cache de build déjà purgés). Pour débloquer, sur la machine du runner :" \
+            "Rien n'a été modifié sur le dépôt (images Docker orphelines, cache de build Docker et caches Bun / npm déjà purgés). Pour débloquer, sur la machine du runner :" \
             "" \
-            "1. Voir ce qui occupe la place : \`docker system df\` puis \`df -h\`." \
-            "2. Libérer : par exemple \`docker image prune -a\` (images inutilisées), anciens journaux \`_diag\` du runner." \
+            "1. Voir ce qui occupe la place : \`df -h\`, \`docker system df\`, puis \`du -sh ~/* ~/.[!.]* | sort -h\`." \
+            "2. Libérer : par exemple anciennes versions du runner (\`bin.<version>\` / \`externals.<version>\` hors version courante), archive d'installation \`actions-runner-*.tar.gz\`, journaux système (\`sudo journalctl --vacuum-size=200M\`)." \
             "3. Retirer puis reposer le label \`claude:fix\` sur cette issue.")
           gh issue comment "$ISSUE" --repo "$REPO" --body "$BODY" \
             || echo "Commentaire d'issue impossible (non bloquant)"
