@@ -53,6 +53,12 @@ type ScrollMode =
   // `anchorId` : le message le plus ancien AVANT l'ajout de la page d'anciens.
   | { type: "preserve"; prevHeight: number; prevTop: number; anchorId: string };
 
+// Fenêtre pendant laquelle un évènement `scroll` est attribué à l'utilisateur
+// après sa dernière molette / doigt / touche / clic dans le fil. Au-delà, un
+// défilement vient du contenu (image qui se dimensionne, composer qui grandit,
+// ancrage de défilement du navigateur) et ne doit pas décoller la vue du bas.
+const USER_SCROLL_WINDOW_MS = 1000;
+
 /**
  * Fil affiché et pagination vers le passé, dans un seul état : une
  * resynchronisation décide de garder ou non l'historique déjà chargé d'après la
@@ -420,6 +426,9 @@ export default function ChannelView({
   // jusqu'à ce que l'utilisateur scrolle lui-même. unreadElRef = le séparateur.
   const unreadAnchorRef = useRef(false);
   const unreadElRef = useRef<HTMLDivElement | null>(null);
+  // Horodatage de la dernière interaction de l'utilisateur avec le fil (cf.
+  // USER_SCROLL_WINDOW_MS) : seule elle peut décoller la vue du bas.
+  const userScrollAtRef = useRef(0);
   const messageRefs = useRef<Record<string, HTMLElement>>({});
   const typingTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   // Brouillons en cours par conversation (texte + pièces jointes déjà uploadées) :
@@ -484,6 +493,10 @@ export default function ChannelView({
   function jumpToMessage(id: string) {
     const el = messageRefs.current[id];
     if (!el) return;
+    // Saut voulu hors du bas : on coupe le collage bas / l'ancre « non lus »
+    // pour que les re-calages automatiques ne ramènent pas la vue.
+    stickBottomRef.current = false;
+    unreadAnchorRef.current = false;
     el.scrollIntoView({ behavior: "smooth", block: "center" });
     el.classList.add("ring-2", "ring-amber-400");
     setTimeout(() => el.classList.remove("ring-2", "ring-amber-400"), 1500);
@@ -589,10 +602,6 @@ export default function ChannelView({
   useEffect(() => {
     if (!focusMessageId) return;
     if (!messages.some((m) => m.id === focusMessageId)) return;
-    // On coupe le collage bas / l'ancre « non lus » pour que le saut ne soit pas
-    // ramené par les re-calages programmatiques (rAF de l'effet de scroll).
-    stickBottomRef.current = false;
-    unreadAnchorRef.current = false;
     jumpToMessage(focusMessageId);
     onFocusHandled?.();
   }, [focusMessageId, messages, onFocusHandled]);
@@ -744,27 +753,44 @@ export default function ChannelView({
     scrollModeRef.current = null;
   }, [messages]);
 
-  // Suit si l'utilisateur est (encore) au bas de la conversation. Mis à jour à
-  // chaque scroll — y compris nos scrolls programmatiques — donc dès qu'il
-  // remonte lire l'historique, on cesse de le re-caler en bas.
+  // Suit si l'utilisateur est (encore) au bas de la conversation : dès qu'il
+  // remonte lire l'historique, on cesse de le re-caler en bas. Seul un
+  // défilement de SON fait (cf. USER_SCROLL_WINDOW_MS) décolle la vue : un
+  // scroll né du contenu — image qui se dimensionne juste après le scroll
+  // initial, ancrage du navigateur — mesurait un écart au bas et coupait le
+  // collage, laissant la conversation ouverte au milieu (#389).
   function onScrollContainer() {
     const el = scrollRef.current;
     if (!el) return;
-    stickBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    const byUser = Date.now() - userScrollAtRef.current < USER_SCROLL_WINDOW_MS;
+    if (atBottom) stickBottomRef.current = true;
+    else if (byUser) stickBottomRef.current = false;
+    else if (stickBottomRef.current) el.scrollTop = el.scrollHeight;
     // Chargement auto des messages plus anciens dès qu'on approche du haut du
     // chunk courant (loadOlder préserve la position ; le bouton reste en secours).
-    if (el.scrollTop < 200 && hasMore && !loadingOlder) loadOlder();
+    // Jamais tant qu'on colle au bas : à l'ouverture, les images pas encore
+    // dimensionnées rendent le fil court, et la page d'anciens préfixée
+    // coupait le collage.
+    if (el.scrollTop < 200 && hasMore && !loadingOlder && !stickBottomRef.current) loadOlder();
   }
 
-  // Les images de pièces jointes (et autres médias) se chargent APRÈS le scroll
-  // initial et agrandissent la liste. Tant qu'on est censé être en bas, on se
-  // re-cale à chaque `load` d'un descendant — en capture, car le `load` d'une
-  // <img> ne remonte pas. ChannelView n'étant pas remonté au changement de salon,
-  // ce listener posé une fois couvre toutes les conversations.
+  // Le contenu grandit APRÈS le scroll initial : images de pièces jointes,
+  // polices, mais aussi le composer (brouillon restauré, réponse) qui rétrécit
+  // le fil. Tant qu'on est censé être en bas (ou sur le séparateur « non lus »),
+  // on se re-cale à chaque `load` d'un descendant — en capture, car le `load`
+  // d'une <img> ne remonte pas — et à chaque changement de taille du fil ou d'un
+  // de ses messages (ResizeObserver : une image se dimensionne avant son `load`).
+  //
+  // Rejoué à chaque conversation : ChannelView reste monté et rend « Sélectionnez
+  // une conversation » sans fil. Posé une seule fois au montage (`[]`), il ne
+  // s'attachait jamais quand l'app démarrait sans conversation ouverte — cas
+  // courant sur la PWA mobile —, d'où une ouverture tantôt en bas, tantôt au
+  // milieu (#389).
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const onLoad = () => {
+    const restick = () => {
       const s = scrollRef.current;
       if (!s) return;
       if (stickBottomRef.current) s.scrollTop = s.scrollHeight;
@@ -772,22 +798,47 @@ export default function ChannelView({
         unreadElRef.current.scrollIntoView({ block: "start" });
       }
     };
-    // Un scroll manuel (molette / doigt / clavier) libère l'ancre « premier
-    // non-lu » : on cesse de ramener la vue dessus.
-    const releaseAnchor = () => {
+    // Une interaction manuelle (molette / doigt / clavier / clic, y compris sur
+    // la barre de défilement) libère l'ancre « premier non-lu » et autorise
+    // onScrollContainer à décoller la vue du bas.
+    const onUserScroll = () => {
+      userScrollAtRef.current = Date.now();
       unreadAnchorRef.current = false;
     };
-    el.addEventListener("load", onLoad, true);
-    el.addEventListener("wheel", releaseAnchor, { passive: true });
-    el.addEventListener("touchmove", releaseAnchor, { passive: true });
-    el.addEventListener("keydown", releaseAnchor);
+    const sizes = typeof ResizeObserver !== "undefined" ? new ResizeObserver(restick) : null;
+    let mo: MutationObserver | null = null;
+    if (sizes) {
+      sizes.observe(el);
+      for (const child of Array.from(el.children)) sizes.observe(child);
+      // Les messages sont des enfants directs du fil : on suit ceux qui arrivent
+      // ou partent (changement de conversation, pagination, temps réel).
+      mo = new MutationObserver((records) => {
+        for (const r of records) {
+          for (const n of Array.from(r.addedNodes)) {
+            if (n instanceof Element) sizes.observe(n);
+          }
+          for (const n of Array.from(r.removedNodes)) {
+            if (n instanceof Element) sizes.unobserve(n);
+          }
+        }
+      });
+      mo.observe(el, { childList: true });
+    }
+    el.addEventListener("load", restick, true);
+    el.addEventListener("wheel", onUserScroll, { passive: true });
+    el.addEventListener("touchmove", onUserScroll, { passive: true });
+    el.addEventListener("keydown", onUserScroll);
+    el.addEventListener("pointerdown", onUserScroll);
     return () => {
-      el.removeEventListener("load", onLoad, true);
-      el.removeEventListener("wheel", releaseAnchor);
-      el.removeEventListener("touchmove", releaseAnchor);
-      el.removeEventListener("keydown", releaseAnchor);
+      sizes?.disconnect();
+      mo?.disconnect();
+      el.removeEventListener("load", restick, true);
+      el.removeEventListener("wheel", onUserScroll);
+      el.removeEventListener("touchmove", onUserScroll);
+      el.removeEventListener("keydown", onUserScroll);
+      el.removeEventListener("pointerdown", onUserScroll);
     };
-  }, []);
+  }, [activeChannelId]);
 
   // Charge les 200 messages antérieurs au plus ancien affiché et les préfixe,
   // en conservant la position de lecture (la hauteur grandit par le haut).
