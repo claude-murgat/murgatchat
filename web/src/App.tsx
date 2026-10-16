@@ -666,10 +666,18 @@ export default function App() {
     setSessionNotice(null);
   }, []);
 
-  const onLogout = useCallback(() => {
-    // Best-effort: unsubscribe push BEFORE clearing the token so the API call
-    // still authenticates. Don't block logout if it fails (network down etc.).
-    unsubscribePush().catch(() => {});
+  const onLogout = useCallback(async () => {
+    // Désabonner le push AVANT d'effacer le token : l'appel serveur de
+    // suppression (DELETE /web-push/subscribe) doit encore être authentifié,
+    // sinon l'abonnement reste en base et le serveur continue de pousser les
+    // messages de ce compte vers l'appareil déconnecté. Il FAUT attendre, sinon
+    // `setToken(null)` s'exécute avant que `unsubscribePush` n'atteigne (après
+    // son `await` local) le `if (getToken())`. Borné à 3 s pour qu'un réseau mort
+    // ne bloque pas la déconnexion.
+    await Promise.race([
+      unsubscribePush(),
+      new Promise((resolve) => setTimeout(resolve, 3000)),
+    ]).catch(() => {});
     setToken(null);
     closeSocket();
     setUser(null);
