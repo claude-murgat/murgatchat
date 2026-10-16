@@ -9,7 +9,6 @@ import {
   ensureReady,
   setTrayBadge,
   setDesktopBadge,
-  isAppHidden,
   isTauri,
   checkDesktopUpdate,
   installDesktopUpdate,
@@ -551,50 +550,6 @@ export default function App() {
       backSentinelRef.current = true;
     }
   }, [activeChannelId]);
-
-  // Tell the server whether the user can actually SEE the app: "activity" while
-  // it's in the foreground (no push needed — they'll see the in-app toast),
-  // "away" the instant it's hidden (PWA backgrounded, tab/window minimised, or —
-  // on desktop — the Tauri window hidden to the tray, which document visibility
-  // misses; isAppHidden() covers all three). The server then pushes to the
-  // user's other devices instead of waiting out the idle window. Re-reported on
-  // every (re)connect so a background reconnect isn't seen "active".
-  //
-  // "presence:probe" : avant de retenir un push parce que ce client s'est dit
-  // actif, le serveur lui demande s'il est toujours visible. Un client figé par
-  // l'OS (PWA en arrière-plan dont le "away" n'est pas parti) ne répond pas, et
-  // le push part au bout de quelques secondes au lieu d'être sauté.
-  useEffect(() => {
-    if (!socket) return;
-    const report = () => {
-      socket.emit(isAppHidden() ? "away" : "activity");
-    };
-    report();
-    socket.on("connect", report);
-    const onProbe = (ack?: (res: { visible: boolean }) => void) => {
-      ack?.({ visible: !isAppHidden() });
-    };
-    socket.on("presence:probe", onProbe);
-    const onVisibility = () => report();
-    const onFocus = () => socket.emit("activity");
-    // Desktop (Tauri): the native window was hidden to / restored from the tray.
-    // document.visibilitychange doesn't fire for that, so desktop.js emits this.
-    const onDesktopPresence = () => report();
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("desktop:presence", onDesktopPresence);
-    const iv = setInterval(() => {
-      if (!isAppHidden()) socket.emit("activity");
-    }, 60_000);
-    return () => {
-      socket.off("connect", report);
-      socket.off("presence:probe", onProbe);
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("desktop:presence", onDesktopPresence);
-      clearInterval(iv);
-    };
-  }, [socket]);
 
   // Barre latérale : rattrape non-lus, aperçus et salons à chaque (re)connexion
   // du socket et à chaque retour au premier plan. Ce qui s'est passé pendant une

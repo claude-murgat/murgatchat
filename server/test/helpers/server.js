@@ -23,8 +23,7 @@ export async function startTestServer() {
 
 // Create a client socket WITHOUT waiting for connect, so callers can attach
 // listeners (e.g. for the presence:state burst the server sends on connect)
-// before any events arrive. `auth` complète la poignée de main (ex. le
-// drapeau `presenceProbe` des clients web récents).
+// before any events arrive. `auth` complète la poignée de main.
 export function newSocket(url, token, platform = "web", auth = {}) {
   return ioClient(url, {
     auth: { token, platform, ...auth },
