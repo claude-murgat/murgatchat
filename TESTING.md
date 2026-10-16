@@ -54,8 +54,10 @@ npm test -- test/http/auth.test.js   # un fichier
   risque l'unique base de test.
 - L'appel Expo push est mocké (`vi.stubGlobal("fetch", …)`) et Web Push l'est au
   niveau de `web-push` (`vi.spyOn(webpush, "sendNotification")`) : aucun appel
-  réseau, gating déterministe. Les pushs différés par la sonde de présence
-  s'attendent avec `settleDeferredPushes()` (src/socket.ts) plutôt qu'en dormant.
+  réseau, gating déterministe. Un message concernant un membre est poussé vers
+  tous ses appareils (plus de détection de présence) ; seuls DnD, le niveau du
+  salon (`none`/`mentions`), un compte désactivé et l'exclusion de l'auteur
+  suppriment le push.
 
 ### Couverture
 - `test/unit/` — crypto (round-trip `enc1:`, fallback clair, déchiffrement KO),
@@ -82,11 +84,10 @@ npm test -- test/http/auth.test.js   # un fichier
 - `test/socket/` — accès aux salons privés (`channel:join` et `typing` refusés à un non-membre,
   membre retiré sorti de la room, admin rétrogradé sorti du salon du pipeline), `message:new`/`updated`/`deleted`, `thread:reply`,
   `reaction:update`, `presence`, `typing`, `channel:read`, événements de membres,
-  handshake `auth.platform`, et le **gating push** (`notifyMembers` : actif → pas
-  de push ; absent + token + non-DND → push ; DND → rien ; purge
-  `DeviceNotRegistered` ; connexion sans `activity` → push ; **sonde de présence**
-  `presence:probe` : visible → pas de push, client gelé → push après le délai
-  puis immédiat, caché → push sans attendre, autre appareil visible → pas de push ;
+  handshake `auth.platform`, et les **notifications push** (`notifyMembers` :
+  membre non-DND → push vers tous ses appareils, même connecté/actif ; natif +
+  web poussés ensemble ; DND → rien ; `notifyLevel=none`/`mentions` → suppression ;
+  compte désactivé → rien ; auteur exclu ; purge `DeviceNotRegistered` ;
   **message très long** → extrait tronqué, Web Push chiffré et message Expo sous 4 Ko).
 - `test/unit/webpush.test.js` — en-têtes réellement produits par web-push
   (`Urgency: high`, `TTL: 86400`, pas de `Topic`, VAPID, timeout) et envois en
@@ -94,9 +95,8 @@ npm test -- test/http/auth.test.js   # un fichier
 - `test/unit/pushExcerpt.test.js` — extrait porté par les pushs : 500 caractères
   « … » compris, 2 000 octets JSON au plus, paire de substitution jamais coupée.
 
-> Note : le handler de connexion Socket.IO enregistre la plupart de ses écouteurs
-> après un `await` (seuls `activity`/`away`/`disconnect` sont posés avant) ; un
-> client qui émet immédiatement après `connect` peut perdre les autres
+> Note : le handler de connexion Socket.IO enregistre ses écouteurs après un
+> `await` ; un client qui émet immédiatement après `connect` peut perdre des
 > événements. Les tests attendent que le serveur ait joint la socket à la room du
 > salon (`waitInRoom`) avant d'émettre, ce qui est déterministe.
 
