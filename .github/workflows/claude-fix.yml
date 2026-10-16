@@ -84,6 +84,62 @@ jobs:
             || echo "Commentaire d'issue impossible (non bloquant)"
           exit 1
 
+      # Espace disque du runner, AVANT tout build. Run rouge 38916492523 : disque
+      # plein pendant `docker compose up -d --build` ; le runner lui-même a planté
+      # en écrivant son journal `_diag` (« No space left on device »), sans log de
+      # job ni la moindre trace dans l'issue. Le runner est PERSISTANT : chaque run
+      # rebâtit les images du chat, rend orphelines celles du run précédent et
+      # empile du cache de build, jusqu'à remplir le disque.
+      # On purge donc ce qui est récupérable — images orphelines, cache de build
+      # inutilisé depuis 3 jours (le cache récent garde les builds rapides), puis
+      # tout le cache de build si ça ne suffit pas — et on exige une marge avant de
+      # builder ; à défaut, échec propre ET expliqué dans l'issue, comme pour le PAT.
+      # Marge réglable via la variable de dépôt RUNNER_MIN_FREE_GB.
+      - name: Espace disque du runner (purge Docker + garde-fou)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+          MIN_FREE_GB: ${{ vars.RUNNER_MIN_FREE_GB || '10' }}
+        run: |
+          set +e
+          # Go libres sur le système de fichiers qui porte "$1" (vide si illisible).
+          free_gb() { df -Pk "$1" 2>/dev/null | awk 'NR==2 {print int($4/1048576)}'; }
+          DOCKER_ROOT=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null)
+          # Chemins trop pleins, ou vide si la marge est partout respectée.
+          low_paths() {
+            LOW=""
+            for P in "$GITHUB_WORKSPACE" "${DOCKER_ROOT:-/var/lib/docker}"; do
+              F=$(free_gb "$P")
+              [ -n "$F" ] || continue
+              echo "Espace libre sur $P : ${F} Go (minimum ${MIN_FREE_GB} Go)" >&2
+              [ "$F" -ge "$MIN_FREE_GB" ] || LOW="$LOW $P (${F} Go libres)"
+            done
+            echo "$LOW"
+          }
+          docker image prune -f >/dev/null
+          docker builder prune -f --filter until=72h >/dev/null
+          LOW=$(low_paths)
+          if [ -n "$LOW" ]; then
+            echo "Marge insuffisante après purge douce → purge complète du cache de build"
+            docker builder prune -af >/dev/null
+            LOW=$(low_paths)
+          fi
+          if [ -z "$LOW" ]; then echo "✓ espace disque suffisant"; exit 0; fi
+          RAISON="le disque du runner est presque plein :$LOW, il faut au moins ${MIN_FREE_GB} Go pour bâtir le chat"
+          echo "::error::$RAISON — libère de l'espace sur la machine du runner, puis retire et repose le label claude:fix."
+          BODY=$(printf '%s\n' \
+            "⚠️ **Le développement automatique n'a pas pu démarrer** : $RAISON." \
+            "" \
+            "Rien n'a été modifié sur le dépôt (images Docker orphelines et cache de build déjà purgés). Pour débloquer, sur la machine du runner :" \
+            "" \
+            "1. Voir ce qui occupe la place : \`docker system df\` puis \`df -h\`." \
+            "2. Libérer : par exemple \`docker image prune -a\` (images inutilisées), anciens journaux \`_diag\` du runner." \
+            "3. Retirer puis reposer le label \`claude:fix\` sur cette issue.")
+          gh issue comment "$ISSUE" --repo "$REPO" --body "$BODY" \
+            || echo "Commentaire d'issue impossible (non bloquant)"
+          exit 1
+
       # Outils CLI requis par le job mais pas toujours présents sur le runner :
       #   - unzip : setup-bun (dans claude-code-action) télécharge Bun en .zip ; sans
       #     unzip → « bun: command not found » / exit 127.
@@ -204,7 +260,7 @@ jobs:
             1. Lis l'issue (rapport structuré + labels posés à la création par le Claude in-app) et le code concerné.
             2. Crée une branche `claude/fix-issue-${{ github.event.issue.number }}`.
             3. Applique le correctif MINIMAL et cohérent avec le style du dépôt
-               (JavaScript ESM, pas de TypeScript ; conventions existantes).
+               (TypeScript ESM dans server/, web/ et shared/ ; conventions existantes).
             4. Ajoute ou ajuste un test si pertinent (Vitest dans server/ ; Playwright dans e2e/).
             5. Commit, puis pousse la branche.
             6. OUVRE une Pull Request vers `main` avec `gh pr create` : titre explicite, et corps
@@ -294,3 +350,10 @@ jobs:
             && echo "Chat notifié : $PR_URL" \
             || echo "Notif chat échouée (non bloquant)"
           exit 0
+
+      # Les images rebâties par ce run rendent orphelines celles du run précédent :
+      # on les libère dès maintenant plutôt qu'au prochain run (cf. le garde-fou
+      # d'espace disque plus haut). Best-effort, n'échoue jamais le job.
+      - name: Purge Docker post-run
+        if: always()
+        run: docker image prune -f || true
