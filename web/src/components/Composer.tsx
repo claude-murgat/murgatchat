@@ -612,11 +612,32 @@ function Composer(
             onChange={(e) => setScheduledAt(e.target.value)}
             className="border border-slate-300 rounded-sm px-2 py-1"
           />
+          {/* Confirmation de la planification. Avant #394, ce bouton était vert
+              (bg-slackgreen) et aligné à droite (ml-auto), donc identique au
+              bouton « Envoyer » de la barre juste en dessous et empilé pile au-
+              dessus de lui : les utilisateurs cliquaient « Envoyer » en croyant
+              planifier, déclenchant un envoi immédiat irréversible. On le rend
+              distinct sur les trois axes signalés — couleur (bleu slackblue vs
+              vert), libellé (« Planifier l'envoi » vs « Envoyer ») et position
+              (collé au sélecteur de date à gauche, plus empilé à droite) — et
+              on reprend l'icône d'horloge du bouton bascule « Planifier ». */}
           <button
             onClick={() => send(true)}
-            className="ml-auto bg-slackgreen text-white px-3 py-1 rounded-sm font-medium hover:opacity-90"
+            className="bg-slackblue text-white px-3 py-1 rounded-sm font-medium hover:opacity-90 flex items-center gap-1"
           >
-            Planifier
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 7v5l3 2" />
+            </svg>
+            Planifier l'envoi
           </button>
         </div>
       )}
