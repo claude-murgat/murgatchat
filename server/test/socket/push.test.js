@@ -233,6 +233,66 @@ describe("push notifications (notifyMembers)", () => {
   });
 });
 
+// Android retient souvent un push jusqu'au déverrouillage : le service worker
+// vérifie alors, via le jeton de lecture du push, que le message n'a pas été lu
+// entre-temps sur un autre appareil (cf. shared/pushTriage.ts, web/src/sw.ts).
+describe("état de lecture des Web Push (jeton + /auth/web-push/read-state)", () => {
+  const readState = (token, tokens) =>
+    authed(srv.app, token).post("/auth/web-push/read-state").send({ tokens });
+
+  it("le push porte un jeton : non lu à l'envoi, lu dès que le destinataire lit ailleurs", async () => {
+    const sendMock = mockWebPush();
+    const { author, recipient, channelId } = await setup({ recipientToken: false });
+    await subscribeWebPush(recipient.user.id);
+    const aSock = await ready(author.token, channelId);
+
+    await send(aSock, { channelId, body: "lu sur le PC" });
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    const { readToken } = JSON.parse(sendMock.mock.calls[0][1]);
+    expect(readToken).toEqual(expect.any(String));
+
+    // Jeton inconnu ou falsifié : null (le service worker affiche alors).
+    const before = await readState(author.token, [readToken, "falsifie.abc"]);
+    expect(before.status).toBe(200);
+    expect(before.body.read).toEqual([false, null]);
+
+    // Le destinataire lit le salon depuis un autre appareil.
+    const rSock = await ready(recipient.token, channelId, "web");
+    rSock.emit("channel:read", { channelId });
+    await expect
+      .poll(async () => (await readState(author.token, [readToken])).body.read)
+      .toEqual([true]);
+  });
+
+  it("chaque destinataire reçoit son propre jeton", async () => {
+    const sendMock = mockWebPush();
+    const { author, recipient, channelId } = await setup({ recipientToken: false });
+    const other = await registerUser(srv.app);
+    await authed(srv.app, author.token)
+      .post(`/channels/${channelId}/members`)
+      .send({ userIds: [other.user.id] });
+    await subscribeWebPush(recipient.user.id);
+    await subscribeWebPush(other.user.id);
+    const aSock = await ready(author.token, channelId);
+
+    await send(aSock, { channelId, body: "pour deux" });
+    expect(sendMock).toHaveBeenCalledTimes(2);
+    const tokens = sendMock.mock.calls.map((c) => JSON.parse(c[1]).readToken);
+    expect(new Set(tokens).size).toBe(2);
+    // L'un lit : seul SON jeton passe à « lu ».
+    const rSock = await ready(recipient.token, channelId, "web");
+    rSock.emit("channel:read", { channelId });
+    const byEndpoint = Object.fromEntries(
+      sendMock.mock.calls.map((c) => [c[0].endpoint, JSON.parse(c[1]).readToken])
+    );
+    const mine = byEndpoint[`https://fcm.googleapis.com/fcm/send/${recipient.user.id}`];
+    const theirs = byEndpoint[`https://fcm.googleapis.com/fcm/send/${other.user.id}`];
+    await expect
+      .poll(async () => (await readState(author.token, [mine, theirs])).body.read)
+      .toEqual([true, false]);
+  });
+});
+
 // Les services push rejettent une charge utile chiffrée de plus de 4 Ko (FCM
 // répond 413) : le destinataire d'un long message ne recevait rien.
 describe("push payload size", () => {

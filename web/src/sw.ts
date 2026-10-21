@@ -4,8 +4,12 @@
 // Architecture:
 //   - Workbox precaches the app shell (manifest injected by vite-plugin-pwa
 //     in `injectManifest` mode via `self.__WB_MANIFEST`).
-//   - `push` handler is defensive: always calls showNotification (silent push
-//     gets the SW deregistered on iOS), parses payload as JSON → text → fallback.
+//   - `push` handler is defensive: parses payload as JSON → text → fallback, and
+//     always leaves a notification visible (silent push gets the SW deregistered
+//     on iOS, Chrome shows a generic one). Before showing, it asks the server
+//     whether the message was meanwhile read on another device (push held until
+//     unlock by Android Doze) and drops / closes what is already read — see
+//     shared/pushTriage.ts.
 //   - `notificationclick` focuses an open window or opens a new one, deep-linking
 //     to the conversation. Workaround for an iOS WebKit bug where `openWindow`
 //     ignores the target URL on a cold app launch: the target URL is also stored
@@ -17,6 +21,7 @@
 
 import { precacheAndRoute, cleanupOutdatedCaches } from "workbox-precaching";
 import type { PrecacheEntry } from "workbox-precaching";
+import { triagePush } from "../../shared/pushTriage.ts";
 
 // Le tsconfig charge à la fois `DOM` et `WebWorker`, si bien que `self` se résout
 // vers `Window`. On le redéclare ici (portée module, purement compilatoire) avec
@@ -31,6 +36,13 @@ precacheAndRoute(self.__WB_MANIFEST || []);
 const FALLBACK_TITLE = "Nouveau message";
 const FALLBACK_BODY = "Vous avez reçu une notification";
 
+// Où joindre l'API : l'URL est choisie à l'écran de connexion (inconnue au
+// build) ; la page la dépose dans ce cache (cf. rememberApiBaseForSw, pwa.ts).
+const SW_CONFIG_CACHE = "murgat-sw-config-v1";
+const API_BASE_KEY = "/__api_base__";
+// Au-delà, on affiche comme avant plutôt que de retarder la notification.
+const READ_STATE_TIMEOUT_MS = 2500;
+
 // ── Push ──────────────────────────────────────────────────────────────────
 
 self.addEventListener("push", (event) => {
@@ -44,11 +56,19 @@ interface PushPayload {
   tag?: string;
   url?: string;
   channelId?: string | null;
+  /** Jeton signé : le serveur dit si ce message a été lu depuis (cf. pushReadToken.ts). */
+  readToken?: string;
 }
 
 async function handlePush(event: PushEvent) {
   const payload = parsePayload(event);
   const title = payload.title || FALLBACK_TITLE;
+  const data = {
+    url: payload.url || "/",
+    channelId: payload.channelId || null,
+    receivedAt: Date.now(),
+    readToken: payload.readToken || null,
+  };
   const options = {
     body: payload.body || FALLBACK_BODY,
     icon: "/icons/icon-192.png",
@@ -59,22 +79,50 @@ async function handlePush(event: PushEvent) {
     // passer inaperçue / être repliée par l'OS.
     requireInteraction: true,
     vibrate: [200, 100, 200],
-    data: {
-      url: payload.url || "/",
-      channelId: payload.channelId || null,
-      receivedAt: Date.now(),
-    },
+    data,
     // Re-vibrate when an existing tagged notification is replaced (Android).
     renotify: !!payload.tag,
   };
-
-  // MANDATORY on iOS: always show a notification, even if the page reacted.
-  // Otherwise Safari's WebKit revokes the subscription after a few "silent" pushes.
-  // Affichée en premier, sans rien attendre : la notification ne dépend ainsi
-  // d'aucune autre étape (ni lenteur ni échec de matchAll ci-dessous).
-  const shown = self.registration.showNotification(title, options);
+  // Message déjà lu ailleurs mais qu'il faut tout de même montrer : ni son ni
+  // vibration (Chrome refuse `vibrate` avec `silent`).
+  const silentOptions = {
+    body: options.body,
+    icon: options.icon,
+    badge: options.badge,
+    tag: options.tag,
+    data,
+    silent: true,
+  };
 
   // Inform any open window(s) so the in-page badge/sound can react too.
+  const informed = informClients(payload);
+
+  if (!payload.readToken || (await isApplePush())) {
+    // MANDATORY on iOS: always show a notification, even if the page reacted.
+    // Otherwise Safari's WebKit revokes the subscription after a few "silent"
+    // pushes. Affichée en premier, sans rien attendre (ni le réseau) ; on efface
+    // ensuite, au mieux, les autres notifications devenues caduques.
+    await self.registration.showNotification(title, options);
+    await closeReadNotifications(payload.readToken);
+    await informed;
+    return;
+  }
+
+  // Le push arrive parfois des heures après l'envoi (Android le retient en Doze
+  // jusqu'au déverrouillage) : on demande au serveur ce qui a été lu depuis.
+  const displayed = await self.registration.getNotifications();
+  const states = await fetchReadStates([payload.readToken, ...displayed.map(readTokenOf)]);
+  const { show, close } = triagePush(
+    states[0],
+    displayed.map((n, i) => ({ read: states[i + 1], receivedAt: Number(n.data?.receivedAt) || 0 }))
+  );
+  for (const i of close) displayed[i].close();
+  if (show === "normal") await self.registration.showNotification(title, options);
+  else if (show === "silent") await self.registration.showNotification(title, silentOptions);
+  await informed;
+}
+
+async function informClients(payload: PushPayload) {
   try {
     const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     for (const c of clients) {
@@ -83,8 +131,81 @@ async function handlePush(event: PushEvent) {
   } catch {
     // Non-fatal.
   }
+}
 
-  return shown;
+function readTokenOf(n: Notification): string | null {
+  return typeof n.data?.readToken === "string" ? n.data.readToken : null;
+}
+
+// Ferme les notifications affichées dont le message a été lu depuis (hormis
+// celle du push en cours). Best-effort : sans réponse du serveur, rien ne bouge.
+async function closeReadNotifications(exceptToken?: string) {
+  try {
+    const displayed = (await self.registration.getNotifications()).filter((n) => {
+      const t = readTokenOf(n);
+      return t !== null && t !== exceptToken;
+    });
+    const states = await fetchReadStates(displayed.map(readTokenOf));
+    displayed.forEach((n, i) => {
+      if (states[i] === true) n.close();
+    });
+  } catch {
+    // Non-fatal.
+  }
+}
+
+// Le service push de Safari/iOS exige une notification à chaque push, sans
+// délai : sur ses abonnements, on n'attend jamais le réseau avant d'afficher.
+let applePush: Promise<boolean> | null = null;
+function isApplePush() {
+  applePush ??= self.registration.pushManager
+    .getSubscription()
+    .then((sub) => !!sub && new URL(sub.endpoint).hostname.endsWith(".push.apple.com"))
+    // Dans le doute, le chemin prudent (afficher d'abord).
+    .catch(() => true);
+  return applePush;
+}
+
+async function apiBase(): Promise<string | null> {
+  try {
+    const res = await (await caches.open(SW_CONFIG_CACHE)).match(API_BASE_KEY);
+    return res ? (await res.text()).replace(/\/+$/, "") : null;
+  } catch {
+    return null;
+  }
+}
+
+// État de lecture (true = lu) des messages désignés par ces jetons, aligné sur
+// `tokens` ; null quand il est inconnu (pas de jeton, API injoignable, délai
+// dépassé) — l'appelant se comporte alors comme sans vérification.
+async function fetchReadStates(tokens: (string | null)[]): Promise<(boolean | null)[]> {
+  const out: (boolean | null)[] = tokens.map(() => null);
+  const asked = tokens.flatMap((t, i) => (t ? [i] : []));
+  if (asked.length === 0) return out;
+  const base = await apiBase();
+  if (base === null) return out;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), READ_STATE_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${base}/auth/web-push/read-state`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tokens: asked.map((i) => tokens[i]) }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return out;
+    const { read } = await res.json();
+    if (Array.isArray(read)) {
+      asked.forEach((i, k) => {
+        out[i] = typeof read[k] === "boolean" ? read[k] : null;
+      });
+    }
+  } catch {
+    // Réseau absent ou trop lent : état inconnu.
+  } finally {
+    clearTimeout(timer);
+  }
+  return out;
 }
 
 function parsePayload(event: PushEvent): PushPayload {

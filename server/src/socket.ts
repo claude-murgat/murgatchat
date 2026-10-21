@@ -9,6 +9,7 @@ import { safeUnlink } from "./storage.ts";
 import { encryptBody } from "./crypto.ts";
 import { sendExpoPush } from "./push.ts";
 import { sendWebPush } from "./webpush.ts";
+import { signReadToken } from "./pushReadToken.ts";
 import { NotificationEventSchema } from "../../shared/contracts.ts";
 import { checkContract } from "./contractCheck.ts";
 import { claudeExpertEnabled, dispatchExpertTurn } from "./claudeHelper.ts";
@@ -65,6 +66,8 @@ export function isMentioned(user: MentionUser, body: unknown) {
 type NotifiableMessage = {
   body: string | null;
   author?: { id: string; displayName?: string | null } | null;
+  // Horodatage du message : signé dans le jeton de lecture des Web Push.
+  createdAt?: string | Date | null;
 };
 
 // Notify channel members (except author) who aren't in DnD: in-app "notification"
@@ -106,11 +109,13 @@ export async function notifyMembers(
     channelId,
     title: serialized.author?.displayName || "Nouveau message",
     body: pushExcerpt(serialized.body || "(pièce jointe)"),
+    sentAt: serialized.createdAt ? new Date(serialized.createdAt).getTime() : Date.now(),
   };
   await pushToUsers(recipientIds, push);
 }
 
-type PushContent = { channelId: string; title: string; body: string };
+// `sentAt` : horodatage (ms) du message, comparé à `lastReadAt` (cf. pushReadToken.ts).
+type PushContent = { channelId: string; title: string; body: string; sentAt: number };
 
 // Les services push refusent une charge utile de plus de 4 Ko (FCM répond 413,
 // APNs pareil, Expo renvoie MessageTooBig) : le destinataire ne recevrait rien.
@@ -145,7 +150,7 @@ export function pushExcerpt(text: string) {
 }
 
 // Push vers tous les appareils (natifs et navigateurs) des utilisateurs donnés.
-async function pushToUsers(userIds: string[], { channelId, title, body }: PushContent) {
+async function pushToUsers(userIds: string[], { channelId, title, body, sentAt }: PushContent) {
   if (userIds.length === 0) return;
   const [tokens, webSubs] = await Promise.all([
     prisma.pushToken.findMany({ where: { userId: { in: userIds } } }),
@@ -180,9 +185,14 @@ async function pushToUsers(userIds: string[], { channelId, title, body }: PushCo
   }
   // Web pushes (browser / installed PWA, including iOS Safari Add to Home Screen).
   // `url` lets the service worker focus / deep-link to the right conversation.
-  if (webSubs.length) {
+  // Une charge par destinataire : le jeton de lecture lui est propre.
+  const subsByUser = new Map<string, typeof webSubs>();
+  for (const sub of webSubs) {
+    subsByUser.set(sub.userId, [...(subsByUser.get(sub.userId) ?? []), sub]);
+  }
+  for (const [userId, subs] of subsByUser) {
     sends.push(
-      sendWebPush(webSubs, {
+      sendWebPush(subs, {
         title,
         body,
         url: `/?channel=${encodeURIComponent(channelId)}`,
@@ -190,6 +200,9 @@ async function pushToUsers(userIds: string[], { channelId, title, body }: PushCo
         // Unique tag per channel: iOS coalesces same-tag notifications so the
         // dock badge stays accurate but the user only sees the most recent banner.
         tag: `channel:${channelId}`,
+        // Permet au service worker de vérifier, à l'affichage, que le message
+        // n'a pas été lu entre-temps sur un autre appareil (cf. sw.ts).
+        readToken: signReadToken({ userId, channelId, createdAt: sentAt }),
       })
     );
   }

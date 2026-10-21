@@ -80,6 +80,9 @@ export async function ensurePwaReady() {
   try {
     const reg = await registerServiceWorker();
     swRegistration = reg;
+    // Le service worker vérifie, à l'arrivée d'un push, que le message n'a pas
+    // été lu ailleurs entre-temps : il lui faut l'URL de l'API.
+    await rememberApiBaseForSw();
 
     // Wire SW messages → window events (so React components can react to deep
     // links and live push payloads without polling).
@@ -149,6 +152,45 @@ export async function requestNotificationPermission() {
   const sub = await ensureSubscribed();
   if (!sub) return { ok: false, reason: "subscribe_failed" };
   return { ok: true };
+}
+
+// Ferme les notifications affichées des conversations données (tag
+// `channel:<id>`, cf. pushToUsers côté serveur) : elles ont été lues — ici ou sur
+// un autre appareil — et ne doivent pas rester dans le volet de notifications.
+// `shownBefore` (ms) : ne ferme que celles affichées avant cet instant.
+export async function closeChannelNotifications(
+  channelIds: Iterable<string>,
+  shownBefore = Infinity
+) {
+  if (isTauri() || !pwaSupported()) return;
+  const tags = new Set(Array.from(channelIds, (id) => `channel:${id}`));
+  if (tags.size === 0) return;
+  try {
+    const reg = swRegistration || (await navigator.serviceWorker.getRegistration());
+    if (!reg) return;
+    for (const n of await reg.getNotifications()) {
+      const shownAt = Number(n.data?.receivedAt) || 0;
+      if (tags.has(n.tag) && shownAt < shownBefore) n.close();
+    }
+  } catch {
+    // Non-fatal : au pire, la notification reste jusqu'à ce qu'on la balaie.
+  }
+}
+
+// Dépose l'URL de l'API là où le service worker la lit (cf. sw.ts) : choisie à
+// l'écran de connexion, elle n'est pas connue au build.
+const SW_CONFIG_CACHE = "murgat-sw-config-v1";
+const API_BASE_KEY = "/__api_base__";
+async function rememberApiBaseForSw() {
+  try {
+    const cache = await caches.open(SW_CONFIG_CACHE);
+    await cache.put(
+      API_BASE_KEY,
+      new Response(getApiBaseUrl(), { headers: { "Content-Type": "text/plain" } })
+    );
+  } catch {
+    // Non-fatal : sans elle, le service worker affiche sans vérifier.
+  }
 }
 
 // Called from a logout flow: unsubscribe locally + tell the backend so we stop

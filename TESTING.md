@@ -90,7 +90,15 @@ npm test -- test/http/auth.test.js   # un fichier
   membre non-DND → push vers tous ses appareils, même connecté/actif ; natif +
   web poussés ensemble ; DND → rien ; `notifyLevel=none`/`mentions` → suppression ;
   compte désactivé → rien ; auteur exclu ; purge `DeviceNotRegistered` ;
-  **message très long** → extrait tronqué, Web Push chiffré et message Expo sous 4 Ko).
+  **message très long** → extrait tronqué, Web Push chiffré et message Expo sous 4 Ko ;
+  **jeton de lecture** : chaque destinataire reçoit le sien, `/auth/web-push/read-state`
+  le dit non lu à l'envoi puis lu dès que le destinataire lit ailleurs, jeton falsifié → null).
+- `test/unit/pushReadToken.test.js` — jeton de lecture des Web Push : signé/vérifié,
+  contenu ou signature altérés et entrées mal formées refusés.
+- `test/unit/pushTriage.test.js` — tri d'un push à son arrivée dans le service worker
+  (`shared/pushTriage.ts`) : message lu ailleurs non affiché, notifications lues fermées,
+  silence quand il faut tout de même montrer, et l'invariant « jamais aucune notification
+  visible » vérifié sur toutes les combinaisons.
 - `test/unit/webpush.test.js` — en-têtes réellement produits par web-push
   (`Urgency: high`, `TTL: 86400`, pas de `Topic`, VAPID, timeout) et envois en
   parallèle (un service push lent ne retient pas les autres abonnés).
@@ -111,6 +119,12 @@ Parcours complet dans un vrai navigateur : inscription → création d'un salon 
 réponse dans un fil → persistance après rechargement → déconnexion.
 `delete-for-me.spec.js` : « Supprimer pour moi » sur le message d'un autre — masqué de
 son côté (même après rechargement), toujours visible de l'auteur.
+`push-read-state.spec.js` : injecte de vrais évènements `push` dans le service worker
+(protocole DevTools, `ServiceWorker.deliverPushMessage`) avec des jetons de lecture signés
+comme le serveur : un message déjà lu ailleurs n'est pas affiché, les notifications lues sont
+fermées, l'app ferme celles d'une conversation qu'on ouvre. Il tourne sur le **Chromium
+complet** (`channel: "chromium"`) : `chromium-headless-shell`, le headless par défaut de
+Playwright, refuse la permission de notification.
 
 ### Option recommandée — stack isolé (ne touche pas la base de dev)
 ```bash
