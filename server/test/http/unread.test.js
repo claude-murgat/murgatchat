@@ -59,3 +59,16 @@ describe("unread flag in GET /channels", () => {
     expect(ch.unread).toBe(false);
   });
 });
+
+describe("messages hidden by the viewer (supprimer pour moi)", () => {
+  it("neither make the channel unread nor become the first unread message", async () => {
+    const { owner, member, channelId } = await setup();
+    await setRead(channelId, member.user.id, new Date(Date.now() - 10000));
+    const msg = await seedMessage({ channelId, authorId: owner.user.id, body: "masqué", createdAt: new Date(Date.now() - 5000) });
+    await authed(app, member.token).post(`/channels/messages/${msg.id}/hide`);
+
+    expect((await channelFor(member.token, channelId)).unread).toBe(false);
+    const page = await authed(app, member.token).get(`/channels/${channelId}/messages`);
+    expect(page.body.firstUnreadId).toBeNull();
+  });
+});

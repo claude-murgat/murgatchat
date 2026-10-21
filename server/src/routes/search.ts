@@ -51,7 +51,7 @@ router.get("/", requireAuth, async (req, res) => {
   // Raw SQL: Prisma can't model the FTS operator/expression. We bind `q` as a
   // parameter (no SQL injection); the IN(...) list comes from validated IDs.
   // `ts_headline` returns an HTML snippet with <mark> around matches.
-  const placeholders = channelIds.map((_, i) => `$${i + 3}`).join(",");
+  const placeholders = channelIds.map((_, i) => `$${i + 4}`).join(",");
   const rows = await prisma.$queryRawUnsafe<SearchRow[]>(
     `
     SELECT
@@ -70,6 +70,10 @@ router.get("/", requireAuth, async (req, res) => {
     WHERE m.delivered = true
       AND m."searchableBody" IS NOT NULL
       AND m."channelId" IN (${placeholders})
+      -- « Supprimer pour moi » : un message masqué par l'appelant ne ressort pas.
+      AND NOT EXISTS (
+        SELECT 1 FROM "HiddenMessage" h WHERE h."messageId" = m.id AND h."userId" = $3
+      )
       AND to_tsvector(${literal(FTS_CONFIG)}, m."searchableBody")
           @@ plainto_tsquery(${literal(FTS_CONFIG)}, $1)
     ORDER BY rank DESC, m."createdAt" DESC
@@ -77,6 +81,7 @@ router.get("/", requireAuth, async (req, res) => {
     `,
     q,
     limit,
+    req.userId,
     ...channelIds
   );
 

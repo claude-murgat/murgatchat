@@ -29,6 +29,7 @@ model User {
   messages    Message[]
   attachments Attachment[]
   reactions   Reaction[]
+  hiddenMessages HiddenMessage[]
   pushTokens  PushToken[]
   webPushSubscriptions WebPushSubscription[]
   invitations Invitation[]
@@ -101,6 +102,7 @@ model Message {
   parent      Message?     @relation("MessageThread", fields: [parentId], references: [id], onDelete: Cascade)
   replies     Message[]    @relation("MessageThread")
   reactions   Reaction[]
+  hiddenBy    HiddenMessage[]
 
   @@index([channelId, createdAt])
   @@index([scheduledAt, delivered])
@@ -148,6 +150,22 @@ model Reaction {
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([messageId, userId, emoji])
+  @@index([messageId])
+}
+
+// « Supprimer pour moi » : un message masqué pour un seul utilisateur. Le
+// message reste intact pour les autres membres ; seules les lectures de cet
+// utilisateur (historique, non-lus, recherche) l'écartent.
+model HiddenMessage {
+  id        String   @id @default(cuid())
+  userId    String
+  messageId String
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, messageId])
   @@index([messageId])
 }
 
