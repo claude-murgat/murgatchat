@@ -65,6 +65,15 @@ describe("GET /search", () => {
     expect(b.body.results.map((r) => r.channelId)).toEqual([ch2.id]);
   });
 
+  it("skips a message the caller hid, but not for the other members", async () => {
+    const { owner, member, channelId } = await setup();
+    const msg = await seedMessage({ channelId, authorId: owner.user.id, body: "artichaut masqué" });
+    await authed(app, member.token).post(`/channels/messages/${msg.id}/hide`);
+
+    expect((await authed(app, member.token).get("/search?q=artichaut")).body.results).toEqual([]);
+    expect((await authed(app, owner.token).get("/search?q=artichaut")).body.results).toHaveLength(1);
+  });
+
   it("skips scheduled (non-delivered) messages even if they match", async () => {
     const { owner, channelId } = await setup();
     await seedMessage({

@@ -296,6 +296,9 @@ export const api = {
     request(`/channels/messages/${id}`, { method: "PATCH", body: { body } }),
   deleteMessage: (id: string) =>
     request(`/channels/messages/${id}`, { method: "DELETE" }),
+  // « Supprimer pour moi » : masque le message de l'appelant seul.
+  hideMessage: (id: string) =>
+    request(`/channels/messages/${id}/hide`, { method: "POST" }),
   scheduled: (channelId: string) => request(`/channels/${channelId}/scheduled`),
   deleteScheduled: (id: string) => request(`/channels/scheduled/${id}`, { method: "DELETE" }),
   updateScheduled: (id: string, body: unknown) =>

@@ -205,6 +205,69 @@ describe("DELETE /channels/messages/:id", () => {
   });
 });
 
+describe("POST /channels/messages/:id/hide (supprimer pour moi)", () => {
+  const listFor = async (token, channelId) =>
+    (await authed(app, token).get(`/channels/${channelId}/messages`)).body.messages;
+
+  it("hides another member's message for the caller only", async () => {
+    const { owner, member, channelId } = await setup();
+    const msg = await seedMessage({ channelId, authorId: owner.user.id, body: "à masquer" });
+
+    const res = await authed(app, member.token).post(`/channels/messages/${msg.id}/hide`);
+    expect(res.status).toBe(200);
+    expect((await listFor(member.token, channelId)).map((m) => m.id)).not.toContain(msg.id);
+    expect((await listFor(owner.token, channelId)).map((m) => m.id)).toContain(msg.id);
+    expect(await prisma.message.findUnique({ where: { id: msg.id } })).not.toBeNull();
+  });
+
+  it("drops the quote of a hidden message from its replies, for the hider only", async () => {
+    const { owner, member, channelId } = await setup();
+    const t0 = Date.now() - 3000;
+    const parent = await seedMessage({ channelId, authorId: owner.user.id, body: "parent", createdAt: new Date(t0) });
+    const reply = await seedMessage({
+      channelId,
+      authorId: owner.user.id,
+      body: "réponse",
+      parentId: parent.id,
+      createdAt: new Date(t0 + 1000),
+    });
+
+    await authed(app, member.token).post(`/channels/messages/${parent.id}/hide`);
+    const mine = (await listFor(member.token, channelId)).find((m) => m.id === reply.id);
+    expect(mine.parent).toBeNull();
+    expect(mine.parentId).toBeNull();
+    const theirs = (await listFor(owner.token, channelId)).find((m) => m.id === reply.id);
+    expect(theirs.parent.body).toBe("parent");
+  });
+
+  it("is idempotent", async () => {
+    const { owner, member, channelId } = await setup();
+    const msg = await seedMessage({ channelId, authorId: owner.user.id, body: "deux fois" });
+    for (let i = 0; i < 2; i++) {
+      expect((await authed(app, member.token).post(`/channels/messages/${msg.id}/hide`)).status).toBe(200);
+    }
+    expect(await prisma.hiddenMessage.count({ where: { messageId: msg.id } })).toBe(1);
+  });
+
+  it("rejects a non-member (403) and an unknown or scheduled message (404)", async () => {
+    const { owner, channelId } = await setup();
+    const outsider = await registerUser(app);
+    const msg = await seedMessage({ channelId, authorId: owner.user.id, body: "privé" });
+    const sched = await seedMessage({
+      channelId,
+      authorId: owner.user.id,
+      body: "plus tard",
+      delivered: false,
+      scheduledAt: new Date(Date.now() + 60_000),
+    });
+
+    expect((await authed(app, outsider.token).post(`/channels/messages/${msg.id}/hide`)).status).toBe(403);
+    expect((await authed(app, owner.token).post(`/channels/messages/${sched.id}/hide`)).status).toBe(404);
+    expect((await authed(app, owner.token).post("/channels/messages/nope/hide")).status).toBe(404);
+    expect(await prisma.hiddenMessage.count()).toBe(0);
+  });
+});
+
 // The dedicated /thread endpoint was removed when we moved to Discord-style
 // inline replies (PR-threads). Replies now arrive in the timeline alongside
 // roots, each carrying their `parent` quote — see the GET /messages test above.

@@ -92,7 +92,13 @@ router.get("/", requireAuth, async (req, res) => {
       channel: {
         include: {
           memberships: { include: { user: true } },
-          messages: { orderBy: { createdAt: "desc" }, take: 1, where: { delivered: true } },
+          // Un message masqué par l'appelant ne compte pas comme dernier
+          // message : il ne doit pas rendre le salon « non lu ».
+          messages: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            where: { delivered: true, hiddenBy: { none: { userId: req.userId } } },
+          },
         },
       },
     },
@@ -226,7 +232,9 @@ router.get("/:id/messages", requireAuth, async (req, res) => {
   const PAGE = 200;
   const before = typeof req.query.before === "string" ? req.query.before : null;
   const rows = await prisma.message.findMany({
-    where: { channelId: id, delivered: true },
+    // Les messages que l'appelant a masqués (« Supprimer pour moi ») sont
+    // écartés ici, donc aussi du curseur : `oldestId` est toujours visible.
+    where: { channelId: id, delivered: true, hiddenBy: { none: { userId: req.userId } } },
     include: {
       author: true,
       attachments: true,
@@ -234,7 +242,12 @@ router.get("/:id/messages", requireAuth, async (req, res) => {
       // Hydrate the parent (author + body for the quote bubble). Cheap because
       // we only ever go one level deep — replies-to-replies are rejected at
       // send time.
-      parent: { include: { author: true } },
+      parent: {
+        include: {
+          author: true,
+          hiddenBy: { where: { userId: req.userId }, select: { id: true } },
+        },
+      },
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: PAGE + 1,
@@ -258,6 +271,7 @@ router.get("/:id/messages", requireAuth, async (req, res) => {
         delivered: true,
         createdAt: { gt: member.lastReadAt },
         NOT: { authorId: req.userId },
+        hiddenBy: { none: { userId: req.userId } },
       },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       select: { id: true },
@@ -266,7 +280,13 @@ router.get("/:id/messages", requireAuth, async (req, res) => {
   }
 
   res.json({
-    messages: page.reverse().map(serializeMessage), // plus ancien -> plus récent
+    // plus ancien -> plus récent. Une réponse à un message masqué perd sa
+    // citation, qui en montrerait le contenu (comme côté client au masquage).
+    messages: page
+      .reverse()
+      .map((m) =>
+        serializeMessage(m.parent?.hiddenBy.length ? { ...m, parentId: null, parent: null } : m)
+      ),
     hasMore,
     nextCursor: hasMore ? oldestId : null,
     firstUnreadId,
@@ -414,6 +434,27 @@ router.delete("/messages/:messageId", requireAuth, async (req, res) => {
   req.io
     ?.to(`channel:${channelId}`)
     .emit("message:deleted", { id: messageId, channelId, parentId });
+  res.json({ ok: true });
+});
+
+// « Supprimer pour moi » : masque un message pour l'appelant seul, sur tous ses
+// appareils ; il reste intact pour les autres membres. Ouvert à tout membre,
+// quel que soit l'auteur — c'est ce qui permet de retirer le message d'un autre.
+router.post("/messages/:messageId/hide", requireAuth, async (req, res) => {
+  const { messageId } = req.params;
+  const msg = await prisma.message.findUnique({ where: { id: messageId } });
+  if (!msg || !msg.delivered) return res.status(404).json({ error: "not_found" });
+  if (!(await isMember(req.userId, msg.channelId))) {
+    return res.status(403).json({ error: "not_a_member" });
+  }
+  // Idempotent (double clic, deux appareils) : un doublon est ignoré.
+  await prisma.hiddenMessage.createMany({
+    data: [{ userId: req.userId, messageId }],
+    skipDuplicates: true,
+  });
+  req.io
+    ?.to(`user:${req.userId}`)
+    .emit("message:hidden", { id: messageId, channelId: msg.channelId });
   res.json({ ok: true });
 });
 

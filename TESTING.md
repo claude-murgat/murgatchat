@@ -78,11 +78,13 @@ npm test -- test/http/auth.test.js   # un fichier
   compte désactivé seulement : purge messages/PJ/DM, réponses des autres conservées,
   rapports de bug gardés, bot protégé) ; `ensureOwner()` self-heal des bases pré-0.4.0), channels (create/list/public/join/dm/membres/leave +
   règles du salon par défaut ; membre retiré d'un salon privé : plus d'édition/suppression de ses
-  messages, planifiés abandonnés), messages (edit/delete/thread), planifiés (list/patch/delete +
+  messages, planifiés abandonnés), messages (edit/delete/thread ; **« Supprimer pour moi »** :
+  masqué pour l'appelant seul — historique, citation des réponses, non-lus, recherche —,
+  idempotent, réservé aux membres), planifiés (list/patch/delete +
   dispatch, auteur désactivé ou plus membre), pièces jointes (réservées aux membres du salon, auteur
   compris), réactions (toggle/agrégation), non-lus.
 - `test/socket/` — accès aux salons privés (`channel:join` et `typing` refusés à un non-membre,
-  membre retiré sorti de la room, admin rétrogradé sorti du salon du pipeline), `message:new`/`updated`/`deleted`, `thread:reply`,
+  membre retiré sorti de la room, admin rétrogradé sorti du salon du pipeline), `message:new`/`updated`/`deleted`, `message:hidden` (aux seuls appareils de celui qui masque), `thread:reply`,
   `reaction:update`, `presence`, `typing`, `channel:read`, événements de membres,
   handshake `auth.platform`, et les **notifications push** (`notifyMembers` :
   membre non-DND → push vers tous ses appareils, même connecté/actif ; natif +
@@ -107,6 +109,8 @@ npm test -- test/http/auth.test.js   # un fichier
 Parcours complet dans un vrai navigateur : inscription → création d'un salon privé
 (pour ne pas polluer « Général ») → envoi / édition / suppression d'un message →
 réponse dans un fil → persistance après rechargement → déconnexion.
+`delete-for-me.spec.js` : « Supprimer pour moi » sur le message d'un autre — masqué de
+son côté (même après rechargement), toujours visible de l'auteur.
 
 ### Option recommandée — stack isolé (ne touche pas la base de dev)
 ```bash

@@ -80,6 +80,7 @@ type LiveEvent =
   | { type: "new"; message: Message }
   | { type: "updated"; message: Message }
   | { type: "deleted"; id: string }
+  | { type: "hidden"; id: string }
   | { type: "reaction"; messageId: string; reactions: Reaction[] }
   | { type: "userDeleted"; userId: string };
 
@@ -107,6 +108,12 @@ function applyLiveEvent(messages: Message[], ev: LiveEvent): Message[] {
       return messages.map((m) => (m.id === ev.message.id ? ev.message : m));
     case "deleted":
       return messages.filter((m) => m.id !== ev.id);
+    // Masqué pour soi : on retire aussi sa citation des réponses, qui en
+    // montrerait le contenu (le serveur fait de même au rechargement).
+    case "hidden":
+      return messages
+        .filter((m) => m.id !== ev.id)
+        .map((m) => (m.parent?.id === ev.id ? { ...m, parentId: null, parent: null } : m));
     case "reaction":
       return messages.map((m) => (m.id === ev.messageId ? { ...m, reactions: ev.reactions } : m));
     case "userDeleted":
@@ -659,6 +666,12 @@ export default function ChannelView({
       // Don't keep an orphaned reply-target if it just vanished.
       setReplyingTo((curr) => (curr?.id === id ? null : curr));
     }
+    // Masqué depuis cet appareil ou un autre de l'utilisateur.
+    function onHidden({ id, channelId }: { id: string; channelId: string }) {
+      if (!activeChannelId || channelId !== activeChannelId) return;
+      live({ type: "hidden", id });
+      setReplyingTo((curr) => (curr?.id === id ? null : curr));
+    }
     function onReaction({
       messageId,
       reactions,
@@ -694,6 +707,7 @@ export default function ChannelView({
     socket.on("claude:progress", onClaudeProgress);
     socket.on("message:updated", onUpdated);
     socket.on("message:deleted", onDeleted);
+    socket.on("message:hidden", onHidden);
     socket.on("reaction:update", onReaction);
     socket.on("user:deleted", onUserDeleted);
     socket.on("typing:update", onTyping);
@@ -702,6 +716,7 @@ export default function ChannelView({
       socket.off("claude:progress", onClaudeProgress);
       socket.off("message:updated", onUpdated);
       socket.off("message:deleted", onDeleted);
+      socket.off("message:hidden", onHidden);
       socket.off("reaction:update", onReaction);
       socket.off("user:deleted", onUserDeleted);
       socket.off("typing:update", onTyping);
@@ -987,6 +1002,18 @@ export default function ChannelView({
     try {
       await api.deleteMessage(message.id);
       setTimeline((t) => applyToTimeline(t, channel?.id, { type: "deleted", id: message.id }));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  // Message d'un autre : on ne peut que le masquer pour soi, il reste visible
+  // des autres membres.
+  async function hideMessage(message: Message) {
+    if (!window.confirm("Supprimer ce message pour vous ? Les autres le verront toujours.")) return;
+    try {
+      await api.hideMessage(message.id);
+      setTimeline((t) => applyToTimeline(t, channel?.id, { type: "hidden", id: message.id }));
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e));
     }
@@ -1281,6 +1308,7 @@ export default function ChannelView({
                 currentUser={currentUser}
                 onEdit={editMessage}
                 onDelete={deleteMessage}
+                onHide={hideMessage}
                 onReply={() => setReplyingTo(m)}
                 onForward={() => setForwardingMessage(m)}
                 onReact={reactToMessage}
@@ -1533,6 +1561,7 @@ interface MessageRowProps {
   currentUser: User | null;
   onEdit: (id: string, body: string) => Promise<boolean>;
   onDelete: (message: Message) => void;
+  onHide: (message: Message) => void;
   onReply?: (message: Message) => void;
   onForward?: () => void;
   onReact?: (messageId: string, emoji: string) => void;
@@ -1546,6 +1575,7 @@ function MessageRow({
   currentUser,
   onEdit,
   onDelete,
+  onHide,
   onReply,
   onForward,
   onReact,
@@ -1636,7 +1666,8 @@ function MessageRow({
   // Le transfert ne reporte que le texte ; on masque l'action pour un message
   // sans corps (pièce jointe / GIF seul) qui n'aurait rien à transférer (#124).
   const canForward = onForward && !!message.body;
-  const actions = !editing && (onReact || onReply || canForward || isOwn) && (
+  // Toujours au moins une action : supprimer (son message) ou supprimer pour soi.
+  const actions = !editing && (
     <div className="absolute right-2 top-1 hidden group-hover:flex items-center gap-1 bg-white border border-slate-200 rounded-sm shadow-xs">
       {onReact && (
         <button
@@ -1675,13 +1706,21 @@ function MessageRow({
           Modifier
         </button>
       )}
-      {isOwn && (
+      {isOwn ? (
         <button
           onClick={() => onDelete(message)}
           className="text-xs text-slate-600 hover:text-red-600 px-2 py-1"
           title="Supprimer"
         >
           Supprimer
+        </button>
+      ) : (
+        <button
+          onClick={() => onHide(message)}
+          className="text-xs text-slate-600 hover:text-red-600 px-2 py-1"
+          title="Supprimer ce message de votre côté seulement"
+        >
+          Supprimer pour moi
         </button>
       )}
     </div>

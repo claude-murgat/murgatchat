@@ -438,11 +438,12 @@ export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
     socket.on("channel:unread", async ({ channelId }) => {
       if (!channelId) return;
       // Marquer comme non lu : on recule `lastReadAt` juste avant le dernier
-      // message livré du salon, pour que serializeChannel le recalcule en
-      // "non lu" (voir la logique `unread` dans routes/channels.js).
+      // message livré du salon (hors messages qu'il a masqués), pour que
+      // serializeChannel le recalcule en "non lu" (voir la logique `unread`
+      // dans routes/channels.js).
       const last = await prisma.message
         .findFirst({
-          where: { channelId, delivered: true },
+          where: { channelId, delivered: true, hiddenBy: { none: { userId } } },
           orderBy: { createdAt: "desc" },
           select: { createdAt: true },
         })

@@ -307,6 +307,23 @@ describe("message edit / delete / reactions over the socket", () => {
     expect((await deleted).channelId).toBe(channelId);
   });
 
+  it("syncs message:hidden to the hider's devices only", async () => {
+    const { alice, bob, channelId } = await pairInChannel();
+    const aSock = await ready(alice.token, channelId);
+    const bDev1 = await ready(bob.token, channelId);
+    const bDev2 = await ready(bob.token, channelId);
+    const root = await send(aSock, { channelId, body: "à masquer" });
+    const id = root.message.id;
+
+    const onDev1 = waitForEvent(bDev1, "message:hidden", (e) => e.id === id);
+    const onDev2 = waitForEvent(bDev2, "message:hidden", (e) => e.id === id);
+    const authorSilent = expectNoEvent(aSock, "message:hidden", 600);
+    await authed(srv.app, bob.token).post(`/channels/messages/${id}/hide`);
+    expect(await onDev1).toEqual({ id, channelId });
+    expect(await onDev2).toEqual({ id, channelId });
+    await authorSilent; // l'auteur (et les autres membres) gardent le message
+  });
+
   it("relays reaction:update", async () => {
     const { alice, bob, channelId } = await pairInChannel();
     const aSock = await ready(alice.token, channelId);
