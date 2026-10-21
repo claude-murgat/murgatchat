@@ -13,7 +13,12 @@ import {
   checkDesktopUpdate,
   installDesktopUpdate,
 } from "./desktop.ts";
-import { ensurePwaReady, unsubscribePush, resubscribeIfNeeded } from "./pwa.ts";
+import {
+  ensurePwaReady,
+  unsubscribePush,
+  resubscribeIfNeeded,
+  closeChannelNotifications,
+} from "./pwa.ts";
 import Login from "./components/Login.tsx";
 import Sidebar from "./components/Sidebar.tsx";
 import ChannelView from "./components/ChannelView.tsx";
@@ -75,6 +80,19 @@ function saveLastChannelId(
   } catch {
     // Non-fatal: the app just won't remember the last channel on this device.
   }
+}
+
+// Notifications de conversations déjà lues — ici ou sur un autre appareil, p. ex.
+// lues sur le PC pendant que le téléphone dormait : on les retire du volet dès
+// que la liste fraîche des salons le révèle (ouverture, retour au premier plan).
+// `askedAt` : instant de la requête. Seules les notifications affichées AVANT
+// sont concernées — une réponse calculée avant l'arrivée d'un nouveau message le
+// dirait « lu » et fermerait sa notification toute fraîche.
+function closeReadChannelNotifications(channels: Channel[], askedAt: number) {
+  closeChannelNotifications(
+    channels.filter((c) => !c.unread).map((c) => c.id),
+    askedAt
+  );
 }
 
 // Resynchronisation de la liste des conversations : la réponse du serveur fait
@@ -218,6 +236,11 @@ export default function App() {
     if (user && activeChannelId) saveLastChannelId(user.id, activeChannelId);
   }, [activeChannelId, user]);
 
+  // Conversation ouverte : ses notifications en attente n'ont plus lieu d'être.
+  useEffect(() => {
+    if (activeChannelId) closeChannelNotifications([activeChannelId]);
+  }, [activeChannelId]);
+
   // Keep the diagnostic context (used by bug reports) in sync with the server
   // address and the signed-in user, so a report carries the right header.
   useEffect(() => {
@@ -273,8 +296,10 @@ export default function App() {
     // est donc présent, là où getSocket() attend une chaîne.
     const s = getSocket(token!);
     setSocket(s);
+    const askedAt = Date.now();
     api.listChannels().then((res) => {
       setChannels(res.channels);
+      closeReadChannelNotifications(res.channels, askedAt);
       setActiveChannelId((curr) => {
         if (curr) return curr; // a deep-link / explicit pick already won
         const saved = loadLastChannelId(user.id);
@@ -395,10 +420,12 @@ export default function App() {
     };
 
     // Another of this user's devices/tabs read a channel -> clear its unread here.
-    const onRead = ({ channelId }: { channelId: string }) =>
+    const onRead = ({ channelId }: { channelId: string }) => {
       setChannels((prev) =>
         prev.map((c) => (c.id === channelId ? { ...c, unread: false } : c))
       );
+      closeChannelNotifications([channelId]);
+    };
 
     // A convos was flagged unread from another device/tab -> reflect the badge.
     const onUnread = ({ channelId }: { channelId: string }) =>
@@ -561,11 +588,13 @@ export default function App() {
     let latest = 0;
     const resync = () => {
       const attempt = ++latest;
+      const askedAt = Date.now();
       api
         .listChannels()
         .then((res) => {
           if (cancelled || attempt !== latest) return;
           setChannels((prev) => mergeChannels(prev, res.channels, activeChannelIdRef.current));
+          closeReadChannelNotifications(res.channels, askedAt);
         })
         .catch(() => {});
     };
@@ -759,6 +788,7 @@ export default function App() {
       setChannels((prev) =>
         prev.map((c) => (c.id === channelId ? { ...c, unread: false } : c))
       );
+      closeChannelNotifications([channelId]);
     },
     [socket]
   );

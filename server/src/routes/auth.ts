@@ -9,6 +9,7 @@ import { signToken, requireAuth } from "../auth.ts";
 import { broadcastMembers } from "./channels.ts";
 import { sendInvitationEmail, sendPasswordResetEmail, inviteLink } from "../mail.ts";
 import { getVapidPublicKey } from "../webpush.ts";
+import { verifyReadToken } from "../pushReadToken.ts";
 import { revokeUserSessions } from "../socket.ts";
 import { purgeUser } from "../userPurge.ts";
 import { BOT_USERNAME, leavePipelineChannel } from "../notify.ts";
@@ -337,7 +338,7 @@ router.delete("/push-token", requireAuth, async (req, res) => {
 // ── Web Push (browser PWA, including iOS Safari) ──────────────────────────
 // Same lifecycle as native push tokens: clients subscribe at login (or when
 // permission is granted), unsubscribe at logout. Sends are gated identically
-// in notifyMembers (DnD + absence de client web/desktop visible, voir webPresence).
+// in notifyMembers (DnD, niveau de notification du salon).
 //
 // Public endpoint — the VAPID public key is required by the client to call
 // pushManager.subscribe(). It's safe to expose (the private key stays server-side).
@@ -389,6 +390,39 @@ router.delete("/web-push/subscribe", requireAuth, async (req, res) => {
     });
   }
   res.json({ ok: true });
+});
+
+// Les messages désignés par ces jetons de push ont-ils été lus depuis ? Appelé
+// par le service worker quand un push arrive — parfois des heures après son
+// envoi — pour ne pas afficher un message déjà lu sur un autre appareil, et
+// effacer les notifications devenues caduques. Public : le service worker n'a
+// pas le JWT ; chaque jeton, signé, ne vaut que pour son message et son
+// destinataire (cf. pushReadToken.ts). Réponse alignée sur `tokens` :
+// true = lu, false = non lu, null = jeton invalide (le client affiche alors).
+const READ_STATE_MAX_TOKENS = 50;
+router.post("/web-push/read-state", async (req, res) => {
+  const tokens: unknown[] = Array.isArray(req.body?.tokens)
+    ? req.body.tokens.slice(0, READ_STATE_MAX_TOKENS)
+    : [];
+  const claims = tokens.map(verifyReadToken);
+  const valid = claims.filter((c) => c !== null);
+  const memberships = valid.length
+    ? await prisma.membership.findMany({
+        where: { OR: valid.map(({ userId, channelId }) => ({ userId, channelId })) },
+        select: { userId: true, channelId: true, lastReadAt: true },
+      })
+    : [];
+  const lastReadAt = new Map(
+    memberships.map((m) => [`${m.userId}:${m.channelId}`, m.lastReadAt.getTime()])
+  );
+  const read = claims.map((c) => {
+    if (!c) return null;
+    const at = lastReadAt.get(`${c.userId}:${c.channelId}`);
+    // Plus membre du salon (quitté, retiré, compte supprimé) : rien à montrer.
+    if (at === undefined) return true;
+    return at >= c.createdAt;
+  });
+  res.json({ read });
 });
 
 // `requireAdmin` pose `req.adminUser`, propriété absente de l'augmentation

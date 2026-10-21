@@ -235,6 +235,9 @@ export async function notify(
           data: {
             url: channelId ? `/?channel=${encodeURIComponent(channelId)}` : "/",
             channelId: channelId ?? null,
+            // Comme le web push (sw.ts) : la resynchro ne ferme que les
+            // notifications affichées avant sa requête (closeChannelNotifications).
+            receivedAt: Date.now(),
           },
           // `renotify` existe dans la spec Notifications mais pas encore dans les
           // typages DOM de TypeScript, d'où l'assertion (aucun effet à l'exécution).
