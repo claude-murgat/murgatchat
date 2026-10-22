@@ -22,7 +22,7 @@
     "@tauri-apps/plugin-process": "^2.4.0",
     "@tauri-apps/plugin-updater": "^2.13.2",
     "dompurify": "^3.4.16",
-    "emoji-picker-react": "^4.22.3",
+    "emoji-picker-react": "^5.0.0",
     "mammoth": "^1.13.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
