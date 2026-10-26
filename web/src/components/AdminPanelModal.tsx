@@ -4,6 +4,7 @@ import { api } from "../api.ts";
 import type { User } from "../types.ts";
 import Avatar from "./Avatar.tsx";
 import BugReportsPanel from "./BugReportsPanel.tsx";
+import StoragePanel from "./StoragePanel.tsx";
 import { useOverlayDismiss } from "../hooks/useOverlayDismiss.ts";
 
 const PAGE_SIZE = 50;
@@ -19,7 +20,7 @@ interface AdminAction {
 }
 
 /** Onglets du panneau. */
-type TabKey = "users" | "reports";
+type TabKey = "users" | "reports" | "storage";
 
 /** Action en attente de confirmation. */
 interface ConfirmAction {
@@ -95,7 +96,7 @@ interface AdminPanelModalProps {
 
 export default function AdminPanelModal({ currentUser, onClose, onUserUpdated }: AdminPanelModalProps) {
   const overlayDismiss = useOverlayDismiss(onClose);
-  const [tab, setTab] = useState<TabKey>("users"); // "users" | "reports"
+  const [tab, setTab] = useState<TabKey>("users");
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -213,7 +214,7 @@ export default function AdminPanelModal({ currentUser, onClose, onUserUpdated }:
   return (
     <div className="fixed inset-0 bg-black/50 grid place-items-stretch sm:place-items-center z-50 p-0 sm:p-4" {...overlayDismiss}>
       <div
-        className="bg-white text-slate-900 sm:rounded-xl shadow-2xl w-full h-dvh sm:h-auto sm:max-w-2xl sm:max-h-[90vh] flex flex-col"
+        className="bg-white text-slate-900 sm:rounded-xl shadow-2xl w-full min-w-0 h-dvh sm:h-auto sm:max-w-2xl sm:max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-5 border-b border-slate-200">
@@ -229,9 +230,13 @@ export default function AdminPanelModal({ currentUser, onClose, onUserUpdated }:
           <TabButton active={tab === "reports"} onClick={() => setTab("reports")}>
             Rapports de bug
           </TabButton>
+          <TabButton active={tab === "storage"} onClick={() => setTab("storage")}>
+            Stockage
+          </TabButton>
         </nav>
 
         {tab === "reports" && <BugReportsPanel />}
+        {tab === "storage" && <StoragePanel />}
 
         {tab === "users" && (
           <div className="p-3 border-b border-slate-200">

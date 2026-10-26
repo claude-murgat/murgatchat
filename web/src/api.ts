@@ -343,6 +343,8 @@ export const api = {
     request(`/bug-reports/${encodeURIComponent(id)}`, { method: "PATCH", body: { status } }),
   deleteBugReport: (id: string) =>
     request(`/bug-reports/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  // Onglet « Stockage » de l'administration (admins seulement).
+  storageStats: () => request("/uploads/storage"),
   // GIF picker (GIPHY proxied server-side). Empty q → trending.
   gifSearch: ({ q = "", pos = 0 } = {}) => {
     const params = new URLSearchParams();

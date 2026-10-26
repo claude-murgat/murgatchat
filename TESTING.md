@@ -7,7 +7,7 @@ organisée en quatre couches de test, par ordre de valeur (plus des garde-fous
 
 | Couche | Outil | Ce qu'elle protège | Vérifiée |
 | --- | --- | --- | --- |
-| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 270 tests |
+| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 287 tests |
 | **E2E Web** (priorité 2) | Playwright | Câblage de l'UI web (auth, envoi, édition, suppression, threads, persistance) | ✅ parcours vert |
 | **Mobile** (priorité 3) | `expo export` + smoke APK | Le bundle RN se compile ; l'app se lance | Documentée |
 | **Charge** (k6) | k6 (HTTP + Socket.IO) | Tenue à 150 utilisateurs simultanés (REST + temps réel) | ✅ script validé (smoke) |
@@ -82,7 +82,8 @@ npm test -- test/http/auth.test.js   # un fichier
   masqué pour l'appelant seul — historique, citation des réponses, non-lus, recherche —,
   idempotent, réservé aux membres), planifiés (list/patch/delete +
   dispatch, auteur désactivé ou plus membre), pièces jointes (réservées aux membres du salon, auteur
-  compris), réactions (toggle/agrégation), non-lus.
+  compris ; onglet *Stockage* `GET /uploads/storage` réservé aux admins, sans nom des fichiers
+  privés), réactions (toggle/agrégation), non-lus.
 - `test/socket/` — accès aux salons privés (`channel:join` et `typing` refusés à un non-membre,
   membre retiré sorti de la room, admin rétrogradé sorti du salon du pipeline), `message:new`/`updated`/`deleted`, `message:hidden` (aux seuls appareils de celui qui masque), `thread:reply`,
   `reaction:update`, `presence`, `typing`, `channel:read`, événements de membres,

@@ -119,6 +119,71 @@ router.post("/", requireAuth, uploadSingle, async (req, res) => {
   }
 });
 
+// Local admin gate — same one-liner as routes/auth.ts and routes/bugReports.ts,
+// duplicated to keep the routers decoupled.
+function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!req.user?.isAdmin) return res.status(403).json({ error: "admin_required" });
+  next();
+}
+
+// Onglet « Stockage » de l'administration : place du disque qui porte
+// UPLOAD_DIR, volume des pièces jointes par type et plus gros fichiers. Déclarée
+// avant GET /:id, qui prendrait sinon « storage » pour un identifiant.
+router.get("/storage", requireAuth, requireAdmin, async (req, res) => {
+  const [disk, types, largest] = await Promise.all([
+    fs.promises.statfs(UPLOAD_DIR),
+    // Par type MIME *et* extension : le client classe chaque groupe avec
+    // fileIcon(), qui se rabat sur l'extension quand le MIME est générique.
+    prisma.$queryRaw<{ mimeType: string; ext: string | null; count: number; bytes: number }[]>`
+      SELECT "mimeType", lower(substring(filename from '[.]([A-Za-z0-9]+)$')) AS ext,
+             count(*)::int AS count, sum(size)::float8 AS bytes
+      FROM "Attachment" GROUP BY 1, 2`,
+    prisma.attachment.findMany({
+      orderBy: { size: "desc" },
+      take: 10,
+      include: {
+        message: {
+          select: {
+            channel: {
+              select: {
+                name: true,
+                isDirect: true,
+                isPrivate: true,
+                memberships: { where: { userId: req.userId }, select: { id: true } },
+              },
+            },
+          },
+        },
+      },
+    }),
+  ]);
+
+  res.json({
+    disk: { total: disk.blocks * disk.bsize, available: disk.bavail * disk.bsize },
+    types,
+    largest: largest.map((a) => {
+      const ch = a.message?.channel;
+      // Ni nom de fichier ni nom de salon pour une conversation privée (salon
+      // privé, DM, expert Claude) dont l'admin n'est pas membre, ni pour un
+      // envoi pas encore posté : seuls le type, la taille et la date sortent.
+      const visible = ch
+        ? ch.memberships.length > 0 || (!ch.isPrivate && !ch.isDirect)
+        : Boolean(a.bugReportId);
+      let place = a.bugReportId ? "Rapport de bug" : "Non envoyé";
+      if (ch && !visible) place = "Conversation privée";
+      else if (ch) place = ch.isDirect || !ch.name ? "Message direct" : `#${ch.name}`;
+      return {
+        id: a.id,
+        filename: visible ? a.filename : null,
+        mimeType: a.mimeType,
+        size: a.size,
+        createdAt: a.createdAt,
+        place,
+      };
+    }),
+  });
+});
+
 router.get("/:id", async (req, res) => {
   const token =
     (req.headers.authorization || "").replace(/^Bearer /, "") ||

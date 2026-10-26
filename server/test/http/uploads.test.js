@@ -146,3 +146,52 @@ describe("POST /uploads + GET /uploads/:id", () => {
     expect(user.id).toBeDefined();
   });
 });
+
+describe("GET /uploads/storage", () => {
+  const upload = (u, size, filename, contentType) =>
+    request(app)
+      .post("/uploads")
+      .set("Authorization", `Bearer ${u.token}`)
+      .attach("file", Buffer.alloc(size), { filename, contentType });
+  const post = async (att, channelId, authorId) => {
+    const msg = await seedMessage({ channelId, authorId, body: "pj" });
+    await prisma.attachment.update({ where: { id: att.body.attachment.id }, data: { messageId: msg.id } });
+  };
+
+  it("is reserved to admins", async () => {
+    await registerUser(app); // bootstrap admin
+    const member = await registerUser(app);
+    expect((await authed(app, member.token).get("/uploads/storage")).status).toBe(403);
+  });
+
+  it("reports disk space, volume per type and the largest files without exposing private ones", async () => {
+    const admin = await registerUser(app);
+    const bob = await registerUser(app);
+    const pub = (await authed(app, bob.token).post("/channels").send({ name: "chantier" })).body.channel;
+    const priv = (
+      await authed(app, bob.token).post("/channels").send({ name: "rh", isPrivate: true })
+    ).body.channel;
+
+    // Un PDF arrivé en octet-stream : le client le classe par son extension.
+    await post(await upload(bob, 3000, "devis.PDF", "application/octet-stream"), pub.id, bob.user.id);
+    await post(await upload(bob, 5000, "lettre.txt", "text/plain"), priv.id, bob.user.id);
+    await upload(bob, 2000, "photo.png", "image/png"); // jamais posté
+
+    const res = await authed(app, admin.token).get("/uploads/storage");
+    expect(res.status).toBe(200);
+    expect(res.body.disk.total).toBeGreaterThan(0);
+    expect(res.body.disk.available).toBeGreaterThan(0);
+    expect(res.body.disk.available).toBeLessThanOrEqual(res.body.disk.total);
+    expect(res.body.types).toEqual(
+      expect.arrayContaining([
+        { mimeType: "application/octet-stream", ext: "pdf", count: 1, bytes: 3000 },
+        { mimeType: "image/png", ext: "png", count: 1, bytes: 2000 },
+      ])
+    );
+    expect(res.body.largest.map((f) => [f.size, f.filename, f.place])).toEqual([
+      [5000, null, "Conversation privée"],
+      [3000, "devis.PDF", "#chantier"],
+      [2000, null, "Non envoyé"],
+    ]);
+  });
+});
