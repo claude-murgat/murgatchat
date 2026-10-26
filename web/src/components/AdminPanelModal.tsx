@@ -4,6 +4,7 @@ import { api } from "../api.ts";
 import type { User } from "../types.ts";
 import Avatar from "./Avatar.tsx";
 import BugReportsPanel from "./BugReportsPanel.tsx";
+import StoragePanel from "./StoragePanel.tsx";
 import { useOverlayDismiss } from "../hooks/useOverlayDismiss.ts";
 
 const PAGE_SIZE = 50;
@@ -19,7 +20,7 @@ interface AdminAction {
 }
 
 /** Onglets du panneau. */
-type TabKey = "users" | "reports";
+type TabKey = "users" | "reports" | "storage";
 
 /** Action en attente de confirmation. */
 interface ConfirmAction {
@@ -95,7 +96,7 @@ interface AdminPanelModalProps {
 
 export default function AdminPanelModal({ currentUser, onClose, onUserUpdated }: AdminPanelModalProps) {
   const overlayDismiss = useOverlayDismiss(onClose);
-  const [tab, setTab] = useState<TabKey>("users"); // "users" | "reports"
+  const [tab, setTab] = useState<TabKey>("users");
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -229,9 +230,13 @@ export default function AdminPanelModal({ currentUser, onClose, onUserUpdated }:
           <TabButton active={tab === "reports"} onClick={() => setTab("reports")}>
             Rapports de bug
           </TabButton>
+          <TabButton active={tab === "storage"} onClick={() => setTab("storage")}>
+            Stockage
+          </TabButton>
         </nav>
 
         {tab === "reports" && <BugReportsPanel />}
+        {tab === "storage" && <StoragePanel />}
 
         {tab === "users" && (
           <div className="p-3 border-b border-slate-200">
