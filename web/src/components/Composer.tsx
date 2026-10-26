@@ -10,6 +10,7 @@ import EmojiPicker from "emoji-picker-react";
 import GifPicker from "./GifPicker.tsx";
 import Avatar from "./Avatar.tsx";
 import { uploadFile, api } from "../api.ts";
+import { compressImage } from "../imageCompress.ts";
 import { emojiTokenAt, queryEmojiShortcodes } from "../emojiShortcodes.ts";
 import type { Attachment, User } from "../types.ts";
 
@@ -269,7 +270,11 @@ function Composer(
     setUploading(true);
     try {
       for (const f of files) {
-        const att = await uploadFile(f);
+        // Redimensionne/compresse les photos pleine résolution AVANT l'upload
+        // (#410) : sur mobile/PWA, une image ~4 Mo mettait très longtemps à
+        // monter, d'où l'aperçu qui tardait à apparaître dans le champ. Un
+        // format non géré ou un échec de décodage retombe sur le fichier brut.
+        const att = await uploadFile(await compressImage(f));
         setAttachments((prev) => [...prev, att]);
       }
     } catch (err) {
