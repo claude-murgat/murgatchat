@@ -7,7 +7,7 @@ organisée en quatre couches de test, par ordre de valeur (plus des garde-fous
 
 | Couche | Outil | Ce qu'elle protège | Vérifiée |
 | --- | --- | --- | --- |
-| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 287 tests |
+| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 288 tests |
 | **E2E Web** (priorité 2) | Playwright | Câblage de l'UI web (auth, envoi, édition, suppression, threads, persistance) | ✅ parcours vert |
 | **Mobile** (priorité 3) | `expo export` + smoke APK | Le bundle RN se compile ; l'app se lance | Documentée |
 | **Charge** (k6) | k6 (HTTP + Socket.IO) | Tenue à 150 utilisateurs simultanés (REST + temps réel) | ✅ script validé (smoke) |
@@ -105,6 +105,8 @@ npm test -- test/http/auth.test.js   # un fichier
   parallèle (un service push lent ne retient pas les autres abonnés).
 - `test/unit/pushExcerpt.test.js` — extrait porté par les pushs : 500 caractères
   « … » compris, 2 000 octets JSON au plus, paire de substitution jamais coupée.
+- `test/unit/diskAlert.test.js` — disque presque plein : alerte dans `support-dev` à 90 %
+  puis 95 %, une fois par palier, réarmée 2 points sous le palier.
 
 > Note : le handler de connexion Socket.IO enregistre ses écouteurs après un
 > `await` ; un client qui émet immédiatement après `connect` peut perdre des

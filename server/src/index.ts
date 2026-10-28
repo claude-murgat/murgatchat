@@ -17,6 +17,7 @@ import claudeRouter from "./routes/claude.ts";
 import { setupSocket, dispatchScheduledMessages } from "./socket.ts";
 import { prisma } from "./db.ts";
 import { sweepOrphanAttachments } from "./sweep.ts";
+import { checkDiskSpace } from "./diskAlert.ts";
 import { initWebPush } from "./webpush.ts";
 
 const PORT = parseInt(process.env.PORT || "4000", 10);
@@ -146,6 +147,12 @@ export function startServer() {
       .catch((e) => console.error("[sweep] error:", e.message));
   setTimeout(runSweep, 5 * 60_000);
   setInterval(runSweep, 60 * 60_000);
+
+  // Disque presque plein → avertissement dans support-dev, à la même cadence.
+  const runDiskCheck = () =>
+    checkDiskSpace(io).catch((e) => console.error("[disk] error:", e.message));
+  setTimeout(runDiskCheck, 5 * 60_000);
+  setInterval(runDiskCheck, 60 * 60_000);
 
   server.listen(PORT, () => {
     console.log(`Chat server listening on :${PORT}`);
