@@ -252,6 +252,10 @@ export default function Sidebar({
   const dms = channels
     .filter((c) => c.isDirect && !isSelfDm(c))
     .sort((a, b) => lastActivity(b) - lastActivity(a));
+  // Conversations non lues d'une section, comptées comme leurs pastilles (la
+  // conversation affichée n'en porte pas) : une section repliée en montre le total.
+  const unreadIn = (list: Channel[]) =>
+    list.filter((c) => c.unread && c.id !== activeChannelId).length;
 
   const dnd = dndLabel(user);
 
@@ -461,7 +465,7 @@ export default function Sidebar({
           />
         )}
 
-        <SidebarSection id="groups" title="Salons">
+        <SidebarSection id="groups" title="Salons" unread={unreadIn(groups)}>
           {groups.map((c) => (
             <SidebarItem
               key={c.id}
@@ -480,7 +484,7 @@ export default function Sidebar({
           )}
         </SidebarSection>
 
-        <SidebarSection id="dms" title="Messages directs">
+        <SidebarSection id="dms" title="Messages directs" unread={unreadIn(dms)}>
           {dms.map((c) => (
             <DmItem
               key={c.id}
@@ -504,7 +508,7 @@ export default function Sidebar({
             un par expert — voir server/src/routes/claude.ts). Chaque expert ouvert
             sur le serveur mais pas encore consulté a son bouton d'ouverture ; sans
             liste (serveur sans pont ou antérieur), le bouton historique reste. */}
-        <SidebarSection id="claude" title="Claude">
+        <SidebarSection id="claude" title="Claude" unread={unreadIn(claudeConvs)}>
           {claudeConvs.map((c) => (
             <SidebarItem
               key={c.id}
@@ -653,11 +657,14 @@ interface SidebarSectionProps {
   /** Clé de persistance du repli, stable même si `title` change. */
   id: string;
   title: string;
+  /** Nombre de conversations non lues, affiché sur l'en-tête quand la section est repliée. */
+  unread: number;
   children?: ReactNode;
 }
 
-function SidebarSection({ id, title, children }: SidebarSectionProps) {
+function SidebarSection({ id, title, unread, children }: SidebarSectionProps) {
   const [collapsed, setCollapsed] = useState(() => loadSectionCollapsed(id));
+  const s = unread > 1 ? "s" : "";
 
   function toggle() {
     const next = !collapsed;
@@ -671,7 +678,11 @@ function SidebarSection({ id, title, children }: SidebarSectionProps) {
         type="button"
         onClick={toggle}
         aria-expanded={!collapsed}
-        title={collapsed ? `Déplier ${title}` : `Replier ${title}`}
+        title={
+          collapsed
+            ? `Déplier ${title}${unread ? ` (${unread} conversation${s} non lue${s})` : ""}`
+            : `Replier ${title}`
+        }
         className="w-full flex items-center gap-1 px-2 mb-1 text-xs uppercase tracking-wide text-aubergine-400 hover:text-white cursor-pointer"
       >
         {/* Chevron : pointe vers le bas quand la section est ouverte, vers la
@@ -694,6 +705,13 @@ function SidebarSection({ id, title, children }: SidebarSectionProps) {
           <polyline points="6 9 12 15 18 9" />
         </svg>
         <span>{title}</span>
+        {/* Repliée, la section cache les pastilles « Non lu » de ses lignes : elle
+            en reprend le total, à leur aplomb et dans la même teinte. */}
+        {collapsed && unread > 0 && (
+          <span className="ml-auto min-w-4 h-4 px-1 rounded-full bg-slackred ring-2 ring-slackred/30 text-white text-[10px] font-bold leading-4 tracking-normal text-center">
+            {unread}
+          </span>
+        )}
       </button>
       {/* Démonté plutôt que masqué en CSS : une section repliée ne doit pas
           rester atteignable au clavier ni annoncée aux lecteurs d'écran. */}
