@@ -95,12 +95,13 @@ describe("POST /channels/dm", () => {
     expect(second.body.channel.id).toBe(first.body.channel.id);
   });
 
-  it("opens a group DM with userIds[]", async () => {
+  it("turns a group request (userIds[] of 2+) into a private salon (1.6.0)", async () => {
     const { token: a } = await registerUser(app);
     const { user: b } = await registerUser(app);
     const { user: c } = await registerUser(app);
     const res = await authed(app, a).post("/channels/dm").send({ userIds: [b.id, c.id] });
-    expect(res.body.channel.isDirect).toBe(true);
+    expect(res.body.channel.isDirect).toBe(false);
+    expect(res.body.channel.isPrivate).toBe(true);
     expect(res.body.channel.members).toHaveLength(3);
   });
 

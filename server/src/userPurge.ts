@@ -23,11 +23,16 @@ export async function purgeUser(io: Server, userId: string, heirId: string) {
     where: { userId },
     include: { channel: { include: { memberships: { select: { userId: true } } } } },
   });
-  // Un DM de groupe garde ses survivants (au moins deux) : il reste une vraie
-  // conversation entre eux.
+  // Un salon (privé ou non, groupes compris depuis la 1.6.0) garde ses
+  // survivants. Un salon privé dont il était le dernier membre part avec lui :
+  // plus personne ne pourrait le voir (même règle que le départ du dernier membre).
   const doomed = memberships
     .map((m) => m.channel)
-    .filter((c) => (c.isDirect || c.kind === "claude") && c.memberships.length <= 2);
+    .filter(
+      (c) =>
+        ((c.isDirect || c.kind === "claude") && c.memberships.length <= 2) ||
+        (c.isPrivate && !c.isDefault && c.memberships.length === 1)
+    );
   const doomedIds = doomed.map((c) => c.id);
   const keptIds = memberships
     .map((m) => m.channelId)

@@ -62,6 +62,10 @@ const ReactionGroupSchema = z.object({
 const MessageBase = z.object({
   id: zId,
   channelId: zId,
+  // "system" = message de service (« Charles a ajouté Bob ») : affiché comme une
+  // ligne d'information, jamais notifié ni compté comme non lu. Optionnel : un
+  // serveur antérieur à la 1.6.0 ne l'envoie pas (tout y est "user").
+  kind: z.enum(["user", "system"]).optional(),
   parentId: zId.nullable(),
   parent: z.object({ id: zId, body: z.string(), author: UserRefSchema }).nullable(),
   body: z.string(),
