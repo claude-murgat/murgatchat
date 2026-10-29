@@ -704,6 +704,9 @@ export default function ChannelView({
       claudeStatusTimer.current = setTimeout(() => setClaudeStatus(""), 45000);
     }
     socket.on("message:new", onNew);
+    // Messages de service (« a ajouté Bob ») : leur propre évènement depuis la
+    // 1.6.0, pour que les clients antérieurs n'en fassent pas des non-lus.
+    socket.on("message:system", onNew);
     socket.on("claude:progress", onClaudeProgress);
     socket.on("message:updated", onUpdated);
     socket.on("message:deleted", onDeleted);
@@ -713,6 +716,7 @@ export default function ChannelView({
     socket.on("typing:update", onTyping);
     return () => {
       socket.off("message:new", onNew);
+      socket.off("message:system", onNew);
       socket.off("claude:progress", onClaudeProgress);
       socket.off("message:updated", onUpdated);
       socket.off("message:deleted", onDeleted);

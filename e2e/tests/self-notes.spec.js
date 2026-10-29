@@ -56,7 +56,10 @@ test("« Mes notes » est épinglée en tête et hors de la liste des DM (#362)"
   await page.getByRole("button", { name: /Mes notes \(conversation avec soi-même\)/ }).click();
 
   // La conversation s'ouvre et la recherche se vide : la barre latérale réaffiche
-  // ses sections. L'entrée épinglée « Mes notes » doit alors être présente.
+  // ses sections. L'entrée épinglée « Mes notes » doit alors être présente. On
+  // attend le champ vidé : tant que les résultats restent affichés, la
+  // conversation tout juste créée (channel:created) peut y figurer en double.
+  await expect(page.getByPlaceholder(/^Rechercher/)).toHaveValue("");
   const notesEntry = page.getByRole("button", { name: /Mes notes/ });
   await expect(notesEntry).toBeVisible();
 

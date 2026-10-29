@@ -99,8 +99,15 @@ function closeReadChannelNotifications(channels: Channel[], askedAt: number) {
 // Resynchronisation de la liste des conversations : la réponse du serveur fait
 // foi, sans défaire ce qu'un évènement temps réel a apporté PENDANT la requête —
 // un aperçu local plus récent est gardé avec son non-lu, et un salon absent de la
-// réponse (créé ou rejoint entre-temps) est conservé. Le salon ouvert reste lu.
-function mergeChannels(prev: Channel[], fresh: Channel[], activeId: string | null) {
+// réponse (créé ou rejoint entre-temps) est conservé. Un salon déjà connu au
+// lancement de la requête et absent de la réponse, lui, a disparu pendant une
+// coupure (retiré, supprimé) : il est retiré. Le salon ouvert reste lu.
+function mergeChannels(
+  prev: Channel[],
+  fresh: Channel[],
+  activeId: string | null,
+  knownBefore?: Set<string>
+) {
   const merged = fresh.map((c) => {
     const local = prev.find((p) => p.id === c.id);
     const newerLocally =
@@ -113,7 +120,7 @@ function mergeChannels(prev: Channel[], fresh: Channel[], activeId: string | nul
     return next.id === activeId ? { ...next, unread: false } : next;
   });
   const known = new Set(fresh.map((c) => c.id));
-  return [...merged, ...prev.filter((c) => !known.has(c.id))];
+  return [...merged, ...prev.filter((c) => !known.has(c.id) && !knownBefore?.has(c.id))];
 }
 
 export default function App() {
@@ -349,9 +356,9 @@ export default function App() {
       .catch(() => setClaudeExperts([]));
 
     const onNew = (msg: WireMessage) => {
-      // Message de service (« Bob a quitté le salon ») : affiché dans le fil
-      // ouvert par ChannelView, mais ni aperçu ni non-lu dans la liste (comme
-      // côté serveur, voir LAST_MESSAGE_WHERE).
+      // Les messages de service arrivent sur `message:system` (ChannelView seul
+      // les affiche) : ni aperçu ni non-lu dans la liste, comme côté serveur
+      // (LAST_MESSAGE_WHERE). Garde-fou si l'un d'eux passait par ici.
       if (msg.kind === "system") return;
       setChannels((prev) =>
         prev.map((c) => {
@@ -662,11 +669,19 @@ export default function App() {
     const resync = () => {
       const attempt = ++latest;
       const askedAt = Date.now();
+      const knownBefore = new Set(channelsRef.current.map((c) => c.id));
       api
         .listChannels()
         .then((res) => {
           if (cancelled || attempt !== latest) return;
-          setChannels((prev) => mergeChannels(prev, res.channels, activeChannelIdRef.current));
+          setChannels((prev) =>
+            mergeChannels(prev, res.channels, activeChannelIdRef.current, knownBefore)
+          );
+          // Salon ouvert disparu pendant la coupure : on le referme.
+          const listed = new Set((res.channels as Channel[]).map((c) => c.id));
+          setActiveChannelId((curr) =>
+            curr && knownBefore.has(curr) && !listed.has(curr) ? null : curr
+          );
           closeReadChannelNotifications(res.channels, askedAt);
           onChannelsListed(res.channels);
         })
@@ -883,7 +898,7 @@ export default function App() {
   const onDmOpened = useCallback((channel: Channel) => {
     setChannels((prev) =>
       prev.some((c) => c.id === channel.id)
-        ? prev.map((c) => (c.id === channel.id ? { ...channel, unread: c.unread } : c))
+        ? prev.map((c) => (c.id === channel.id ? { ...channel, unread: false } : c))
         : [...prev, channel]
     );
     setActiveChannelId(channel.id);
@@ -996,9 +1011,14 @@ export default function App() {
   const onHideConversation = useCallback(async (channel: Channel) => {
     try {
       const res = (await api.hideConversation(channel.id)) as { hiddenAt: string };
+      // Masquée = lue (le serveur l'a marquée lue) : pas de non-lu caché qui
+      // resterait compté dans le badge de l'app.
       setChannels((prev) =>
-        prev.map((c) => (c.id === channel.id ? { ...c, hiddenAt: res.hiddenAt } : c))
+        prev.map((c) =>
+          c.id === channel.id ? { ...c, hiddenAt: res.hiddenAt, unread: false } : c
+        )
       );
+      closeChannelNotifications([channel.id]);
       setActiveChannelId((curr) => (curr === channel.id ? null : curr));
     } catch (e) {
       alert(e instanceof Error ? e.message : String(e));

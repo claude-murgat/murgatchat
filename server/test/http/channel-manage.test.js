@@ -68,7 +68,7 @@ describe("PATCH /channels/:id — tout membre renomme, la visibilité reste aux 
     expect(byAdmin.status).toBe(200);
   });
 
-  it("changer la visibilité : un admin seulement, et un salon privé n'existe que pour ses membres", async () => {
+  it("changer la visibilité : un admin membre seulement", async () => {
     const { token: admin } = await registerUser(app);
     const { token: creator } = await registerUser(app);
     const ch = await create(creator, { name: "ouvert" });
@@ -77,15 +77,19 @@ describe("PATCH /channels/:id — tout membre renomme, la visibilité reste aux 
     expect(refused.status).toBe(403);
     expect(refused.body.error).toBe("admin_only");
 
+    // Un admin qui n'en est pas membre le perdrait aussitôt : refusé.
+    const outsider = await authed(app, admin).patch(`/channels/${ch.id}`).send({ isPrivate: true });
+    expect(outsider.status).toBe(403);
+    expect(outsider.body.error).toBe("not_a_member");
+
+    await authed(app, admin).post(`/channels/${ch.id}/join`);
     const madePrivate = await authed(app, admin).patch(`/channels/${ch.id}`).send({ isPrivate: true });
     expect(madePrivate.status).toBe(200);
     expect(madePrivate.body.channel.isPrivate).toBe(true);
-    expect(await systemTexts(creator, ch.id)).toEqual(["a rendu le salon privé"]);
-
-    // L'admin n'en est pas membre : le salon privé n'existe plus pour lui.
-    expect(
-      (await authed(app, admin).patch(`/channels/${ch.id}`).send({ isPrivate: false })).status
-    ).toBe(404);
+    expect(await systemTexts(creator, ch.id)).toEqual([
+      "a rejoint le salon",
+      "a rendu le salon privé",
+    ]);
   });
 
   it("salon par défaut : modifiable par un admin seulement, jamais privé", async () => {
@@ -243,6 +247,33 @@ describe("membres : ajouter, retirer, quitter, rejoindre", () => {
     expect(await prisma.message.count({ where: { channelId: pub.id } })).toBe(0);
   });
 
+  it("un salon privé où ne reste que le bot est supprimé au départ du dernier membre", async () => {
+    await registerUser(app);
+    const { token: creator } = await registerUser(app);
+    const ch = await create(creator, { name: "avec-bot", isPrivate: true });
+    // Un ancien groupe pouvait inclure le bot (il était proposé avant la 1.6.0).
+    const bot = await ensureBot();
+    await prisma.membership.create({ data: { userId: bot.id, channelId: ch.id } });
+
+    expect((await authed(app, creator).post(`/channels/${ch.id}/leave`)).status).toBe(200);
+    expect(await prisma.channel.findUnique({ where: { id: ch.id } })).toBeNull();
+  });
+
+  it("le salon du pipeline (support-dev) garde son historique au départ de son dernier membre", async () => {
+    const { token: admin, user: adminUser } = await registerUser(app);
+    const support = await prisma.channel.create({
+      data: {
+        name: "support-dev",
+        isPrivate: true,
+        memberships: { create: [{ userId: adminUser.id }] },
+      },
+    });
+    await seedMessage({ channelId: support.id, authorId: adminUser.id, body: "PR ouverte" });
+    expect((await authed(app, admin).post(`/channels/${support.id}/leave`)).status).toBe(200);
+    expect(await prisma.channel.findUnique({ where: { id: support.id } })).not.toBeNull();
+    expect(await prisma.message.count({ where: { channelId: support.id } })).toBe(1);
+  });
+
   it("quitter : salon par défaut protégé, DM 404, salon privé d'autrui 404", async () => {
     const { token: admin } = await registerUser(app);
     const { token: other, user: otherUser } = await registerUser(app);
@@ -352,12 +383,19 @@ describe("masquer une conversation directe", () => {
     const { token: bTok, user: b } = await registerUser(app);
     const dm = (await authed(app, a).post("/channels/dm").send({ userId: b.id })).body.channel;
     expect(dm.hiddenAt).toBeNull();
+    // Un message non lu de b : masquer la conversation la marque lue (sinon un
+    // non-lu invisible resterait dans le badge de l'app).
+    await seedMessage({ channelId: dm.id, authorId: b.id, body: "coucou" });
+    expect(
+      (await authed(app, a).get("/channels")).body.channels.find((c) => c.id === dm.id).unread
+    ).toBe(true);
 
     const hidden = await authed(app, a).post(`/channels/${dm.id}/hide`);
     expect(hidden.status).toBe(200);
     const find = async (token) =>
       (await authed(app, token).get("/channels")).body.channels.find((c) => c.id === dm.id);
     expect((await find(a)).hiddenAt).toBeTruthy();
+    expect((await find(a)).unread).toBe(false);
     expect((await find(bTok)).hiddenAt).toBeNull();
 
     const reopened = await authed(app, a).post("/channels/dm").send({ userId: b.id });

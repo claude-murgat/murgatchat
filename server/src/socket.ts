@@ -4,7 +4,7 @@ import type { Server as HttpServer } from "node:http";
 import type { User } from "@prisma/client";
 import { authenticate } from "./auth.ts";
 import { prisma } from "./db.ts";
-import { serializeMessage, isMember } from "./routes/channels.ts";
+import { serializeMessage, isMember, unhideConversation } from "./routes/channels.ts";
 import { safeUnlink } from "./storage.ts";
 import { encryptBody } from "./crypto.ts";
 import { sendExpoPush } from "./push.ts";
@@ -338,7 +338,7 @@ export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
           where: { userId_channelId: { userId, channelId } },
           // kind du canal : détecter les conversations de l'expert Claude sans
           // requête supplémentaire (voir le hook après notifyMembers).
-          include: { channel: { select: { kind: true, expert: true } } },
+          include: { channel: { select: { kind: true, expert: true, isDirect: true } } },
         });
         if (!member) return ack?.({ error: "not_a_member" });
 
@@ -417,6 +417,8 @@ export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
         // render the inline quote bubble from `serialized.parent`.
         const serialized = serializeMessage(msg);
         io.to(`channel:${channelId}`).emit("message:new", serialized);
+        // Conversation directe masquée chez quelqu'un : ce message la fait revenir.
+        if (member.channel.isDirect) await unhideConversation(io, channelId);
 
         await notifyMembers(io, channelId, userId, serialized);
         ack?.({ ok: true, message: serialized });
@@ -456,6 +458,9 @@ export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
 
     socket.on("channel:unread", async ({ channelId }) => {
       if (!channelId) return;
+      // Non-membre : rien, pas même l'écho aux autres appareils — il trahirait
+      // l'existence d'un salon privé (et qu'il contient des messages).
+      if (!(await isMember(userId, channelId).catch(() => false))) return;
       // Marquer comme non lu : on recule `lastReadAt` juste avant le dernier
       // message livré du salon (hors messages qu'il a masqués), pour que
       // serializeChannel le recalcule en "non lu" (voir la logique `unread`
@@ -507,7 +512,7 @@ export async function dispatchScheduledMessages(io: Server) {
     include: {
       author: true,
       attachments: { select: { storagePath: true } },
-      channel: { select: { kind: true, expert: true } },
+      channel: { select: { kind: true, expert: true, isDirect: true } },
     },
     take: 50,
   });
@@ -530,6 +535,7 @@ export async function dispatchScheduledMessages(io: Server) {
     });
     const serialized = serializeMessage(updated);
     io.to(`channel:${msg.channelId}`).emit("message:new", serialized);
+    if (msg.channel.isDirect) await unhideConversation(io, msg.channelId);
 
     await notifyMembers(io, msg.channelId, msg.authorId, serialized);
 

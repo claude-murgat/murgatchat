@@ -7,7 +7,7 @@ organisée en quatre couches de test, par ordre de valeur (plus des garde-fous
 
 | Couche | Outil | Ce qu'elle protège | Vérifiée |
 | --- | --- | --- | --- |
-| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 310 tests |
+| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 314 tests |
 | **E2E Web** (priorité 2) | Playwright | Câblage de l'UI web (auth, envoi, édition, suppression, threads, persistance) | ✅ parcours vert |
 | **Mobile** (priorité 3) | `expo export` + smoke APK | Le bundle RN se compile ; l'app se lance | Documentée |
 | **Charge** (k6) | k6 (HTTP + Socket.IO) | Tenue à 150 utilisateurs simultanés (REST + temps réel) | ✅ script validé (smoke) |
@@ -81,9 +81,9 @@ npm test -- test/http/auth.test.js   # un fichier
   messages, planifiés abandonnés ; **gestion par les membres** (1.6.0, `channel-manage.test.js`) :
   tout membre renomme, ajoute (jamais le bot ni un compte désactivé), retire et quitte, seul un
   admin supprime ou change la visibilité, « Général » réservé aux admins, salon privé inexistant
-  pour un non-membre admin compris, dernier membre d'un salon privé = salon supprimé, messages de
-  service ni non lus, ni aperçu, ni cherchables, ni modifiables, `POST /channels/dm` à plusieurs →
-  salon privé rouvert ensuite, masquage d'un DM, purge d'un compte), messages (edit/delete/thread ; **« Supprimer pour moi »** :
+  pour un non-membre admin compris, dernier membre d'un salon privé = salon supprimé (le bot ne
+  compte pas ; `support-dev` garde son historique), messages de service ni non lus, ni aperçu, ni cherchables, ni modifiables, `POST /channels/dm` à plusieurs →
+  salon privé rouvert ensuite, masquage d'un DM qui le marque lu, purge d'un compte), messages (edit/delete/thread ; **« Supprimer pour moi »** :
   masqué pour l'appelant seul — historique, citation des réponses, non-lus, recherche —,
   idempotent, réservé aux membres), planifiés (list/patch/delete +
   dispatch, auteur désactivé ou plus membre), pièces jointes (réservées aux membres du salon, auteur
@@ -92,8 +92,9 @@ npm test -- test/http/auth.test.js   # un fichier
 - `test/socket/` — accès aux salons privés (`channel:join` et `typing` refusés à un non-membre,
   membre retiré sorti de la room, admin rétrogradé sorti du salon du pipeline), `message:new`/`updated`/`deleted`, `message:hidden` (aux seuls appareils de celui qui masque), `thread:reply`,
   salons gérés par leurs membres (`salons.test.js` : retrait annoncé avec son auteur, message de
-  service diffusé sans notification, `addedBy` à l'ajout, réponse à un message de service refusée,
-  `channel:hidden` vers les autres appareils),
+  service diffusé sur `message:system` sans notification, `addedBy` à l'ajout, réponse à un message
+  de service refusée, `channel:hidden` vers les autres appareils et retour d'une conversation masquée
+  au message suivant, « marquer non lu » ignoré pour un non-membre),
   `reaction:update`, `presence`, `typing`, `channel:read`, événements de membres,
   handshake `auth.platform`, et les **notifications push** (`notifyMembers` :
   membre non-DND → push vers tous ses appareils, même connecté/actif ; natif +

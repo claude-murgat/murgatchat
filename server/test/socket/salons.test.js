@@ -53,8 +53,11 @@ describe("salons gérés par leurs membres — temps réel", () => {
     const carolSock = await ready(carol.token, ch.id);
 
     const removed = waitForEvent(bobSock, "channel:removed");
-    const trace = waitForEvent(carolSock, "message:new");
+    // Évènement propre aux messages de service : un client antérieur, qui
+    // n'écoute que message:new, n'en fait pas un non-lu.
+    const trace = waitForEvent(carolSock, "message:system");
     const silent = expectNoEvent(carolSock, "notification", 800);
+    const notNew = expectNoEvent(carolSock, "message:new", 800);
     await authed(srv.app, alice.token).delete(`/channels/${ch.id}/members/${bob.user.id}`);
 
     expect(await removed).toMatchObject({
@@ -70,6 +73,7 @@ describe("salons gérés par leurs membres — temps réel", () => {
       author: { id: alice.user.id },
     });
     await silent;
+    await notNew;
   });
 
   it("ajouter quelqu'un : il reçoit le salon avec le nom de qui l'a ajouté", async () => {
@@ -101,6 +105,40 @@ describe("salons gérés par leurs membres — temps réel", () => {
     const sock = await ready(alice.token, ch.id);
     const ack = await send(sock, { channelId: ch.id, body: "réponse", parentId: sys.id });
     expect(ack).toEqual({ error: "invalid_parent" });
+  });
+
+  it("un message dans une conversation masquée la fait revenir chez celui qui l'a masquée", async () => {
+    const alice = await registerUser(srv.app);
+    const bob = await registerUser(srv.app);
+    const dm = (
+      await authed(srv.app, alice.token).post("/channels/dm").send({ userId: bob.user.id })
+    ).body.channel;
+    await authed(srv.app, alice.token).post(`/channels/${dm.id}/hide`);
+    const aliceSock = await ready(alice.token, dm.id);
+    const bobSock = await ready(bob.token, dm.id);
+
+    const back = waitForEvent(aliceSock, "channel:hidden", (e) => e.hiddenAt === null);
+    expect((await send(bobSock, { channelId: dm.id, body: "tu es là ?" })).ok).toBe(true);
+    expect((await back).channelId).toBe(dm.id);
+    const listed = (await authed(srv.app, alice.token).get("/channels")).body.channels.find(
+      (c) => c.id === dm.id
+    );
+    expect(listed.hiddenAt).toBeNull();
+  });
+
+  it("« marquer non lu » d'un salon dont on n'est pas membre ne renvoie rien", async () => {
+    const alice = await registerUser(srv.app);
+    const eve = await registerUser(srv.app);
+    const ch = (
+      await authed(srv.app, alice.token).post("/channels").send({ name: "secret", isPrivate: true })
+    ).body.channel;
+    const aliceSock = await ready(alice.token, ch.id);
+    await send(aliceSock, { channelId: ch.id, body: "message" });
+    const eveA = await ready(eve.token);
+    const eveB = await ready(eve.token);
+    const silent = expectNoEvent(eveB, "channel:unread", 600);
+    eveA.emit("channel:unread", { channelId: ch.id });
+    await silent;
   });
 
   it("masquer un DM le retire aussi des autres appareils de l'utilisateur", async () => {

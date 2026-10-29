@@ -44,9 +44,15 @@ export default function ChannelDetailsModal({
 }: ChannelDetailsModalProps) {
   const overlayDismiss = useOverlayDismiss(onClose);
   const [tab, setTab] = useState<DetailsTab>(initialTab);
-  const [name, setName] = useState(channel.name || "");
-  const [description, setDescription] = useState(channel.description || "");
-  const [isPrivate, setIsPrivate] = useState(!!channel.isPrivate);
+  // Brouillons : null tant qu'on n'a pas touché au champ, qui suit alors le
+  // salon en temps réel (un autre membre peut le renommer pendant qu'il est
+  // ouvert — « Enregistrer » ne doit pas remettre l'ancien nom).
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const [descriptionDraft, setDescriptionDraft] = useState<string | null>(null);
+  const [privateDraft, setPrivateDraft] = useState<boolean | null>(null);
+  const name = nameDraft ?? (channel.name || "");
+  const description = descriptionDraft ?? (channel.description || "");
+  const isPrivate = privateDraft ?? !!channel.isPrivate;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<"leave" | "delete" | null>(null);
@@ -83,6 +89,9 @@ export default function ChannelDetailsModal({
         ...(visibilityEditable ? { isPrivate } : {}),
       });
       onSaved(res.channel);
+      setNameDraft(null);
+      setDescriptionDraft(null);
+      setPrivateDraft(null);
     });
 
   const remove = (u: User) =>
@@ -157,7 +166,7 @@ export default function ChannelDetailsModal({
                   value={name}
                   maxLength={80}
                   disabled={!editable}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) => setNameDraft(e.target.value)}
                 />
               </label>
               <label className="block">
@@ -168,7 +177,7 @@ export default function ChannelDetailsModal({
                   maxLength={300}
                   disabled={!editable}
                   placeholder={editable ? "De quoi parle ce salon ?" : undefined}
-                  onChange={(e) => setDescription(e.target.value)}
+                  onChange={(e) => setDescriptionDraft(e.target.value)}
                 />
               </label>
               <div>
@@ -180,7 +189,7 @@ export default function ChannelDetailsModal({
                         type="radio"
                         name="visibility"
                         checked={!isPrivate}
-                        onChange={() => setIsPrivate(false)}
+                        onChange={() => setPrivateDraft(false)}
                       />
                       Public — tous les membres du chat peuvent le rejoindre
                     </label>
@@ -189,7 +198,7 @@ export default function ChannelDetailsModal({
                         type="radio"
                         name="visibility"
                         checked={isPrivate}
-                        onChange={() => setIsPrivate(true)}
+                        onChange={() => setPrivateDraft(true)}
                       />
                       Privé — visible uniquement par ses membres
                     </label>

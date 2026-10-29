@@ -99,29 +99,39 @@ export function defaultSalonName(displayNames: string[]) {
 }
 
 // Message de service posté au nom de `actorId` (« a ajouté Bob au salon ») :
-// diffusé comme un message ordinaire, mais jamais notifié (ni push, ni
-// évènement `notification`) et exclu des non-lus, de l'aperçu et de la
-// recherche (pas de `searchableBody`). Un client antérieur l'affiche comme un
-// message de l'acteur : le texte doit se lire tel quel après son nom.
+// jamais notifié (ni push, ni évènement `notification`), exclu des non-lus, de
+// l'aperçu et de la recherche (pas de `searchableBody`). Diffusé sous son propre
+// évènement `message:system` : un client antérieur à la 1.6.0 l'ignore en direct
+// (sur `message:new`, il en aurait fait un non-lu) et ne le voit qu'au
+// rechargement du fil, comme un message de l'acteur — d'où un texte qui se lit
+// tel quel après son nom.
 export async function postSystemMessage(
   io: Server | null | undefined,
   channelId: string,
   actorId: string,
   text: string
 ) {
-  const msg = await prisma.message.create({
-    data: {
-      channelId,
-      authorId: actorId,
-      kind: "system",
-      body: encryptBody(text),
-      searchableBody: null,
-    },
-    include: { author: true, attachments: true },
-  });
-  const serialized = serializeMessage(msg);
-  io?.to(`channel:${channelId}`).emit("message:new", serialized);
-  return serialized;
+  // Au mieux : le salon a pu disparaître entre-temps (deux derniers membres qui
+  // partent en même temps) — l'action elle-même a réussi, la trace n'a plus lieu
+  // d'être.
+  try {
+    const msg = await prisma.message.create({
+      data: {
+        channelId,
+        authorId: actorId,
+        kind: "system",
+        body: encryptBody(text),
+        searchableBody: null,
+      },
+      include: { author: true, attachments: true },
+    });
+    const serialized = serializeMessage(msg);
+    io?.to(`channel:${channelId}`).emit("message:system", serialized);
+    return serialized;
+  } catch (err) {
+    console.warn("[channels] message de service non posté", channelId, (err as Error).message);
+    return null;
+  }
 }
 
 // Supprime un salon et tout son contenu (suppression par un admin, départ du
@@ -138,11 +148,50 @@ export async function destroyChannel(io: Server | null | undefined, channelId: s
     select: { attachments: { select: { storagePath: true } } },
   });
   const blobs = msgs.flatMap((m) => m.attachments.map((a) => a.storagePath));
-  await prisma.channel.delete({ where: { id: channelId } });
+  // deleteMany : idempotent si une suppression concurrente est passée avant.
+  await prisma.channel.deleteMany({ where: { id: channelId } });
   await Promise.all(blobs.map((p) => safeUnlink(p)));
   for (const { userId } of memberRows) {
     io?.to(`user:${userId}`).emit("channel:removed", { channelId, reason: "deleted" });
     io?.in(`user:${userId}`).socketsLeave(`channel:${channelId}`);
+  }
+}
+
+// Le salon du pipeline de support (réservé aux admins, voir notify.ts) : son
+// historique survit au départ de ses membres — la prochaine notification les
+// réinscrit de toute façon.
+export function isSupportChannel(channel: Pick<Channel, "isDirect" | "name">) {
+  return !channel.isDirect && channel.name === supportChannelName();
+}
+
+// Un salon privé sans plus aucun membre (le bot technique ne compte pas : il ne
+// lit rien) n'est plus visible de personne, ni supprimable par un admin — il
+// est supprimé avec son contenu. Renvoie true s'il l'a été.
+export async function destroyIfAbandoned(io: Server | null | undefined, channel: Channel) {
+  if (!channel.isPrivate || channel.isDefault || isSupportChannel(channel)) return false;
+  const people = await prisma.membership.count({
+    where: { channelId: channel.id, user: { username: { not: BOT_USERNAME } } },
+  });
+  if (people > 0) return false;
+  await destroyChannel(io, channel.id);
+  return true;
+}
+
+// Un message livré dans une conversation directe la fait revenir chez ceux qui
+// l'avaient masquée, sur tous leurs appareils. Sans cela, `hiddenAt` resterait
+// posé : supprimer ensuite le dernier message la ferait disparaître de nouveau.
+export async function unhideConversation(io: Server | null | undefined, channelId: string) {
+  const hidden = await prisma.membership.findMany({
+    where: { channelId, hiddenAt: { not: null } },
+    select: { userId: true },
+  });
+  if (hidden.length === 0) return;
+  await prisma.membership.updateMany({
+    where: { channelId, hiddenAt: { not: null } },
+    data: { hiddenAt: null },
+  });
+  for (const { userId } of hidden) {
+    io?.to(`user:${userId}`).emit("channel:hidden", { channelId, hiddenAt: null });
   }
 }
 
@@ -733,11 +782,10 @@ async function leaveSalon(req: Express.Request, channel: Channel) {
     reason: "left",
     channelName: channel.name,
   });
+  if (await destroyIfAbandoned(req.io, channel)) return;
   const remaining = await prisma.membership.count({ where: { channelId: channel.id } });
-  if (remaining === 0) {
-    if (channel.isPrivate) await destroyChannel(req.io, channel.id);
-    return;
-  }
+  // Personne pour lire un « a quitté le salon » (salon public resté vide).
+  if (remaining === 0) return;
   await postSystemMessage(req.io, channel.id, req.userId, "a quitté le salon");
 }
 
@@ -774,6 +822,8 @@ router.delete("/:id/members/:userId", requireAuth, async (req, res) => {
     by: req.user ? { id: req.user.id, displayName: req.user.displayName } : undefined,
     channelName: channel.name,
   });
+  // Deux membres qui se retirent l'un l'autre au même instant : personne ne reste.
+  if (await destroyIfAbandoned(req.io, channel)) return res.json({ ok: true });
   await postSystemMessage(
     req.io,
     id,
@@ -785,7 +835,9 @@ router.delete("/:id/members/:userId", requireAuth, async (req, res) => {
 
 // « Masquer » une conversation directe : elle quitte la liste de l'appelant (sur
 // tous ses appareils) jusqu'au prochain message ou jusqu'à ce qu'il la rouvre.
-// Rien ne change pour l'autre personne ; on ne « quitte » pas un DM.
+// Elle est marquée lue au passage : un non-lu caché resterait sinon compté dans
+// le badge de l'app sans pastille visible. Rien ne change pour l'autre personne ;
+// on ne « quitte » pas un DM.
 router.post("/:id/hide", requireAuth, async (req, res) => {
   const { id } = req.params;
   const channel = await prisma.channel.findUnique({ where: { id } });
@@ -796,8 +848,12 @@ router.post("/:id/hide", requireAuth, async (req, res) => {
     return res.status(404).json({ error: "not_found" });
   }
   const hiddenAt = new Date();
-  await prisma.membership.update({ where: { id: membership.id }, data: { hiddenAt } });
+  await prisma.membership.update({
+    where: { id: membership.id },
+    data: { hiddenAt, lastReadAt: hiddenAt },
+  });
   req.io?.to(`user:${req.userId}`).emit("channel:hidden", { channelId: id, hiddenAt });
+  req.io?.to(`user:${req.userId}`).emit("channel:read", { channelId: id });
   res.json({ ok: true, hiddenAt });
 });
 
@@ -851,6 +907,9 @@ router.patch("/:id", requireAuth, async (req, res) => {
     // Le salon par défaut reste public et ne change pas de visibilité.
     if (channel.isDefault) return res.status(403).json({ error: "cannot_make_default_private" });
     if (!isAdmin) return res.status(403).json({ error: "admin_only" });
+    // Un salon privé n'existe que pour ses membres : l'admin qui le rendrait
+    // privé sans en être le perdrait aussitôt (et un salon vide, tout le monde).
+    if (isPrivate && !membership) return res.status(403).json({ error: "not_a_member" });
   }
 
   const data: Prisma.ChannelUpdateInput = {};

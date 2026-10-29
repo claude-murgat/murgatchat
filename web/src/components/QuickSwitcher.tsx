@@ -81,15 +81,24 @@ export default function QuickSwitcher({
   // Une conversation correspond par son nom… ou par ses membres : taper le nom de
   // quelqu'un montre aussi les salons qu'on partage avec lui, même renommés
   // (un groupe devenu salon privé ne porte plus forcément ses noms, 1.6.0).
+  // Le salon par défaut réunit tout le monde : il correspondrait à n'importe quel
+  // nom. Les correspondances par le nom passent d'abord (la conversation directe
+  // avec la personne cherchée reste en tête, donc sous Entrée), puis les salons
+  // partagés.
   const othersMatching = (c: Channel) =>
     c.members.filter(
       (m) => m.id !== user.id && (norm(m.displayName).includes(ql) || norm(m.username).includes(ql))
     );
-  const existing = channels.filter(
+  const byName = channels.filter((c) => norm(c.isDirect ? c.displayName : c.name).includes(ql));
+  const byMember = channels.filter(
     (c) =>
-      norm(c.isDirect ? c.displayName : c.name).includes(ql) ||
-      (c.kind !== "claude" && othersMatching(c).length > 0)
+      !byName.includes(c) &&
+      !c.isDirect &&
+      !c.isDefault &&
+      c.kind !== "claude" &&
+      othersMatching(c).length > 0
   );
+  const existing = [...byName, ...byMember];
   const publicChannels = publicRaw.filter((c) => !joinedIds.has(c.id));
   const people = peopleRaw.filter((u) => u.id !== user.id);
 
