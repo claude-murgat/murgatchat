@@ -91,16 +91,21 @@ async function registerWithCode(page, code, email) {
 }
 
 async function createPrivateChannel(page, name) {
-  // Unified search ("quick switcher"): type the name, then pick the
-  // "Créer le salon « … »" action, which opens the create form pre-filled.
-  await page.getByPlaceholder(/Rechercher ou créer/).fill(name);
+  // Recherche unifiée : on tape le nom, puis l'action « Créer le salon « … » »
+  // ouvre la création pré-remplie, en trois temps comme Slack (1.6.0) : le nom,
+  // la visibilité, puis les personnes à ajouter (qu'on passe ici).
+  await page.getByPlaceholder(/^Rechercher/).fill(name);
   await page.getByRole("button", { name: /Créer le salon/ }).click();
-  await expect(page.getByText("Créer une conversation")).toBeVisible();
+  const dialog = page.getByRole("dialog", { name: "Créer un salon" });
+  await expect(dialog).toBeVisible();
   // Name is pre-filled from the search; re-assert it, then mark the channel private.
-  await page.getByPlaceholder("Nom du salon (ex. marketing)").fill(name);
-  await page.getByText("Salon privé").click();
-  await page.getByRole("button", { name: "Créer" }).click();
-  await expect(page.getByText("Créer une conversation")).toBeHidden();
+  await dialog.getByPlaceholder("ex. projet-chantier").fill(name);
+  await dialog.getByRole("button", { name: "Suivant" }).click();
+  await dialog.getByText("Privé", { exact: true }).click();
+  await dialog.getByRole("button", { name: "Créer", exact: true }).click();
+  const skip = page.getByRole("button", { name: "Ignorer pour l'instant" });
+  await skip.click();
+  await expect(skip).toBeHidden();
 }
 
 const messageRow = (page, text) =>
@@ -340,7 +345,7 @@ test("invitation registration + full web journey", async ({ page, browser }) => 
   // On tape une requête, on bouge la sélection avec les flèches (bas puis haut,
   // ce qui ramène sur le premier résultat « Général ») et on valide avec Entrée :
   // la conversation surlignée doit s'ouvrir sans le moindre clic souris.
-  const search = page.getByPlaceholder(/Rechercher ou créer/);
+  const search = page.getByPlaceholder(/^Rechercher/);
   await search.fill("Général");
   await expect(page.getByText("Vos conversations")).toBeVisible();
   await search.press("ArrowDown");
