@@ -1,17 +1,36 @@
 import { useState } from "react";
 import { api } from "../api.ts";
 import Avatar from "./Avatar.tsx";
-import type { Channel, User } from "../types.ts";
+import type { Channel, SalonRole, User } from "../types.ts";
 import { useOverlayDismiss } from "../hooks/useOverlayDismiss.ts";
 import {
   canChangeVisibility,
   canDeleteSalon,
   canEditSalon,
   canManageMembers,
+  canManageRoles,
+  canRemoveMember,
+  isBot,
+  isOnlySalonAdmin,
+  isSalonAdmin,
   salonLabel,
+  salonPeople,
 } from "../channelRules.ts";
 
 export type DetailsTab = "about" | "members";
+
+// Refus que l'interface ne peut pas toujours éviter (rôle retiré entre-temps par
+// un autre admin, deux admins qui se retirent le rôle au même instant, nom du
+// salon du pipeline, que le client ne connaît pas…) : dits en clair plutôt
+// qu'avec le code du serveur. Les autres codes s'affichent tels quels.
+const ERROR_TEXT = new Map([
+  ["admin_only", "Seul un admin du salon peut faire cela."],
+  ["last_admin", "Le salon doit garder au moins un admin : nommez-en un autre d'abord."],
+  [
+    "reserved_name",
+    "Le salon du pipeline de support garde son nom : aucun autre salon ne peut le prendre.",
+  ],
+]);
 
 interface ChannelDetailsModalProps {
   /** Le salon tel que la liste le connaît : membres et nom suivent le temps réel. */
@@ -29,8 +48,9 @@ interface ChannelDetailsModalProps {
 
 // Le panneau « Détails » d'un salon, ouvert en cliquant sur son nom : tout ce
 // qu'un membre peut faire au même endroit (1.6.0) — renommer et décrire,
-// voir/ajouter/retirer les membres, quitter ; supprimer et changer la
-// visibilité restent aux admins. Le serveur revérifie chaque action.
+// voir/ajouter/retirer les membres, quitter ; supprimer, changer la
+// visibilité, nommer ou retirer des admins et retirer un admin reviennent aux
+// admins du salon (et du chat). Le serveur revérifie chaque action.
 export default function ChannelDetailsModal({
   channel,
   currentUser,
@@ -55,18 +75,30 @@ export default function ChannelDetailsModal({
   const isPrivate = privateDraft ?? !!channel.isPrivate;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirm, setConfirm] = useState<"leave" | "delete" | null>(null);
+  const [confirm, setConfirm] = useState<"leave" | "delete" | "public" | null>(null);
 
   const editable = canEditSalon(channel, currentUser);
   const visibilityEditable = canChangeVisibility(channel, currentUser);
   const membersEditable = canManageMembers(channel);
+  const rolesEditable = canManageRoles(channel, currentUser);
   const deletable = canDeleteSalon(channel, currentUser);
+  // La visibilité ne compte que si le lecteur peut encore la changer : un admin
+  // du salon à qui l'on retire le rôle pendant qu'il édite perd les boutons
+  // radio, son brouillon n'est plus envoyé.
   const dirty =
     name.trim() !== (channel.name || "") ||
     description.trim() !== (channel.description || "") ||
-    isPrivate !== !!channel.isPrivate;
+    (visibilityEditable && isPrivate !== !!channel.isPrivate);
   const creator = channel.members.find((m) => m.id === channel.createdById);
-  const lastOne = channel.members.length <= 1;
+  // Le bot qu'un ancien groupe peut compter n'est pas une personne : avec lui
+  // seul, le salon privé est supprimé à votre départ et personne ne devient admin.
+  const lastOne = salonPeople(channel).length <= 1;
+  // Le seul admin qui part laisse le rôle au membre le plus ancien (serveur).
+  const lastAdminLeaving = !lastOne && isOnlySalonAdmin(channel, currentUser);
+  // Rendre public un salon privé expose tout son historique à tout le chat :
+  // comme quitter ou supprimer, cela se confirme.
+  const makingPublic = visibilityEditable && !!channel.isPrivate && !isPrivate;
+  const confirmPublic = confirm === "public" && makingPublic;
 
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -75,14 +107,16 @@ export default function ChannelDetailsModal({
       await action();
     } catch (err) {
       // `request()` (api.ts) ne rejette qu'avec des Error : simple vue typée.
-      setError((err as Error).message);
+      const message = (err as Error).message;
+      setError(ERROR_TEXT.get(message) ?? message);
     } finally {
       setBusy(false);
     }
   }
 
-  const save = () =>
-    run(async () => {
+  const save = () => {
+    if (makingPublic && confirm !== "public") return setConfirm("public");
+    return run(async () => {
       const res = await api.updateChannel(channel.id, {
         name: name.trim(),
         description: description.trim() ? description.trim() : null,
@@ -92,6 +126,24 @@ export default function ChannelDetailsModal({
       setNameDraft(null);
       setDescriptionDraft(null);
       setPrivateDraft(null);
+      setConfirm((c) => (c === "public" ? null : c));
+    });
+  };
+
+  // Changer d'avis sur la visibilité annule une confirmation « rendre public »
+  // en attente : elle se redemandera.
+  const pickVisibility = (priv: boolean) => {
+    setPrivateDraft(priv);
+    setConfirm((c) => (c === "public" ? null : c));
+  };
+
+  // Nommer admin du salon, ou retirer ce rôle : le salon renvoyé (adminIds à
+  // jour) remplace la version locale ; channel:members prévient les autres.
+  // Rôle déjà en place : rien n'a changé, la réponse peut ne rien porter.
+  const setRole = (u: User, role: SalonRole) =>
+    run(async () => {
+      const res = await api.setMemberRole(channel.id, u.id, role);
+      if (res.channel) onSaved(res.channel);
     });
 
   const remove = (u: User) =>
@@ -124,11 +176,13 @@ export default function ChannelDetailsModal({
       className="fixed inset-0 bg-black/50 grid place-items-stretch sm:place-items-center z-50 p-0 sm:p-4"
       {...overlayDismiss}
     >
+      {/* min-w-0 : sur mobile, sans largeur max, la grille élargirait la fenêtre
+          au nom de membre le plus long au lieu de le tronquer — l'écran déborde. */}
       <div
         role="dialog"
         aria-label={`Détails de ${salonLabel(channel)}`}
         onClick={(e) => e.stopPropagation()}
-        className="bg-white text-slate-900 sm:rounded-xl shadow-2xl w-full h-dvh sm:h-auto sm:max-w-lg sm:max-h-[90vh] flex flex-col"
+        className="bg-white text-slate-900 sm:rounded-xl shadow-2xl w-full min-w-0 h-dvh sm:h-auto sm:max-w-lg sm:max-h-[90vh] flex flex-col"
       >
         <div className="px-5 pt-5 flex items-start justify-between gap-3">
           <h2 className="text-xl font-bold min-w-0 break-words">{salonLabel(channel)}</h2>
@@ -189,7 +243,7 @@ export default function ChannelDetailsModal({
                         type="radio"
                         name="visibility"
                         checked={!isPrivate}
-                        onChange={() => setPrivateDraft(false)}
+                        onChange={() => pickVisibility(false)}
                       />
                       Public — tous les membres du chat peuvent le rejoindre
                     </label>
@@ -198,7 +252,7 @@ export default function ChannelDetailsModal({
                         type="radio"
                         name="visibility"
                         checked={isPrivate}
-                        onChange={() => setPrivateDraft(true)}
+                        onChange={() => pickVisibility(true)}
                       />
                       Privé — visible uniquement par ses membres
                     </label>
@@ -216,18 +270,30 @@ export default function ChannelDetailsModal({
               )}
               {!editable && (
                 <p className="text-xs text-slate-500">
-                  Seul un administrateur peut modifier le salon par défaut.
+                  Seul un administrateur du chat peut modifier le salon par défaut.
                 </p>
               )}
               {editable && (
-                <div className="flex justify-end">
-                  <button
-                    type="submit"
-                    disabled={busy || !dirty || !name.trim()}
-                    className="px-4 py-2 rounded-md bg-aubergine-700 text-white font-medium hover:bg-aubergine-800 disabled:opacity-50"
-                  >
-                    Enregistrer
-                  </button>
+                <div className="space-y-2">
+                  {confirmPublic && (
+                    <p className="text-sm text-slate-700">
+                      Rendre ce salon public ? Tout le monde pourra le trouver et lire tout son
+                      historique.
+                    </p>
+                  )}
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={busy || !dirty || !name.trim()}
+                      className={`px-4 py-2 rounded-md text-white font-medium disabled:opacity-50 ${
+                        confirmPublic
+                          ? "bg-red-600 hover:bg-red-700"
+                          : "bg-aubergine-700 hover:bg-aubergine-800"
+                      }`}
+                    >
+                      {confirmPublic ? "Confirmer : rendre public" : "Enregistrer"}
+                    </button>
+                  </div>
                 </div>
               )}
             </form>
@@ -245,28 +311,63 @@ export default function ChannelDetailsModal({
                   Ajouter des personnes
                 </button>
               )}
-              {channel.members.map((u) => (
-                <div key={u.id} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-md">
-                  <Avatar user={u} size={32} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">
-                      {u.displayName}
-                      {u.id === currentUser.id ? " (vous)" : ""}
+              {channel.members.map((u) => {
+                const admin = isSalonAdmin(channel, u);
+                // Le seul admin garde son rôle : le salon en aurait sinon zéro
+                // (le serveur refuserait, 409 last_admin) ; le bot ne peut pas
+                // être nommé (403 bot_protected).
+                const roleButton =
+                  rolesEditable && (admin ? !isOnlySalonAdmin(channel, u) : !isBot(u));
+                const removable = canRemoveMember(channel, currentUser, u);
+                return (
+                  <div key={u.id} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-md">
+                    <Avatar user={u} size={32} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-medium truncate min-w-0">
+                          {u.displayName}
+                          {u.id === currentUser.id ? " (vous)" : ""}
+                        </span>
+                        {admin && (
+                          <span
+                            title="Admin du salon"
+                            className="shrink-0 text-[11px] font-semibold text-blue-700 bg-blue-100 rounded-sm px-1.5 py-0.5"
+                          >
+                            Admin
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-500 truncate">@{u.username}</div>
                     </div>
-                    <div className="text-xs text-slate-500 truncate">@{u.username}</div>
+                    {(roleButton || removable) && (
+                      // Empilés sur mobile : deux boutons côte à côte ne
+                      // laisseraient presque plus de place au nom.
+                      <div className="shrink-0 flex flex-col items-end sm:flex-row sm:items-center">
+                        {roleButton && (
+                          <button
+                            type="button"
+                            onClick={() => void setRole(u, admin ? "member" : "admin")}
+                            disabled={busy}
+                            className="text-xs text-aubergine-700 hover:underline disabled:opacity-50 px-2 py-1 whitespace-nowrap"
+                          >
+                            {admin ? "Retirer admin" : "Nommer admin"}
+                          </button>
+                        )}
+                        {removable && (
+                          <button
+                            type="button"
+                            onClick={() => void remove(u)}
+                            disabled={busy}
+                            className="text-xs text-red-600 hover:underline disabled:opacity-50 px-2 py-1"
+                          >
+                            Retirer
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  {membersEditable && u.id !== currentUser.id && (
-                    <button
-                      type="button"
-                      onClick={() => void remove(u)}
-                      disabled={busy}
-                      className="text-xs text-red-600 hover:underline disabled:opacity-50 px-2 py-1"
-                    >
-                      Retirer
-                    </button>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
           {error && <p className="text-sm text-red-600">{error}</p>}
@@ -281,9 +382,12 @@ export default function ChannelDetailsModal({
                   : channel.isPrivate
                   ? "Vous ne verrez plus ce salon. Un membre pourra vous ajouter à nouveau."
                   : "Le salon disparaîtra de votre liste ; vous pourrez le rejoindre à nouveau."}
+                {lastAdminLeaving &&
+                  " Vous êtes le seul admin : le membre le plus ancien le deviendra."}
               </p>
             )}
-            {confirm === "delete" && (
+            {/* Le droit de supprimer peut se perdre en direct (rôle d'admin retiré). */}
+            {confirm === "delete" && deletable && (
               <p className="text-sm text-red-700">
                 Supprimer définitivement {salonLabel(channel)} et tous ses messages, pour tous ses
                 membres ?

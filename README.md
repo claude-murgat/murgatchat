@@ -268,7 +268,7 @@ E2E (le serveur ne peut pas lire) a été écarté pour cette itération car inc
 Tables (Prisma) :
 - `User` (id, email, username, displayName, passwordHash, avatarColor, status, dndUntil)
 - `Channel` (id, name?, isDirect, isPrivate, description?)
-- `Membership` (userId, channelId, joinedAt, lastReadAt) — unique sur la paire
+- `Membership` (userId, channelId, joinedAt, lastReadAt, role `admin`/`member`) — unique sur la paire
 - `Message` (id, channelId, authorId, body **(chiffré)**, createdAt, scheduledAt?, delivered) — indices `(channelId,createdAt)` et `(scheduledAt,delivered)`
 - `Attachment` (id, messageId?, uploadedBy?, filename, mimeType, size, storagePath, createdAt) — indices `(messageId)` et `(uploadedBy)`
 
@@ -310,13 +310,14 @@ Génère une clé prod avec : `openssl rand -hex 32`.
 | DELETE  | `/auth/users/:id`                  | suppression définitive d'un compte **déjà désactivé** (admin ; propriétaire pour un admin) — voir `server/src/userPurge.ts` |
 | GET     | `/users?q=`                        | recherche d'utilisateurs (comptes actifs, sans le bot) |
 | GET     | `/channels`                        | mes conversations                            |
-| POST    | `/channels`                        | créer un salon (`{ name, description?, isPrivate?, memberIds? }`) |
+| POST    | `/channels`                        | créer un salon (`{ name, description?, isPrivate?, memberIds? }` ; `409 reserved_name` sous le nom du salon du pipeline) |
 | GET     | `/channels/public?q=`              | salons publics dont je ne suis pas membre (« Parcourir les salons ») |
 | POST    | `/channels/dm`                     | ouvrir ou retrouver un DM (`userIds` à plusieurs : salon privé, pour les clients antérieurs à la 1.6.0) |
-| PATCH   | `/channels/:id`                    | renommer / décrire (tout membre) ; visibilité (admin) |
-| DELETE  | `/channels/:id`                    | supprimer un salon et son contenu (admin)    |
+| PATCH   | `/channels/:id`                    | renommer / décrire (tout membre ; `409 reserved_name` vers ou depuis le nom du salon du pipeline) ; visibilité (admin du salon ou admin) |
+| DELETE  | `/channels/:id`                    | supprimer un salon et son contenu (admin du salon ou admin) |
 | POST    | `/channels/:id/members`            | ajouter des personnes (tout membre)          |
-| DELETE  | `/channels/:id/members/:userId`    | retirer quelqu'un (tout membre)              |
+| PATCH   | `/channels/:id/members/:userId`    | `{ role: "admin" \| "member" }` : nommer ou retirer un admin du salon (admin du salon ou admin ; `409 last_admin` pour le dernier, `403 no_roles` hors salon géré) |
+| DELETE  | `/channels/:id/members/:userId`    | retirer quelqu'un (tout membre ; un admin du salon : admin du salon ou admin) |
 | POST    | `/channels/:id/join` · `/leave`    | rejoindre un salon public · quitter un salon |
 | POST    | `/channels/:id/hide`               | masquer une conversation directe (revient au prochain message) |
 | GET     | `/channels/:id/messages`           | messages d'un salon                          |
@@ -431,26 +432,60 @@ pour les secrets) :
 ## Événements Socket.IO
 
 Côté client → serveur : `channel:join`, `channel:read`, `channel:unread`, `typing`, `message:send` (`{ channelId, body?, attachmentIds?, scheduledAt?, parentId? }`).
-Côté serveur → client : `message:new` (avec `kind: "system"` pour un message de service), `message:updated`, `message:deleted`, `message:hidden`, `reaction:update`, `channel:created` (`addedBy` quand quelqu'un vous ajoute), `channel:updated`, `channel:removed` (`reason` `left`/`removed`/`deleted`, `by`, `channelName`), `channel:hidden`, `channel:members`, `channel:read`, `channel:unread`, `notification`, `presence:state`, `presence:update`, `typing:update`, `claude:progress`, `session:revoked`, `user:deleted`.
+Côté serveur → client : `message:new`, `message:system` (message de service, `kind: "system"` — évènement à part, qu'un client antérieur à la 1.6.0 ignore), `message:updated`, `message:deleted`, `message:hidden`, `reaction:update`, `channel:created` (`addedBy` quand quelqu'un vous ajoute), `channel:updated`, `channel:removed` (`reason` `left`/`removed`/`deleted`, `by`, `channelName`), `channel:hidden`, `channel:members` (`{ channelId, members, adminIds }`), `channel:read`, `channel:unread`, `notification`, `presence:state`, `presence:update`, `typing:update`, `claude:progress`, `session:revoked`, `user:deleted`.
 
-### Salons et conversations directes (1.6.0)
+### Salons et conversations directes
 
 Comme dans Slack, la barre latérale range les **salons** (publics ou privés) et les
 **messages directs** (conversations à deux, plus « Mes notes ») ; un « + » à côté de
 chaque section crée un salon (nom → visibilité → personnes) ou un nouveau message.
-Un « groupe de discussion » est un **salon privé** : choisir plusieurs personnes dans
-« Nouveau message » en crée un, et la migration `20261029000000_private_salons` a converti
-les anciens DM de groupe. Règles (serveur, `server/src/routes/channels.ts`) :
+Un « groupe de discussion » est un **salon privé** (depuis la 1.6.0) : choisir plusieurs
+personnes dans « Nouveau message » en crée un, et la migration
+`20261029000000_private_salons` a converti les anciens DM de groupe. Comme les
+gestionnaires de canal de Slack, chaque salon a ses **admins du salon** : son créateur,
+puis ceux qu'un admin du salon nomme (« ⓘ Détails » → « Membres »). Rien à voir avec
+les **admins du chat** (rôle global donné par le propriétaire dans le panneau
+Administration), qui gardent la main sur tous les salons. Règles (serveur,
+`server/src/routes/channels.ts`, seul juge ; le client les reflète dans
+`web/src/channelRules.ts`) :
 
-- **tout membre** d'un salon ajoute, retire, renomme, décrit et quitte ; les personnes
-  ajoutées voient tout l'historique ;
-- **un admin seulement** supprime un salon ou change sa visibilité ; « Général » ne se
-  modifie que par un admin et ne se quitte ni ne se supprime ;
-- un **salon privé n'existe que pour ses membres**, admins compris (404 sinon) ; le
-  dernier membre qui le quitte le supprime ;
+- **tout membre** d'un salon ajoute des personnes, retire un simple membre, renomme,
+  décrit et quitte ; les personnes ajoutées (simples membres) voient tout l'historique ;
+- **un admin du salon ou un admin du chat** change sa visibilité, le supprime, nomme ou
+  retire les admins du salon (`PATCH /channels/:id/members/:userId`), et peut seul en
+  exclure un admin du salon ; un admin du chat renomme ou supprime un salon public, et y
+  nomme des admins, sans en être membre (il doit en être membre pour changer sa
+  visibilité ou en retirer quelqu'un) ;
+- un salon garde **toujours au moins un admin du salon** tant qu'il y reste quelqu'un :
+  le dernier ne peut pas se retirer le rôle (`409 last_admin`) ; s'il quitte le salon, en
+  est retiré ou que son compte est supprimé, le **plus ancien membre actif** prend le
+  relais (à défaut, le plus ancien membre ; jamais le bot) ; qui rejoint un salon public
+  resté vide en devient l'admin ;
+- pas d'admins du salon dans les conversations directes, les conversations d'expert,
+  « Général » ni le salon du pipeline (`adminIds` toujours vide, `403 no_roles`) ;
+  « Général » ne se modifie que par un admin du chat et ne se quitte ni ne se supprime ;
+- le salon du pipeline se reconnaît à son nom (`SUPPORT_NOTIFY_CHANNEL`, `support-dev` par
+  défaut), qui lui est **réservé** (`409 reserved_name`) : aucun salon ne le prend, à la
+  création comme au renommage — il y perdrait ses admins du salon et le pipeline pourrait
+  l'adopter —, et le salon du pipeline n'en change pas ;
+- un **salon privé n'existe que pour ses membres**, admins du chat compris (404 sinon) ;
+  le dernier membre qui le quitte le supprime ;
 - une conversation directe ne se quitte pas : elle se **masque** jusqu'au prochain message ;
-- chaque changement laisse un **message de service** (« Charles a ajouté Bob au salon ») :
-  jamais notifié, jamais non lu, ni cherchable ni modifiable.
+- chaque changement laisse un **message de service**, lu après le nom de son auteur
+  (« Charles a ajouté Bob au salon », « Charles a nommé Bob admin du salon », « Charles a
+  retiré le rôle d'admin à Bob », « Charles n'est plus admin du salon ») ; une promotion
+  automatique est signée par le promu (« Bob est maintenant admin du salon ») ; jamais
+  notifié, jamais non lu, ni cherchable ni modifiable.
+
+Le rôle est stocké par adhésion (`Membership.role` : `"admin"` | `"member"`, migration
+`20261029150000_salon_admins`). Chaque salon sérialisé (`GET /channels`,
+`GET /channels/public`, `channel:created`, `channel:updated`, réponses des routes) porte
+`adminIds`, les ids de ses admins du salon parmi `members` ; `channel:members` diffuse
+`{ channelId, members, adminIds }` (un client 1.6.0 ignore ce champ). Au démarrage,
+`ensureSalonAdmins()` donne un admin à chaque salon qui n'en a pas (tous, au premier
+démarrage après la migration) : son créateur s'il en est encore membre, sinon le plus
+ancien membre actif — sans message de service ; les clients déjà reconnectés reçoivent
+`channel:members` ; sans effet ensuite.
 
 ## Décisions techniques
 

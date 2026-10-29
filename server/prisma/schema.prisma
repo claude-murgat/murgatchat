@@ -54,9 +54,10 @@ model Channel {
   // par expert ; null pour les salons et les DM.
   expert      String?
   description String?
-  // Créateur du salon (POST /channels) : seul lui (ou un admin) peut le
-  // renommer/modifier ou le supprimer. Nullable pour les salons historiques
-  // créés avant cette colonne (gérés par les admins uniquement).
+  // Créateur du salon (POST /channels) : il en est le premier admin du salon
+  // (Membership.role), et le rattrapage du démarrage (ensureSalonAdmins) le
+  // préfère pour un salon qui n'a pas d'admin. Nullable pour les salons
+  // historiques créés avant cette colonne.
   createdById String?
   createdAt   DateTime @default(now())
 
@@ -78,6 +79,11 @@ model Membership {
   // jusqu'au prochain message (horodatage comparé au dernier message côté
   // client) ou jusqu'à ce qu'il la rouvre (POST /channels/dm la remet à null).
   hiddenAt  DateTime?
+  // Rôle dans un salon : "admin" (admin du salon) ou "member". Seuls les salons
+  // gérés ont des admins — jamais les DM, conversations d'expert, Général ni le
+  // salon du pipeline (voir isManagedSalon, routes/channels.ts). Un salon géré
+  // qui a des membres en a toujours au moins un (ensureSalonAdmin).
+  role      String   @default("member")
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)

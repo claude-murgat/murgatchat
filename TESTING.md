@@ -7,7 +7,7 @@ organisée en quatre couches de test, par ordre de valeur (plus des garde-fous
 
 | Couche | Outil | Ce qu'elle protège | Vérifiée |
 | --- | --- | --- | --- |
-| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 314 tests |
+| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 341 tests |
 | **E2E Web** (priorité 2) | Playwright | Câblage de l'UI web (auth, envoi, édition, suppression, threads, persistance) | ✅ parcours vert |
 | **Mobile** (priorité 3) | `expo export` + smoke APK | Le bundle RN se compile ; l'app se lance | Documentée |
 | **Charge** (k6) | k6 (HTTP + Socket.IO) | Tenue à 150 utilisateurs simultanés (REST + temps réel) | ✅ script validé (smoke) |
@@ -133,7 +133,10 @@ réponse dans un fil → persistance après rechargement → déconnexion.
 personne (prévenue), « Nouveau message » à plusieurs → salon privé puis proposition du salon
 existant, renommage et retrait par un simple membre (le retiré est prévenu, pas de suppression
 sans être admin), départ depuis le menu contextuel, masquage d'un DM qui revient au message
-suivant, suppression par un admin.
+suivant, suppression par un admin. Admins du salon : le créateur porte le badge « Admin » et
+un simple membre n'a ni visibilité modifiable, ni suppression, ni « Retirer » face à un admin ;
+« Nommer admin » donne ses droits en direct (sans rechargement) ; repasser un salon privé en
+public demande confirmation ; quand l'unique admin s'en va, le plus ancien membre prend le relais.
 `delete-for-me.spec.js` : « Supprimer pour moi » sur le message d'un autre — masqué de
 son côté (même après rechargement), toujours visible de l'auteur.
 `push-read-state.spec.js` : injecte de vrais évènements `push` dans le service worker

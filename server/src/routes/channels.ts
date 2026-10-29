@@ -37,17 +37,20 @@ type ChannelWithRelations = Channel & {
 
 const router = Router();
 
+// `adminIds` : même calcul que serializeChannel — un client 1.6.0 l'ignore et ne
+// lit que `members`.
 export async function broadcastMembers(
   io: Server | null | undefined,
   channelId: string
 ) {
-  const memberships = await prisma.membership.findMany({
-    where: { channelId },
-    include: { user: true },
+  const channel = await prisma.channel.findUnique({
+    where: { id: channelId },
+    include: { memberships: { include: { user: true } } },
   });
   io?.to(`channel:${channelId}`).emit("channel:members", {
     channelId,
-    members: memberships.map((m) => publicUser(m.user)),
+    members: (channel?.memberships || []).map((m) => publicUser(m.user)),
+    adminIds: channel ? salonAdminIds(channel) : [],
   });
 }
 
@@ -162,6 +165,164 @@ export async function destroyChannel(io: Server | null | undefined, channelId: s
 // réinscrit de toute façon.
 export function isSupportChannel(channel: Pick<Channel, "isDirect" | "name">) {
   return !channel.isDirect && channel.name === supportChannelName();
+}
+
+// Son nom lui est donc réservé (409 reserved_name) : aucun salon ne le prend, ni
+// à la création ni au renommage, et lui n'en change pas. Un salon qui le
+// prendrait perdrait ses admins du salon — un simple membre pourrait en évincer
+// l'admin, puis hériter du rôle une fois le nom rendu — et le pipeline pourrait
+// l'adopter (membres remplacés par les admins du chat, historique privé
+// compris) ; le salon du pipeline renommé deviendrait un salon géré sans admin.
+function renamesAcrossPipeline(channel: Pick<Channel, "isDirect" | "name">, name: string) {
+  return isSupportChannel({ isDirect: false, name }) !== isSupportChannel(channel);
+}
+
+// Un « salon géré » : le seul où existent des admins du salon (Membership.role).
+// Jamais une conversation directe ni d'expert, ni « Général » (géré par les
+// admins du chat seuls), ni le salon du pipeline (ses membres sont les admins du
+// chat, réconciliés à chaque notification — voir notify.ts).
+export function isManagedSalon(
+  channel: Pick<Channel, "isDirect" | "kind" | "isDefault" | "name">
+) {
+  return (
+    !channel.isDirect &&
+    channel.kind === "standard" &&
+    !channel.isDefault &&
+    !isSupportChannel(channel)
+  );
+}
+
+// Admins d'un salon, tels que les voient les clients (`adminIds`) : toujours
+// vide hors d'un salon géré, quoi que dise la colonne.
+function salonAdminIds(channel: Channel & { memberships?: Membership[] | null }) {
+  if (!isManagedSalon(channel)) return [];
+  return (channel.memberships || []).filter((m) => m.role === "admin").map((m) => m.userId);
+}
+
+function isSalonAdmin(channel: Channel, membership: Pick<Membership, "role"> | null) {
+  return isManagedSalon(channel) && membership?.role === "admin";
+}
+
+// Administrer un salon (changer sa visibilité, le supprimer, nommer ou retirer
+// ses admins, en exclure un admin) : un admin du salon, ou un admin du chat — qui
+// garde la main partout, salon public dont il n'est pas membre compris. Un salon
+// privé, lui, n'existe toujours pas pour un non-membre (findManageable).
+function canAdminister(
+  req: Express.Request,
+  channel: Channel,
+  membership: Pick<Membership, "role"> | null
+) {
+  return !!req.user?.isAdmin || isSalonAdmin(channel, membership);
+}
+
+// Lu après le nom du membre promu, auteur du message de service : « Bob est
+// maintenant admin du salon » (promotion automatique, ou admin du chat qui se
+// nomme lui-même).
+const NOW_ADMIN_TEXT = "est maintenant admin du salon";
+
+// Verrouille la ligne du salon jusqu'à la fin de la transaction : les
+// changements de rôle d'un même salon (nomination, retrait du rôle, promotion
+// automatique) passent l'un après l'autre. Sans cela, deux admins qui se
+// retirent le rôle au même instant se croiraient chacun « pas le dernier », et
+// le salon finirait sans admin. NO KEY UPDATE et non UPDATE : les messages et
+// adhésions qui arrivent entre-temps (contrôle de clé étrangère) ne sont pas
+// retenus.
+async function lockSalon(tx: Prisma.TransactionClient, channelId: string) {
+  await tx.$queryRaw`SELECT "id" FROM "Channel" WHERE "id" = ${channelId} FOR NO KEY UPDATE`;
+  return tx.channel.findUnique({ where: { id: channelId } });
+}
+
+// Le membre qui reprend un salon resté sans admin : le plus ancien membre actif,
+// à défaut le plus ancien tout court (compte désactivé) — jamais le bot
+// technique, qui ne lit rien.
+const HEIR_ORDER = [
+  { joinedAt: "asc" },
+  { id: "asc" },
+] satisfies Prisma.MembershipOrderByWithRelationInput[];
+
+async function findHeir(db: Prisma.TransactionClient, channelId: string) {
+  const person = { username: { not: BOT_USERNAME } };
+  return (
+    (await db.membership.findFirst({
+      where: { channelId, user: { ...person, status: "active" } },
+      orderBy: HEIR_ORDER,
+    })) ??
+    (await db.membership.findFirst({ where: { channelId, user: person }, orderBy: HEIR_ORDER }))
+  );
+}
+
+// Promeut, sans bruit, un membre d'un salon géré qui n'a plus d'admin ; renvoie
+// sa membership, ou null s'il n'y avait rien à faire. `preferredUserId` (le
+// créateur, au rattrapage du démarrage) passe devant s'il en est encore membre
+// et n'est pas le bot — compte désactivé compris : il a créé le salon.
+async function promoteHeir(channelId: string, preferredUserId?: string | null) {
+  return prisma.$transaction(async (tx) => {
+    const channel = await lockSalon(tx, channelId);
+    if (!channel || !isManagedSalon(channel)) return null;
+    if ((await tx.membership.count({ where: { channelId, role: "admin" } })) > 0) return null;
+    const preferred = preferredUserId
+      ? await tx.membership.findFirst({
+          where: { channelId, userId: preferredUserId, user: { username: { not: BOT_USERNAME } } },
+        })
+      : null;
+    const heir = preferred ?? (await findHeir(tx, channelId));
+    if (!heir) return null;
+    // updateMany : le successeur a pu partir à l'instant — son propre départ
+    // repasse par ensureSalonAdmin, qui en désignera un autre.
+    const { count } = await tx.membership.updateMany({
+      where: { id: heir.id },
+      data: { role: "admin" },
+    });
+    return count > 0 ? heir : null;
+  });
+}
+
+// Invariant des salons gérés : tant qu'il y reste quelqu'un (hors bot), il y a au
+// moins un admin du salon. Appelé après chaque départ (quitter, être retiré,
+// compte purgé) : si le dernier admin est parti, le plus ancien membre actif le
+// devient, ce que le salon voit (`channel:members`, et avec `announce` un
+// message de service à son nom). Sans effet partout ailleurs.
+export async function ensureSalonAdmin(
+  io: Server | null | undefined,
+  channelId: string,
+  { announce = false }: { announce?: boolean } = {}
+) {
+  const heir = await promoteHeir(channelId);
+  if (!heir) return null;
+  await broadcastMembers(io, channelId);
+  if (announce) await postSystemMessage(io, channelId, heir.userId, NOW_ADMIN_TEXT);
+  return heir;
+}
+
+// Rattrapage au démarrage, pour les salons antérieurs aux admins du salon (et
+// tout salon resté sans admin) : chacun reçoit le sien — son créateur s'il en
+// est encore membre, sinon le plus ancien membre actif. En silence : aucun
+// membre n'a rien fait, il n'y a pas de message de service. Mais le serveur
+// écoute déjà : un client reconnecté avant la fin du rattrapage a reçu des
+// `adminIds` vides, `channel:members` les lui met à jour. Idempotent, sans effet
+// une fois fait. Renvoie le nombre de salons pourvus.
+export async function ensureSalonAdmins(io?: Server | null) {
+  const salons = await prisma.channel.findMany({
+    where: {
+      isDirect: false,
+      kind: "standard",
+      isDefault: false,
+      memberships: {
+        none: { role: "admin" },
+        some: { user: { username: { not: BOT_USERNAME } } },
+      },
+    },
+    select: { id: true, name: true, isDirect: true, kind: true, isDefault: true, createdById: true },
+  });
+  let promoted = 0;
+  for (const salon of salons) {
+    // Le salon du pipeline se reconnaît à son nom : filtré ici plutôt qu'en SQL.
+    if (!isManagedSalon(salon)) continue;
+    if (!(await promoteHeir(salon.id, salon.createdById))) continue;
+    promoted += 1;
+    await broadcastMembers(io, salon.id);
+  }
+  return promoted;
 }
 
 // Un salon privé sans plus aucun membre (le bot technique ne compte pas : il ne
@@ -280,6 +441,10 @@ router.post("/", requireAuth, async (req, res) => {
   const parsed = createChannelSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const { name, description, isPrivate, memberIds = [] } = parsed.data;
+  // Le nom du salon du pipeline lui est réservé (voir renamesAcrossPipeline).
+  if (isSupportChannel({ isDirect: false, name: name.trim() })) {
+    return res.status(409).json({ error: "reserved_name" });
+  }
   const channel = await createSalon(req, {
     name: name.trim(),
     description,
@@ -291,11 +456,15 @@ router.post("/", requireAuth, async (req, res) => {
 
 // Crée un salon avec l'appelant et `memberIds`, et l'annonce à chacun : les
 // personnes ajoutées par l'appelant reçoivent `addedBy` (leur client le signale).
+// Le créateur en est l'admin du salon, les autres de simples membres — sauf sous
+// le nom du salon du pipeline (que POST /channels refuse), qui n'a pas d'admins
+// du salon.
 async function createSalon(
   req: Express.Request,
   data: { name: string; description?: string; isPrivate: boolean; memberIds: string[] }
 ) {
   const allMembers = Array.from(new Set([req.userId, ...data.memberIds]));
+  const creatorRole = isSupportChannel({ isDirect: false, name: data.name }) ? "member" : "admin";
   const channel = await prisma.channel.create({
     data: {
       name: data.name,
@@ -303,7 +472,12 @@ async function createSalon(
       isPrivate: data.isPrivate,
       isDirect: false,
       createdById: req.userId,
-      memberships: { create: allMembers.map((userId) => ({ userId })) },
+      memberships: {
+        create: allMembers.map((userId) => ({
+          userId,
+          role: userId === req.userId ? creatorRole : "member",
+        })),
+      },
     },
     include: CHANNEL_INCLUDE,
   });
@@ -727,12 +901,19 @@ router.post("/:id/join", requireAuth, async (req, res) => {
     data: [{ userId: req.userId, channelId: id }],
     skipDuplicates: true,
   });
+  // Un salon public resté sans admin (vidé par ses membres) en retrouve un : le
+  // plus ancien membre, donc celui qui arrive s'il est seul. C'est ensureSalonAdmin
+  // en deux temps : promu AVANT de servir le salon, pour que channel:created et
+  // la réponse le disent (le client remplace sa copie par la réponse) ; annoncé
+  // APRÈS « a rejoint le salon », dans l'ordre des faits.
+  const heir = await promoteHeir(id);
   const full = await prisma.channel.findUnique({ where: { id }, include: CHANNEL_INCLUDE });
   const personalized = serializeChannel(full!, req.userId);
   req.io?.to(`user:${req.userId}`).emit("channel:created", personalized);
   req.io?.in(`user:${req.userId}`).socketsJoin(`channel:${id}`);
   await broadcastMembers(req.io, id);
   if (joined.count > 0) await postSystemMessage(req.io, id, req.userId, "a rejoint le salon");
+  if (heir) await postSystemMessage(req.io, id, heir.userId, NOW_ADMIN_TEXT);
   res.json({ channel: personalized });
 });
 
@@ -777,6 +958,8 @@ router.post("/:id/members", requireAuth, async (req, res) => {
 
 // Départ volontaire. Le dernier membre qui quitte un salon privé le supprime :
 // plus personne ne pourrait le voir (un salon public, lui, reste à rejoindre).
+// Tout le monde peut partir, le dernier admin du salon compris : le plus ancien
+// membre restant prend alors le relais.
 async function leaveSalon(req: Express.Request, channel: Channel) {
   await removeMember(req.io, channel.id, req.userId, {
     reason: "left",
@@ -787,6 +970,7 @@ async function leaveSalon(req: Express.Request, channel: Channel) {
   // Personne pour lire un « a quitté le salon » (salon public resté vide).
   if (remaining === 0) return;
   await postSystemMessage(req.io, channel.id, req.userId, "a quitté le salon");
+  await ensureSalonAdmin(req.io, channel.id, { announce: true });
 }
 
 router.post("/:id/leave", requireAuth, async (req, res) => {
@@ -797,8 +981,10 @@ router.post("/:id/leave", requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-// Tout membre peut retirer quelqu'un du salon ; la personne retirée apprend qui
-// l'a fait, et le salon en garde la trace (message de service).
+// Tout membre peut retirer un simple membre du salon ; retirer un admin du salon
+// revient à qui administre le salon — sans quoi n'importe quel membre pourrait
+// évincer ceux qui le gèrent. La personne retirée apprend qui l'a fait, et le
+// salon en garde la trace (message de service).
 router.delete("/:id/members/:userId", requireAuth, async (req, res) => {
   const { id, userId } = req.params;
   const found = await findManageable(id, req.userId);
@@ -817,6 +1003,9 @@ router.delete("/:id/members/:userId", requireAuth, async (req, res) => {
     include: { user: true },
   });
   if (!target) return res.status(404).json({ error: "not_a_member" });
+  if (isSalonAdmin(channel, target) && !canAdminister(req, channel, membership)) {
+    return res.status(403).json({ error: "admin_only" });
+  }
   await removeMember(req.io, id, userId, {
     reason: "removed",
     by: req.user ? { id: req.user.id, displayName: req.user.displayName } : undefined,
@@ -830,7 +1019,87 @@ router.delete("/:id/members/:userId", requireAuth, async (req, res) => {
     req.userId,
     `a retiré ${target.user.displayName} du salon`
   );
+  // Un admin du chat qui retire le dernier admin du salon : le plus ancien membre
+  // prend le relais. Vérifié après tout retrait, pas seulement celui d'un admin :
+  // la personne retirée a pu être désignée successeur à l'instant même.
+  await ensureSalonAdmin(req.io, id, { announce: true });
   res.json({ ok: true });
+});
+
+// Nommer un admin du salon, ou lui retirer le rôle : réservé à qui administre le
+// salon (un admin du salon, ou un admin du chat — même sans en être membre s'il
+// est public). Le dernier admin ne peut pas se retirer le rôle : un salon géré en
+// garde toujours au moins un, il nomme d'abord quelqu'un d'autre (ou part — le
+// plus ancien membre prend alors le relais).
+const memberRoleSchema = z.object({
+  role: z.enum(["admin", "member"]),
+});
+
+type MemberWithUser = Membership & { user: User };
+
+// Issue d'un changement de rôle, décidée sous le verrou du salon.
+type RoleChange =
+  | { status: 403 | 404 | 409; error: string }
+  | { status: 200; target: MemberWithUser; changed: boolean };
+
+// Lu après le nom de l'auteur du changement, sans accord : « Alice a nommé Bob
+// admin du salon », « Alice n'est plus admin du salon ».
+function roleChangeText(actorId: string, target: MemberWithUser, role: string) {
+  const self = target.userId === actorId;
+  if (role === "admin") {
+    return self ? NOW_ADMIN_TEXT : `a nommé ${target.user.displayName} admin du salon`;
+  }
+  return self ? "n'est plus admin du salon" : `a retiré le rôle d'admin à ${target.user.displayName}`;
+}
+
+router.patch("/:id/members/:userId", requireAuth, async (req, res) => {
+  const parsed = memberRoleSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const { role } = parsed.data;
+  const { id, userId } = req.params;
+
+  const found = await findManageable(id, req.userId);
+  if (!found) return res.status(404).json({ error: "not_found" });
+  const { channel, membership } = found;
+  if (!isManagedSalon(channel)) return res.status(403).json({ error: "no_roles" });
+  if (!canAdminister(req, channel, membership)) {
+    return res.status(403).json({ error: membership ? "admin_only" : "not_a_member" });
+  }
+
+  // Contrôle et écriture sous le verrou du salon (lockSalon) : deux retraits de
+  // rôle simultanés ne peuvent pas laisser le salon sans admin.
+  const outcome = await prisma.$transaction(async (tx): Promise<RoleChange> => {
+    if (!(await lockSalon(tx, id))) return { status: 404, error: "not_found" };
+    const target = await tx.membership.findUnique({
+      where: { userId_channelId: { userId, channelId: id } },
+      include: { user: true },
+    });
+    if (!target) return { status: 404, error: "not_a_member" };
+    // Le bot technique ne lit rien : il ne peut pas tenir un salon.
+    if (role === "admin" && target.user.username === BOT_USERNAME) {
+      return { status: 403, error: "bot_protected" };
+    }
+    if (role === "member" && target.role === "admin") {
+      const others = await tx.membership.count({
+        where: { channelId: id, role: "admin", id: { not: target.id } },
+      });
+      if (others === 0) return { status: 409, error: "last_admin" };
+    }
+    if (target.role === role) return { status: 200, target, changed: false };
+    const { count } = await tx.membership.updateMany({ where: { id: target.id }, data: { role } });
+    // Parti entre la lecture et l'écriture.
+    if (count === 0) return { status: 404, error: "not_a_member" };
+    return { status: 200, target, changed: true };
+  });
+  if (outcome.status !== 200) return res.status(outcome.status).json({ error: outcome.error });
+
+  if (outcome.changed) {
+    await broadcastMembers(req.io, id);
+    await postSystemMessage(req.io, id, req.userId, roleChangeText(req.userId, outcome.target, role));
+  }
+  const full = await prisma.channel.findUnique({ where: { id }, include: CHANNEL_INCLUDE });
+  if (!full) return res.status(404).json({ error: "not_found" });
+  res.json({ channel: serializeChannel(full, req.userId) });
 });
 
 // « Masquer » une conversation directe : elle quitte la liste de l'appelant (sur
@@ -878,10 +1147,11 @@ router.patch("/:id/notifications", requireAuth, async (req, res) => {
 });
 
 // Renommer / décrire un salon : tout membre (1.6.0). Changer sa visibilité :
-// un admin seulement — rendre public un salon privé exposerait tout son
-// historique. Le salon par défaut (« Général ») ne se modifie que par un admin
-// et reste public. Un admin peut aussi modérer un salon public sans en être
-// membre ; un salon privé n'existe que pour ses membres (findManageable).
+// qui administre le salon (un admin du salon ou un admin du chat) — rendre
+// public un salon privé exposerait tout son historique. Le salon par défaut
+// (« Général ») ne se modifie que par un admin du chat et reste public. Un admin
+// du chat peut aussi modérer un salon public sans en être membre ; un salon privé
+// n'existe que pour ses membres (findManageable).
 const updateChannelSchema = z.object({
   name: z.string().trim().min(1).max(80).optional(),
   description: z.string().max(300).nullable().optional(),
@@ -906,7 +1176,9 @@ router.patch("/:id", requireAuth, async (req, res) => {
   if (visibilityChange) {
     // Le salon par défaut reste public et ne change pas de visibilité.
     if (channel.isDefault) return res.status(403).json({ error: "cannot_make_default_private" });
-    if (!isAdmin) return res.status(403).json({ error: "admin_only" });
+    if (!canAdminister(req, channel, membership)) {
+      return res.status(403).json({ error: "admin_only" });
+    }
     // Un salon privé n'existe que pour ses membres : l'admin qui le rendrait
     // privé sans en être le perdrait aussitôt (et un salon vide, tout le monde).
     if (isPrivate && !membership) return res.status(403).json({ error: "not_a_member" });
@@ -914,6 +1186,9 @@ router.patch("/:id", requireAuth, async (req, res) => {
 
   const data: Prisma.ChannelUpdateInput = {};
   const renamed = name !== undefined && name !== channel.name;
+  if (renamed && renamesAcrossPipeline(channel, name)) {
+    return res.status(409).json({ error: "reserved_name" });
+  }
   if (renamed) data.name = name;
   if (description !== undefined) {
     const trimmed = typeof description === "string" ? description.trim() : "";
@@ -945,15 +1220,16 @@ router.patch("/:id", requireAuth, async (req, res) => {
   res.json({ channel: serializeChannel(updated, req.userId) });
 });
 
-// Supprimer un salon et tout son contenu : un admin seulement (1.6.0) ; les
-// autres le quittent. Un salon privé n'est supprimable que par un admin qui en
-// est membre — il n'existe pas pour les autres.
+// Supprimer un salon et tout son contenu : qui l'administre (un admin du salon ou
+// un admin du chat) ; les autres le quittent. Un salon privé n'existe que pour
+// ses membres, admins du chat compris : seul un admin du chat qui en est membre
+// (ou un de ses admins du salon) peut le supprimer.
 router.delete("/:id", requireAuth, async (req, res) => {
   const found = await findManageable(req.params.id, req.userId);
   if (!found) return res.status(404).json({ error: "not_found" });
   const { channel, membership } = found;
   if (channel.isDefault) return res.status(403).json({ error: "cannot_delete_default" });
-  if (!req.user?.isAdmin) {
+  if (!canAdminister(req, channel, membership)) {
     return res.status(403).json({ error: membership ? "admin_only" : "not_a_member" });
   }
   await destroyChannel(req.io, channel.id);
@@ -1003,6 +1279,9 @@ export function serializeChannel(channel: ChannelWithRelations, viewerId: string
     // cache tant qu'aucun message n'est arrivé depuis.
     hiddenAt: viewerMembership?.hiddenAt ?? null,
     members,
+    // Admins du salon (ids de `members`) : toujours vide hors d'un salon géré —
+    // DM, conversation d'expert, « Général », salon du pipeline.
+    adminIds: salonAdminIds(channel),
     lastMessage: last
       ? {
           id: last.id,
