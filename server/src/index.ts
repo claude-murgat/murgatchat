@@ -7,7 +7,7 @@ import helmet from "helmet";
 import cors from "cors";
 import authRouter, { ensureOwner, ensureLowercaseIdentifiers } from "./routes/auth.ts";
 import usersRouter from "./routes/users.ts";
-import channelsRouter, { ensureDefaultChannel } from "./routes/channels.ts";
+import channelsRouter, { ensureDefaultChannel, ensureSalonAdmins } from "./routes/channels.ts";
 import uploadsRouter from "./routes/uploads.ts";
 import searchRouter, { ensureSearchIndex } from "./routes/search.ts";
 import bugReportsRouter from "./routes/bugReports.ts";
@@ -159,6 +159,13 @@ export function startServer() {
     ensureDefaultChannel()
       .then((c) => console.log(`Default channel ready: ${c.name} (${c.id})`))
       .catch((e) => console.error("ensureDefaultChannel error", e));
+    // Admins du salon : chaque salon qui n'en a pas (tous, au premier démarrage
+    // après la migration 20261029150000) en reçoit un — son créateur s'il en est
+    // encore membre, sinon le plus ancien membre actif. Sans message de service,
+    // idempotent ; les clients déjà reconnectés reçoivent channel:members.
+    ensureSalonAdmins(io)
+      .then((n) => n > 0 && console.log(`Salon admins ready: ${n} salon(s) backfilled`))
+      .catch((e) => console.error("ensureSalonAdmins error", e));
     // Backfill `isOwner` for pre-existing deployments: if there's at least
     // one admin but no owner, the oldest admin is promoted.
     ensureOwner()

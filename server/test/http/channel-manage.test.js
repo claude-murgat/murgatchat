@@ -1,16 +1,24 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer } from "../../src/index.ts";
-import { ensureDefaultChannel, defaultSalonName, joinNames } from "../../src/routes/channels.ts";
+import {
+  ensureDefaultChannel,
+  ensureSalonAdmins,
+  defaultSalonName,
+  joinNames,
+} from "../../src/routes/channels.ts";
 import { ensureBot } from "../../src/notify.ts";
 import { purgeUser } from "../../src/userPurge.ts";
 import { registerUser, authed } from "../helpers/api.js";
 import { prisma } from "../helpers/db.js";
 import { seedMessage } from "../helpers/seed.js";
 
-// Salons gérés par leurs membres (1.6.0) : tout membre ajoute, retire, renomme,
-// décrit et quitte ; seul un admin supprime ou change la visibilité ; un salon
-// privé n'existe que pour ses membres, admins compris. Le premier compte
-// enregistré dans un test est l'admin bootstrap (la base est vidée avant chaque test).
+// Salons gérés par leurs membres (1.6.0) : tout membre ajoute, retire un simple
+// membre, renomme, décrit et quitte ; les admins du salon (son créateur, puis
+// ceux qu'il nomme) et les admins du chat suppriment, changent la visibilité,
+// nomment et retirent les admins du salon ; un salon privé n'existe que pour ses
+// membres, admins du chat compris. Le premier compte enregistré dans un test est
+// l'admin bootstrap du chat (la base est vidée avant chaque test) : les cas
+// « simple membre » et « admin du salon » utilisent les comptes suivants.
 
 let app, io;
 beforeAll(() => {
@@ -25,9 +33,40 @@ const create = async (token, body) =>
 
 // Textes des messages de service d'un salon, lus comme un membre les voit.
 async function systemTexts(token, channelId) {
-  const res = await authed(app, token).get(`/channels/${channelId}/messages`);
-  return res.body.messages.filter((m) => m.kind === "system").map((m) => m.body);
+  return (await systemLog(token, channelId)).map((m) => m.body);
 }
+
+// Les mêmes, avec leur auteur (le membre qui a fait l'action — ou celui qui est
+// devenu admin, pour une promotion automatique).
+async function systemLog(token, channelId) {
+  const res = await authed(app, token).get(`/channels/${channelId}/messages`);
+  return res.body.messages
+    .filter((m) => m.kind === "system")
+    .map((m) => ({ body: m.body, authorId: m.author.id }));
+}
+
+const setRole = (token, channelId, userId, role) =>
+  authed(app, token).patch(`/channels/${channelId}/members/${userId}`).send({ role });
+
+// `adminIds` du salon tel que le voit `token` dans sa liste.
+async function adminIdsSeenBy(token, channelId) {
+  const list = (await authed(app, token).get("/channels")).body.channels;
+  return list.find((c) => c.id === channelId).adminIds;
+}
+
+// Admins du salon d'après la base, triés.
+async function adminsOf(channelId) {
+  const rows = await prisma.membership.findMany({ where: { channelId, role: "admin" } });
+  return rows.map((m) => m.userId).sort();
+}
+
+// L'ancienneté décide du successeur d'un admin parti : fixée explicitement, les
+// membres créés ensemble partageant le même horodatage.
+const setJoinedAt = (userId, channelId, iso) =>
+  prisma.membership.update({
+    where: { userId_channelId: { userId, channelId } },
+    data: { joinedAt: new Date(iso) },
+  });
 
 describe("helpers de nommage", () => {
   it("joinNames et defaultSalonName", () => {
@@ -41,7 +80,7 @@ describe("helpers de nommage", () => {
   });
 });
 
-describe("PATCH /channels/:id — tout membre renomme, la visibilité reste aux admins", () => {
+describe("PATCH /channels/:id — tout membre renomme, la visibilité revient aux admins", () => {
   it("un membre renomme et décrit le salon, le salon en garde la trace", async () => {
     const { token: admin } = await registerUser(app);
     const { token: creator } = await registerUser(app);
@@ -68,24 +107,49 @@ describe("PATCH /channels/:id — tout membre renomme, la visibilité reste aux 
     expect(byAdmin.status).toBe(200);
   });
 
-  it("changer la visibilité : un admin membre seulement", async () => {
+  it("changer la visibilité : l'admin du salon oui, un simple membre non", async () => {
+    await registerUser(app); // admin du chat
+    const { token: creator } = await registerUser(app);
+    const { token: memberTok, user: member } = await registerUser(app);
+    const ch = await create(creator, { name: "ouvert", memberIds: [member.id] });
+
+    const refused = await authed(app, memberTok).patch(`/channels/${ch.id}`).send({ isPrivate: true });
+    expect(refused.status).toBe(403);
+    expect(refused.body.error).toBe("admin_only");
+
+    // Le créateur est l'admin du salon : il le rend privé, puis public.
+    const madePrivate = await authed(app, creator).patch(`/channels/${ch.id}`).send({ isPrivate: true });
+    expect(madePrivate.status).toBe(200);
+    expect(madePrivate.body.channel.isPrivate).toBe(true);
+    expect(
+      (await authed(app, memberTok).patch(`/channels/${ch.id}`).send({ isPrivate: false })).body
+        .error
+    ).toBe("admin_only");
+    expect(
+      (await authed(app, creator).patch(`/channels/${ch.id}`).send({ isPrivate: false })).status
+    ).toBe(200);
+    expect(await systemTexts(creator, ch.id)).toEqual([
+      "a rendu le salon privé",
+      "a rendu le salon public",
+    ]);
+  });
+
+  it("un admin du chat change la visibilité en membre, jamais en aveugle", async () => {
     const { token: admin } = await registerUser(app);
     const { token: creator } = await registerUser(app);
     const ch = await create(creator, { name: "ouvert" });
-
-    const refused = await authed(app, creator).patch(`/channels/${ch.id}`).send({ isPrivate: true });
-    expect(refused.status).toBe(403);
-    expect(refused.body.error).toBe("admin_only");
 
     // Un admin qui n'en est pas membre le perdrait aussitôt : refusé.
     const outsider = await authed(app, admin).patch(`/channels/${ch.id}`).send({ isPrivate: true });
     expect(outsider.status).toBe(403);
     expect(outsider.body.error).toBe("not_a_member");
 
+    // Simple membre du salon, mais admin du chat : il garde ce droit.
     await authed(app, admin).post(`/channels/${ch.id}/join`);
     const madePrivate = await authed(app, admin).patch(`/channels/${ch.id}`).send({ isPrivate: true });
     expect(madePrivate.status).toBe(200);
     expect(madePrivate.body.channel.isPrivate).toBe(true);
+    expect(madePrivate.body.channel.adminIds).toHaveLength(1);
     expect(await systemTexts(creator, ch.id)).toEqual([
       "a rejoint le salon",
       "a rendu le salon privé",
@@ -126,22 +190,35 @@ describe("PATCH /channels/:id — tout membre renomme, la visibilité reste aux 
   });
 });
 
-describe("DELETE /channels/:id — admins seulement", () => {
-  it("le créateur ne supprime plus son salon, un admin oui", async () => {
+describe("DELETE /channels/:id — l'admin du salon ou un admin du chat", () => {
+  it("l'admin du salon le supprime ; ni un simple membre ni un non-membre", async () => {
+    await registerUser(app); // admin du chat
+    const { token: creator } = await registerUser(app);
+    const { token: memberTok, user: member } = await registerUser(app);
+    const { token: outsider } = await registerUser(app);
+    const ch = await create(creator, { name: "ephemere", memberIds: [member.id] });
+
+    const byMember = await authed(app, memberTok).delete(`/channels/${ch.id}`);
+    expect(byMember.status).toBe(403);
+    expect(byMember.body.error).toBe("admin_only");
+    const byOutsider = await authed(app, outsider).delete(`/channels/${ch.id}`);
+    expect(byOutsider.status).toBe(403);
+    expect(byOutsider.body.error).toBe("not_a_member");
+
+    expect((await authed(app, creator).delete(`/channels/${ch.id}`)).status).toBe(200);
+    expect(await prisma.channel.findUnique({ where: { id: ch.id } })).toBeNull();
+  });
+
+  it("un admin du chat supprime un salon public sans en être membre", async () => {
     const { token: admin } = await registerUser(app);
     const { token: creator } = await registerUser(app);
     const ch = await create(creator, { name: "ephemere" });
 
-    const refused = await authed(app, creator).delete(`/channels/${ch.id}`);
-    expect(refused.status).toBe(403);
-    expect(refused.body.error).toBe("admin_only");
-
-    // Salon public : un admin le supprime sans en être membre.
     expect((await authed(app, admin).delete(`/channels/${ch.id}`)).status).toBe(200);
     expect(await prisma.channel.findUnique({ where: { id: ch.id } })).toBeNull();
   });
 
-  it("un salon privé n'est supprimable que par un admin qui en est membre", async () => {
+  it("un salon privé n'est supprimable par un admin du chat que s'il en est membre", async () => {
     const { token: admin, user: adminUser } = await registerUser(app);
     const { token: creator } = await registerUser(app);
     const ch = await create(creator, { name: "secret", isPrivate: true });
@@ -426,5 +503,602 @@ describe("purge d'un compte", () => {
     await purgeUser(io, victim.id, admin.id);
     expect(await prisma.channel.findUnique({ where: { id: alone.id } })).toBeNull();
     expect(await prisma.channel.findUnique({ where: { id: shared.id } })).not.toBeNull();
+  });
+
+  it("purger le dernier admin d'un salon : le plus ancien membre restant le devient", async () => {
+    const { user: admin } = await registerUser(app);
+    const { token: victimTok, user: victim } = await registerUser(app);
+    const { token: bTok, user: b } = await registerUser(app);
+    const { user: c } = await registerUser(app);
+    const shared = await create(victimTok, {
+      name: "relais",
+      isPrivate: true,
+      memberIds: [b.id, c.id],
+    });
+    // Un salon où il n'était que membre ne bouge pas.
+    const other = await create(bTok, { name: "autre", memberIds: [victim.id] });
+    await setJoinedAt(c.id, shared.id, "2026-01-01");
+    await setJoinedAt(b.id, shared.id, "2026-01-02");
+
+    await purgeUser(io, victim.id, admin.id);
+    expect(await adminsOf(shared.id)).toEqual([c.id]);
+    expect(await systemLog(bTok, shared.id)).toEqual([
+      { body: "est maintenant admin du salon", authorId: c.id },
+    ]);
+    expect(await adminsOf(other.id)).toEqual([b.id]);
+    expect(await systemTexts(bTok, other.id)).toEqual([]);
+  });
+});
+
+describe("admins du salon : le créateur, et `adminIds` partout", () => {
+  it("le créateur d'un salon en est l'admin ; les personnes ajoutées, de simples membres", async () => {
+    await registerUser(app); // admin du chat
+    const { token: creator, user: creatorUser } = await registerUser(app);
+    const { token: bTok, user: b } = await registerUser(app);
+    const { token: cTok, user: c } = await registerUser(app);
+    const { token: outsider } = await registerUser(app);
+    const ch = await create(creator, { name: "neuf", memberIds: [b.id] });
+    expect(ch.adminIds).toEqual([creatorUser.id]);
+
+    const added = await authed(app, bTok).post(`/channels/${ch.id}/members`).send({ userIds: [c.id] });
+    expect(added.body.channel.adminIds).toEqual([creatorUser.id]);
+    expect(await adminIdsSeenBy(cTok, ch.id)).toEqual([creatorUser.id]);
+    expect(await adminsOf(ch.id)).toEqual([creatorUser.id]);
+    // Le salon tel qu'un non-membre le découvre (« Parcourir les salons »).
+    const listed = (await authed(app, outsider).get("/channels/public")).body.channels;
+    expect(listed.find((x) => x.id === ch.id).adminIds).toEqual([creatorUser.id]);
+  });
+
+  it("POST /channels/dm à plusieurs : celui qui crée le salon en est l'admin", async () => {
+    await registerUser(app);
+    const { token: a, user: aUser } = await registerUser(app);
+    const { user: b } = await registerUser(app);
+    const { user: c } = await registerUser(app);
+    const res = await authed(app, a).post("/channels/dm").send({ userIds: [b.id, c.id] });
+    expect(res.status).toBe(200);
+    expect(res.body.channel.adminIds).toEqual([aUser.id]);
+    expect(await adminsOf(res.body.channel.id)).toEqual([aUser.id]);
+  });
+
+  it("aucun admin du salon ailleurs : DM, Mes notes, Général, expert Claude, salon du pipeline", async () => {
+    const { token: admin, user: adminUser } = await registerUser(app);
+    const { user: b } = await registerUser(app);
+    const def = await ensureDefaultChannel();
+    const dm = (await authed(app, admin).post("/channels/dm").send({ userId: b.id })).body.channel;
+    const notes = (await authed(app, admin).post("/channels/dm").send({ userIds: [] })).body.channel;
+    expect(dm.adminIds).toEqual([]);
+    expect(notes.adminIds).toEqual([]);
+    // Le salon du pipeline, tel que notify.ts le crée (son nom lui est réservé).
+    const support = await prisma.channel.create({
+      data: {
+        name: "support-dev",
+        isPrivate: true,
+        memberships: { create: [{ userId: adminUser.id }] },
+      },
+    });
+    // Même une colonne incohérente n'y fait pas apparaître d'admin.
+    const bot = await ensureBot();
+    const expert = await prisma.channel.create({
+      data: {
+        kind: "claude",
+        isPrivate: true,
+        name: "Expert",
+        memberships: { create: [{ userId: adminUser.id, role: "admin" }, { userId: bot.id }] },
+      },
+    });
+    await prisma.membership.updateMany({
+      where: { channelId: { in: [def.id, dm.id, support.id] } },
+      data: { role: "admin" },
+    });
+
+    const list = (await authed(app, admin).get("/channels")).body.channels;
+    for (const id of [def.id, dm.id, notes.id, expert.id, support.id]) {
+      expect(list.find((c) => c.id === id).adminIds).toEqual([]);
+    }
+  });
+});
+
+// Le salon du pipeline se reconnaît à son seul nom (notify.ts), et il n'a pas
+// d'admins du salon : un salon qui le prendrait perdrait les siens.
+describe("nom réservé au salon du pipeline", () => {
+  it("un simple membre ne renomme pas le salon en « support-dev » pour en évincer l'admin", async () => {
+    const { token: chatAdmin } = await registerUser(app);
+    const { token: aliceTok, user: alice } = await registerUser(app);
+    const { token: bobTok, user: bob } = await registerUser(app);
+    const { user: carol } = await registerUser(app);
+    const ch = await create(aliceTok, {
+      name: "secret",
+      isPrivate: true,
+      memberIds: [bob.id, carol.id],
+    });
+
+    const renamed = await authed(app, bobTok).patch(`/channels/${ch.id}`).send({ name: "support-dev" });
+    expect(renamed.status).toBe(409);
+    expect(renamed.body.error).toBe("reserved_name");
+    expect((await prisma.channel.findUnique({ where: { id: ch.id } })).name).toBe("secret");
+    // Toujours un salon géré : son admin reste hors d'atteinte d'un simple membre.
+    const evicted = await authed(app, bobTok).delete(`/channels/${ch.id}/members/${alice.id}`);
+    expect(evicted.status).toBe(403);
+    expect(evicted.body.error).toBe("admin_only");
+    expect(await adminsOf(ch.id)).toEqual([alice.id]);
+    expect(await systemTexts(aliceTok, ch.id)).toEqual([]);
+
+    // Ni l'admin du salon, ni un admin du chat (« Général » compris, que le
+    // pipeline adopterait en retirant tous ses membres non admins).
+    expect(
+      (await authed(app, aliceTok).patch(`/channels/${ch.id}`).send({ name: "support-dev" })).status
+    ).toBe(409);
+    const def = await ensureDefaultChannel();
+    const general = await authed(app, chatAdmin).patch(`/channels/${def.id}`).send({ name: "support-dev" });
+    expect(general.status).toBe(409);
+    expect(general.body.error).toBe("reserved_name");
+  });
+
+  it("on ne crée pas de salon sous ce nom ; le salon du pipeline garde le sien", async () => {
+    const { token: admin, user: adminUser } = await registerUser(app);
+    const { user: b } = await registerUser(app);
+    const created = await authed(app, admin)
+      .post("/channels")
+      .send({ name: " support-dev ", isPrivate: true, memberIds: [b.id] });
+    expect(created.status).toBe(409);
+    expect(created.body.error).toBe("reserved_name");
+    expect(await prisma.channel.count({ where: { name: "support-dev" } })).toBe(0);
+
+    // Renommé, le salon du pipeline cesserait de l'être : un salon géré, ses
+    // membres et aucun admin. Sa description, elle, se modifie.
+    const support = await prisma.channel.create({
+      data: {
+        name: "support-dev",
+        isPrivate: true,
+        memberships: { create: [{ userId: adminUser.id }] },
+      },
+    });
+    const away = await authed(app, admin).patch(`/channels/${support.id}`).send({ name: "pipeline" });
+    expect(away.status).toBe(409);
+    expect(away.body.error).toBe("reserved_name");
+    const described = await authed(app, admin)
+      .patch(`/channels/${support.id}`)
+      .send({ name: "support-dev", description: "Les PR du pipeline" });
+    expect(described.status).toBe(200);
+    expect(described.body.channel).toMatchObject({ name: "support-dev", adminIds: [] });
+    expect(await adminsOf(support.id)).toEqual([]);
+  });
+});
+
+describe("PATCH /channels/:id/members/:userId — nommer et retirer les admins du salon", () => {
+  it("l'admin du salon nomme un membre admin : trace, droits d'admin ; déjà admin, rien", async () => {
+    await registerUser(app);
+    const { token: creator, user: creatorUser } = await registerUser(app);
+    const { token: bTok, user: b } = await registerUser(app, { displayName: "Bob" });
+    const ch = await create(creator, { name: "equipe", memberIds: [b.id] });
+
+    const res = await setRole(creator, ch.id, b.id, "admin");
+    expect(res.status).toBe(200);
+    expect(res.body.channel.adminIds.sort()).toEqual([creatorUser.id, b.id].sort());
+    expect(await adminsOf(ch.id)).toEqual([creatorUser.id, b.id].sort());
+    expect(await systemLog(bTok, ch.id)).toEqual([
+      { body: "a nommé Bob admin du salon", authorId: creatorUser.id },
+    ]);
+
+    // Déjà admin : 200, ni diffusion ni trace.
+    const again = await setRole(creator, ch.id, b.id, "admin");
+    expect(again.status).toBe(200);
+    expect(again.body.channel.adminIds).toHaveLength(2);
+    expect(await systemTexts(bTok, ch.id)).toHaveLength(1);
+
+    // Les droits suivent le rôle : Bob supprime le salon.
+    expect((await authed(app, bTok).delete(`/channels/${ch.id}`)).status).toBe(200);
+  });
+
+  it("refuse un simple membre, un non-membre, une cible absente et un corps invalide", async () => {
+    const { token: chatAdmin } = await registerUser(app);
+    const { token: creator, user: creatorUser } = await registerUser(app);
+    const { token: bTok, user: b } = await registerUser(app);
+    const { token: outsider, user: o } = await registerUser(app);
+    const pub = await create(creator, { name: "ouvert", memberIds: [b.id] });
+    const priv = await create(creator, { name: "ferme", isPrivate: true, memberIds: [b.id] });
+
+    const byMember = await setRole(bTok, pub.id, b.id, "admin");
+    expect(byMember.status).toBe(403);
+    expect(byMember.body.error).toBe("admin_only");
+    const byOutsider = await setRole(outsider, pub.id, o.id, "admin");
+    expect(byOutsider.status).toBe(403);
+    expect(byOutsider.body.error).toBe("not_a_member");
+    // Un salon privé n'existe pas pour un non-membre.
+    const hidden = await setRole(outsider, priv.id, b.id, "admin");
+    expect(hidden.status).toBe(404);
+    expect(hidden.body.error).toBe("not_found");
+    // Admins du chat compris : ils ne nomment personne dans un salon privé dont
+    // ils ne sont pas membres.
+    const byChatAdmin = await setRole(chatAdmin, priv.id, b.id, "admin");
+    expect(byChatAdmin.status).toBe(404);
+    expect(byChatAdmin.body.error).toBe("not_found");
+    expect(await adminsOf(priv.id)).toEqual([creatorUser.id]);
+    expect(await systemTexts(creator, priv.id)).toEqual([]);
+    const absent = await setRole(creator, pub.id, o.id, "admin");
+    expect(absent.status).toBe(404);
+    expect(absent.body.error).toBe("not_a_member");
+    for (const body of [{}, { role: "owner" }, { role: true }]) {
+      const bad = await authed(app, creator).patch(`/channels/${pub.id}/members/${b.id}`).send(body);
+      expect(bad.status).toBe(400);
+    }
+
+    expect(await adminsOf(pub.id)).toEqual([creatorUser.id]);
+    expect(await systemTexts(creator, pub.id)).toEqual([]);
+  });
+
+  it("pas de rôles hors des salons gérés : Général, salon du pipeline, DM", async () => {
+    const { token: admin, user: adminUser } = await registerUser(app);
+    const { user: b } = await registerUser(app);
+    const def = await ensureDefaultChannel();
+    const general = await setRole(admin, def.id, b.id, "admin");
+    expect(general.status).toBe(403);
+    expect(general.body.error).toBe("no_roles");
+
+    const support = await prisma.channel.create({
+      data: {
+        name: "support-dev",
+        isPrivate: true,
+        memberships: { create: [{ userId: adminUser.id }] },
+      },
+    });
+    const pipeline = await setRole(admin, support.id, adminUser.id, "admin");
+    expect(pipeline.status).toBe(403);
+    expect(pipeline.body.error).toBe("no_roles");
+
+    const dm = (await authed(app, admin).post("/channels/dm").send({ userId: b.id })).body.channel;
+    expect((await setRole(admin, dm.id, b.id, "admin")).status).toBe(404);
+    expect(await prisma.membership.count({ where: { role: "admin" } })).toBe(0);
+  });
+
+  it("le dernier admin ne peut pas se retirer le rôle ; s'il y en a un autre, si", async () => {
+    const { token: chatAdmin } = await registerUser(app);
+    const { token: creator, user: creatorUser } = await registerUser(app);
+    const { token: bTok, user: b } = await registerUser(app, { displayName: "Bob" });
+    const ch = await create(creator, { name: "relais", memberIds: [b.id] });
+
+    const alone = await setRole(creator, ch.id, creatorUser.id, "member");
+    expect(alone.status).toBe(409);
+    expect(alone.body.error).toBe("last_admin");
+    // Un admin du chat ne laisse pas non plus le salon sans admin.
+    const byChatAdmin = await setRole(chatAdmin, ch.id, creatorUser.id, "member");
+    expect(byChatAdmin.status).toBe(409);
+    expect(byChatAdmin.body.error).toBe("last_admin");
+
+    await setRole(creator, ch.id, b.id, "admin");
+    const stepDown = await setRole(creator, ch.id, creatorUser.id, "member");
+    expect(stepDown.status).toBe(200);
+    expect(stepDown.body.channel.adminIds).toEqual([b.id]);
+    // Bob est désormais le dernier.
+    expect((await setRole(bTok, ch.id, b.id, "member")).body.error).toBe("last_admin");
+    expect(await systemLog(bTok, ch.id)).toEqual([
+      { body: "a nommé Bob admin du salon", authorId: creatorUser.id },
+      { body: "n'est plus admin du salon", authorId: creatorUser.id },
+    ]);
+    // Redevenu simple membre, il n'administre plus rien.
+    expect((await authed(app, creator).delete(`/channels/${ch.id}`)).body.error).toBe("admin_only");
+  });
+
+  it("retirer le rôle d'admin à un autre ; déjà simple membre, rien", async () => {
+    await registerUser(app);
+    const { token: creator, user: creatorUser } = await registerUser(app);
+    const { token: bTok, user: b } = await registerUser(app, { displayName: "Bob" });
+    const ch = await create(creator, { name: "tour", memberIds: [b.id] });
+    await setRole(creator, ch.id, b.id, "admin");
+
+    const demoted = await setRole(creator, ch.id, b.id, "member");
+    expect(demoted.status).toBe(200);
+    expect(demoted.body.channel.adminIds).toEqual([creatorUser.id]);
+    const again = await setRole(creator, ch.id, b.id, "member");
+    expect(again.status).toBe(200);
+    expect(await systemTexts(bTok, ch.id)).toEqual([
+      "a nommé Bob admin du salon",
+      "a retiré le rôle d'admin à Bob",
+    ]);
+  });
+
+  it("un admin du chat nomme des admins dans un salon public sans en être membre, et s'y nomme une fois membre", async () => {
+    const { token: chatAdmin, user: chatAdminUser } = await registerUser(app);
+    const { token: creator, user: creatorUser } = await registerUser(app);
+    const { user: b } = await registerUser(app, { displayName: "Bob" });
+    const ch = await create(creator, { name: "public", memberIds: [b.id] });
+
+    expect((await setRole(chatAdmin, ch.id, b.id, "admin")).status).toBe(200);
+    // Pas membre : il ne peut pas se nommer lui-même.
+    const notYet = await setRole(chatAdmin, ch.id, chatAdminUser.id, "admin");
+    expect(notYet.status).toBe(404);
+    expect(notYet.body.error).toBe("not_a_member");
+
+    await authed(app, chatAdmin).post(`/channels/${ch.id}/join`);
+    const self = await setRole(chatAdmin, ch.id, chatAdminUser.id, "admin");
+    expect(self.status).toBe(200);
+    expect(self.body.channel.adminIds.sort()).toEqual(
+      [creatorUser.id, b.id, chatAdminUser.id].sort()
+    );
+    expect(await systemLog(creator, ch.id)).toEqual([
+      { body: "a nommé Bob admin du salon", authorId: chatAdminUser.id },
+      { body: "a rejoint le salon", authorId: chatAdminUser.id },
+      { body: "est maintenant admin du salon", authorId: chatAdminUser.id },
+    ]);
+  });
+
+  it("le bot technique ne peut pas être nommé admin", async () => {
+    await registerUser(app);
+    const { token: creator } = await registerUser(app);
+    const ch = await create(creator, { name: "avec-bot", isPrivate: true });
+    // Un ancien groupe pouvait inclure le bot (il était proposé avant la 1.6.0).
+    const bot = await ensureBot();
+    await prisma.membership.create({ data: { userId: bot.id, channelId: ch.id } });
+
+    const res = await setRole(creator, ch.id, bot.id, "admin");
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe("bot_protected");
+    expect(await adminsOf(ch.id)).not.toContain(bot.id);
+  });
+
+  it("deux admins qui se retirent le rôle au même instant : l'un des deux le reste", async () => {
+    await registerUser(app);
+    const { token: aTok, user: a } = await registerUser(app);
+    const { token: bTok, user: b } = await registerUser(app);
+    const ch = await create(aTok, { name: "duo", memberIds: [b.id] });
+    await setRole(aTok, ch.id, b.id, "admin");
+
+    const results = await Promise.all([
+      setRole(aTok, ch.id, a.id, "member"),
+      setRole(bTok, ch.id, b.id, "member"),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
+    expect(await adminsOf(ch.id)).toHaveLength(1);
+  });
+});
+
+describe("départs : retirer un admin, le dernier admin qui part, un salon vide qu'on rejoint", () => {
+  it("un simple membre ne retire pas un admin du salon ; un admin du salon, si", async () => {
+    await registerUser(app);
+    const { token: creator, user: creatorUser } = await registerUser(app);
+    const { user: b } = await registerUser(app, { displayName: "Bob" });
+    const { token: cTok, user: c } = await registerUser(app, { displayName: "Chloé" });
+    const { user: d } = await registerUser(app, { displayName: "Dan" });
+    const ch = await create(creator, { name: "equipe", memberIds: [b.id, c.id, d.id] });
+    await setRole(creator, ch.id, b.id, "admin");
+
+    const refused = await authed(app, cTok).delete(`/channels/${ch.id}/members/${b.id}`);
+    expect(refused.status).toBe(403);
+    expect(refused.body.error).toBe("admin_only");
+    expect(
+      (await authed(app, cTok).delete(`/channels/${ch.id}/members/${creatorUser.id}`)).body.error
+    ).toBe("admin_only");
+    // Un simple membre en retire toujours un autre.
+    expect((await authed(app, cTok).delete(`/channels/${ch.id}/members/${d.id}`)).status).toBe(200);
+
+    expect((await authed(app, creator).delete(`/channels/${ch.id}/members/${b.id}`)).status).toBe(
+      200
+    );
+    expect(await adminsOf(ch.id)).toEqual([creatorUser.id]);
+    expect(await systemTexts(creator, ch.id)).toEqual([
+      "a nommé Bob admin du salon",
+      "a retiré Dan du salon",
+      "a retiré Bob du salon",
+    ]);
+  });
+
+  it("un admin du chat retire le dernier admin du salon : le plus ancien membre prend le relais", async () => {
+    const { token: chatAdmin, user: chatAdminUser } = await registerUser(app);
+    const { token: creator, user: creatorUser } = await registerUser(app, {
+      displayName: "Charles",
+    });
+    const { token: bTok, user: b } = await registerUser(app);
+    const ch = await create(creator, { name: "modere", memberIds: [b.id] });
+    await authed(app, chatAdmin).post(`/channels/${ch.id}/join`);
+    await setJoinedAt(b.id, ch.id, "2026-01-01");
+    await setJoinedAt(chatAdminUser.id, ch.id, "2026-02-01");
+
+    const res = await authed(app, chatAdmin).delete(`/channels/${ch.id}/members/${creatorUser.id}`);
+    expect(res.status).toBe(200);
+    expect(await adminIdsSeenBy(bTok, ch.id)).toEqual([b.id]);
+    expect(await systemLog(bTok, ch.id)).toEqual([
+      { body: "a rejoint le salon", authorId: chatAdminUser.id },
+      { body: "a retiré Charles du salon", authorId: chatAdminUser.id },
+      { body: "est maintenant admin du salon", authorId: b.id },
+    ]);
+  });
+
+  it("le dernier admin qui part : le plus ancien membre actif le devient (bot et compte désactivé exclus)", async () => {
+    await registerUser(app);
+    const { token: creator, user: creatorUser } = await registerUser(app);
+    const { user: off } = await registerUser(app);
+    const { token: bTok, user: b } = await registerUser(app);
+    const { user: c } = await registerUser(app);
+    const ch = await create(creator, {
+      name: "succession",
+      isPrivate: true,
+      memberIds: [off.id, b.id, c.id],
+    });
+    const bot = await ensureBot();
+    await prisma.membership.create({
+      data: { userId: bot.id, channelId: ch.id, joinedAt: new Date("2025-12-01") },
+    });
+    await setJoinedAt(off.id, ch.id, "2026-01-01");
+    await setJoinedAt(b.id, ch.id, "2026-01-02");
+    await setJoinedAt(c.id, ch.id, "2026-01-03");
+    await prisma.user.update({ where: { id: off.id }, data: { status: "disabled" } });
+
+    expect((await authed(app, creator).post(`/channels/${ch.id}/leave`)).status).toBe(200);
+    expect(await adminIdsSeenBy(bTok, ch.id)).toEqual([b.id]);
+    expect(await systemLog(bTok, ch.id)).toEqual([
+      { body: "a quitté le salon", authorId: creatorUser.id },
+      { body: "est maintenant admin du salon", authorId: b.id },
+    ]);
+  });
+
+  it("à défaut de membre actif, le plus ancien compte désactivé ; un admin qui part en laissant un autre admin ne change rien", async () => {
+    await registerUser(app);
+    const { token: creator, user: creatorUser } = await registerUser(app);
+    const { token: bTok, user: b } = await registerUser(app);
+    const { user: off } = await registerUser(app);
+    const solo = await create(creator, { name: "fantome", isPrivate: true, memberIds: [off.id] });
+    await prisma.user.update({ where: { id: off.id }, data: { status: "disabled" } });
+    await authed(app, creator).post(`/channels/${solo.id}/leave`);
+    expect(await adminsOf(solo.id)).toEqual([off.id]);
+
+    const duo = await create(creator, { name: "duo", memberIds: [b.id] });
+    await setRole(creator, duo.id, b.id, "admin");
+    await authed(app, creator).post(`/channels/${duo.id}/leave`);
+    expect(await adminsOf(duo.id)).toEqual([b.id]);
+    expect(await systemLog(bTok, duo.id)).toEqual([
+      { body: "a nommé " + b.displayName + " admin du salon", authorId: creatorUser.id },
+      { body: "a quitté le salon", authorId: creatorUser.id },
+    ]);
+  });
+
+  it("rejoindre un salon public resté vide : on en devient l'admin, les suivants sont membres", async () => {
+    await registerUser(app);
+    const { token: creator } = await registerUser(app);
+    const { token: bTok, user: b } = await registerUser(app);
+    const { token: cTok, user: c } = await registerUser(app);
+    const pub = await create(creator, { name: "vide" });
+    await authed(app, creator).post(`/channels/${pub.id}/leave`);
+    expect(await adminsOf(pub.id)).toEqual([]);
+
+    const joined = await authed(app, bTok).post(`/channels/${pub.id}/join`);
+    expect(joined.status).toBe(200);
+    expect(joined.body.channel.adminIds).toEqual([b.id]);
+    const next = await authed(app, cTok).post(`/channels/${pub.id}/join`);
+    expect(next.body.channel.adminIds).toEqual([b.id]);
+    expect(await systemLog(cTok, pub.id)).toEqual([
+      { body: "a rejoint le salon", authorId: b.id },
+      { body: "est maintenant admin du salon", authorId: b.id },
+      { body: "a rejoint le salon", authorId: c.id },
+    ]);
+  });
+
+  // Départs simultanés : jamais zéro admin une fois tous les appels terminés.
+  it("les deux admins partent au même instant : le membre restant le devient, une seule fois", async () => {
+    await registerUser(app);
+    const { token: aTok } = await registerUser(app);
+    const { token: bTok, user: b } = await registerUser(app);
+    const { token: cTok, user: c } = await registerUser(app);
+    const ch = await create(aTok, { name: "exode", memberIds: [b.id, c.id] });
+    await setRole(aTok, ch.id, b.id, "admin");
+
+    const left = await Promise.all([
+      authed(app, aTok).post(`/channels/${ch.id}/leave`),
+      authed(app, bTok).post(`/channels/${ch.id}/leave`),
+    ]);
+    expect(left.map((r) => r.status)).toEqual([200, 200]);
+    expect(await adminsOf(ch.id)).toEqual([c.id]);
+    const promotions = (await systemLog(cTok, ch.id)).filter(
+      (m) => m.body === "est maintenant admin du salon"
+    );
+    expect(promotions).toEqual([{ body: "est maintenant admin du salon", authorId: c.id }]);
+  });
+
+  it("un admin se retire le rôle pendant que l'autre part : il en reste un", async () => {
+    await registerUser(app);
+    const { token: aTok, user: a } = await registerUser(app);
+    const { token: bTok, user: b } = await registerUser(app);
+    const { token: cTok, user: c } = await registerUser(app);
+    const ch = await create(aTok, { name: "bascule", memberIds: [b.id, c.id] });
+    await setRole(aTok, ch.id, b.id, "admin");
+    await setJoinedAt(c.id, ch.id, "2026-01-01");
+    await setJoinedAt(a.id, ch.id, "2026-01-02");
+
+    const [demoted, left] = await Promise.all([
+      setRole(aTok, ch.id, a.id, "member"),
+      authed(app, bTok).post(`/channels/${ch.id}/leave`),
+    ]);
+    expect(left.status).toBe(200);
+    // Selon l'ordre d'arrivée : Alice cesse d'être admin avant le départ de Bob,
+    // et le plus ancien membre (Chloé) prend le relais ; ou Bob est déjà parti,
+    // et Alice, dernière admin, garde son rôle.
+    expect([200, 409]).toContain(demoted.status);
+    const handedOver = demoted.status === 200;
+    expect(await adminsOf(ch.id)).toEqual([handedOver ? c.id : a.id]);
+    const promotions = (await systemTexts(cTok, ch.id)).filter(
+      (t) => t === "est maintenant admin du salon"
+    );
+    expect(promotions).toHaveLength(handedOver ? 1 : 0);
+  });
+});
+
+describe("ensureSalonAdmins — rattrapage au démarrage", () => {
+  it("donne un admin à chaque salon géré qui n'en a pas, en silence, une seule fois", async () => {
+    const { user: admin } = await registerUser(app);
+    const { user: alice } = await registerUser(app);
+    const { user: bob } = await registerUser(app);
+    const { user: carol } = await registerUser(app);
+    const { user: dan } = await registerUser(app);
+    const bot = await ensureBot();
+    const def = await ensureDefaultChannel();
+    await prisma.user.update({ where: { id: dan.id }, data: { status: "disabled" } });
+
+    // Salons d'avant les rôles : tout le monde y est « member ».
+    const legacy = (data, members) =>
+      prisma.channel.create({
+        data: {
+          ...data,
+          memberships: {
+            create: members.map(([userId, joinedAt]) => ({ userId, joinedAt: new Date(joinedAt) })),
+          },
+        },
+      });
+    const byCreator = await legacy({ name: "createur", createdById: bob.id }, [
+      [alice.id, "2026-01-01"],
+      [bob.id, "2026-01-02"],
+    ]);
+    const creatorGone = await legacy({ name: "orphelin", createdById: admin.id }, [
+      [dan.id, "2026-01-01"],
+      [carol.id, "2026-01-02"],
+      [alice.id, "2026-01-03"],
+    ]);
+    const creatorDisabled = await legacy({ name: "createur-desactive", createdById: dan.id }, [
+      [carol.id, "2026-01-01"],
+      [dan.id, "2026-01-02"],
+    ]);
+    const withBot = await legacy({ name: "avec-bot", isPrivate: true }, [
+      [bot.id, "2026-01-01"],
+      [carol.id, "2026-01-02"],
+    ]);
+    const onlyDisabled = await legacy({ name: "fantome", isPrivate: true }, [[dan.id, "2026-01-01"]]);
+    const onlyBot = await legacy({ name: "que-le-bot", createdById: bot.id }, [
+      [bot.id, "2026-01-01"],
+    ]);
+    const settled = await prisma.channel.create({
+      data: {
+        name: "deja-pourvu",
+        memberships: {
+          create: [
+            { userId: alice.id, joinedAt: new Date("2026-01-01") },
+            { userId: bob.id, role: "admin", joinedAt: new Date("2026-01-02") },
+          ],
+        },
+      },
+    });
+    const dm = await legacy({ isDirect: true }, [
+      [alice.id, "2026-01-01"],
+      [bob.id, "2026-01-02"],
+    ]);
+    const expert = await legacy({ kind: "claude", isPrivate: true, name: "Expert", createdById: alice.id }, [
+      [alice.id, "2026-01-01"],
+      [bot.id, "2026-01-02"],
+    ]);
+    const support = await legacy({ name: "support-dev", isPrivate: true }, [[admin.id, "2026-01-01"]]);
+
+    expect(await ensureSalonAdmins()).toBe(5);
+    expect(await adminsOf(byCreator.id)).toEqual([bob.id]); // le créateur, pas le plus ancien
+    expect(await adminsOf(creatorGone.id)).toEqual([carol.id]); // Dan, désactivé, passe son tour
+    // Encore membre, le créateur passe devant, même désactivé.
+    expect(await adminsOf(creatorDisabled.id)).toEqual([dan.id]);
+    expect(await adminsOf(withBot.id)).toEqual([carol.id]); // jamais le bot
+    expect(await adminsOf(onlyDisabled.id)).toEqual([dan.id]); // faute de mieux
+    expect(await adminsOf(onlyBot.id)).toEqual([]);
+    expect(await adminsOf(settled.id)).toEqual([bob.id]);
+    for (const c of [dm, expert, support, def]) expect(await adminsOf(c.id)).toEqual([]);
+    // Personne n'a rien fait : aucun message de service.
+    expect(await prisma.message.count()).toBe(0);
+
+    // Idempotent.
+    expect(await ensureSalonAdmins()).toBe(0);
+    expect(await prisma.membership.count({ where: { role: "admin" } })).toBe(6);
   });
 });

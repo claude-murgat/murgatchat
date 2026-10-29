@@ -37,6 +37,9 @@ export interface LastMessagePreview {
 /** Niveau de notification choisi par le membre pour une conversation. */
 export type NotifyLevel = "all" | "mentions" | "none";
 
+/** Rôle d'un membre dans un salon géré (PATCH /channels/:id/members/:userId). */
+export type SalonRole = "admin" | "member";
+
 /** Conversation (salon ou message direct), telle que sérialisée par le serveur. */
 export interface Channel {
   id: string;
@@ -61,6 +64,14 @@ export interface Channel {
   description: string | null;
   notifyLevel: NotifyLevel;
   members: User[];
+  /**
+   * Admins du salon (identifiants de membres) : son créateur, puis ceux qu'un
+   * admin a nommés. Ils changent sa visibilité, le suppriment, nomment ou
+   * retirent des admins. Toujours vide hors des salons gérés (conversations
+   * directes ou d'expert, « Général », salon du pipeline de support) ; absent
+   * d'un serveur 1.6.0, qui n'a pas d'admins de salon.
+   */
+  adminIds?: string[];
   lastMessage: LastMessagePreview | null;
   unread: boolean;
 }

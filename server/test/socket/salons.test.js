@@ -7,10 +7,14 @@ import {
   waitInRoom,
 } from "../helpers/server.js";
 import { registerUser, authed } from "../helpers/api.js";
+import { prisma } from "../helpers/db.js";
+import { ensureSalonAdmins } from "../../src/routes/channels.ts";
 
 // Temps réel des salons gérés par leurs membres (1.6.0) : messages de service
 // diffusés sans notification, retrait expliqué à la personne concernée, ajout
-// annoncé, masquage d'un DM synchronisé entre appareils.
+// annoncé, masquage d'un DM synchronisé entre appareils ; admins du salon
+// (`adminIds` sur channel:created et channel:members) aux seuls membres, y
+// compris ceux que le rattrapage du démarrage désigne.
 
 let srv;
 beforeAll(async () => {
@@ -91,7 +95,92 @@ describe("salons gérés par leurs membres — temps réel", () => {
     expect(await created).toMatchObject({
       id: ch.id,
       addedBy: { id: alice.user.id, displayName: "Alice" },
+      adminIds: [alice.user.id],
     });
+  });
+
+  it("un changement de rôle diffuse channel:members avec adminIds aux membres, rien aux autres", async () => {
+    await registerUser(srv.app); // admin du chat
+    const alice = await registerUser(srv.app, { displayName: "Alice" });
+    const bob = await registerUser(srv.app, { displayName: "Bob" });
+    const eve = await registerUser(srv.app);
+    const ch = (
+      await authed(srv.app, alice.token)
+        .post("/channels")
+        .send({ name: "equipe", isPrivate: true, memberIds: [bob.user.id] })
+    ).body.channel;
+    const bobSock = await ready(bob.token, ch.id);
+    const eveSock = await ready(eve.token);
+
+    const members = waitForEvent(bobSock, "channel:members", (e) => e.channelId === ch.id);
+    const trace = waitForEvent(bobSock, "message:system");
+    const eveSilent = expectNoEvent(eveSock, "channel:members", 800);
+    const eveNoTrace = expectNoEvent(eveSock, "message:system", 800);
+    const res = await authed(srv.app, alice.token)
+      .patch(`/channels/${ch.id}/members/${bob.user.id}`)
+      .send({ role: "admin" });
+    expect(res.status).toBe(200);
+
+    const evt = await members;
+    expect(evt.adminIds.sort()).toEqual([alice.user.id, bob.user.id].sort());
+    expect(evt.members.map((m) => m.id).sort()).toEqual([alice.user.id, bob.user.id].sort());
+    expect(await trace).toMatchObject({
+      channelId: ch.id,
+      kind: "system",
+      body: "a nommé Bob admin du salon",
+      author: { id: alice.user.id },
+    });
+    await eveSilent;
+    await eveNoTrace;
+  });
+
+  it("le dernier admin parti, les membres apprennent qui le remplace", async () => {
+    await registerUser(srv.app);
+    const alice = await registerUser(srv.app);
+    const bob = await registerUser(srv.app);
+    const ch = (
+      await authed(srv.app, alice.token)
+        .post("/channels")
+        .send({ name: "relais", memberIds: [bob.user.id] })
+    ).body.channel;
+    const bobSock = await ready(bob.token, ch.id);
+
+    // Le premier channel:members (départ d'Alice) n'a encore personne.
+    const promoted = waitForEvent(
+      bobSock,
+      "channel:members",
+      (e) => e.channelId === ch.id && e.adminIds.length > 0
+    );
+    const trace = waitForEvent(
+      bobSock,
+      "message:system",
+      (m) => m.body === "est maintenant admin du salon"
+    );
+    await authed(srv.app, alice.token).post(`/channels/${ch.id}/leave`);
+    expect((await promoted).adminIds).toEqual([bob.user.id]);
+    expect((await trace).author.id).toBe(bob.user.id);
+  });
+
+  it("le rattrapage du démarrage met à jour les clients déjà connectés, sans message de service", async () => {
+    await registerUser(srv.app);
+    const alice = await registerUser(srv.app);
+    const bob = await registerUser(srv.app);
+    // Un salon d'avant les admins du salon (tout le monde « member ») : le
+    // serveur écoute déjà quand le rattrapage passe, Bob s'est reconnecté avant.
+    const ch = await prisma.channel.create({
+      data: {
+        name: "ancien",
+        createdById: alice.user.id,
+        memberships: { create: [{ userId: alice.user.id }, { userId: bob.user.id }] },
+      },
+    });
+    const bobSock = await ready(bob.token, ch.id);
+    const members = waitForEvent(bobSock, "channel:members", (e) => e.channelId === ch.id);
+    const noTrace = expectNoEvent(bobSock, "message:system", 800);
+
+    expect(await ensureSalonAdmins(srv.io)).toBe(1);
+    expect((await members).adminIds).toEqual([alice.user.id]);
+    await noTrace;
   });
 
   it("on ne répond pas à un message de service", async () => {

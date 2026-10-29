@@ -38,6 +38,7 @@ import UpdateBanner from "./components/UpdateBanner.tsx";
 import InstallPwaBanner from "./components/InstallPwaBanner.tsx";
 import { checkForUpdate } from "./version.ts";
 import { setLogContext, logEvent } from "./logbuffer.ts";
+import { isOnlySalonAdmin, salonPeople, serverHasSalonAdmins } from "./channelRules.ts";
 import type {
   Channel,
   Message,
@@ -455,9 +456,21 @@ export default function App() {
         )
       );
     };
-    const onMembers = ({ channelId, members }: { channelId: string; members: User[] }) => {
+    // Membres du salon, et ses admins : un serveur 1.6.0 n'envoie pas
+    // `adminIds`, on garde alors ce qu'on a (rien).
+    const onMembers = ({
+      channelId,
+      members,
+      adminIds,
+    }: {
+      channelId: string;
+      members: User[];
+      adminIds?: string[];
+    }) => {
       setChannels((prev) =>
-        prev.map((c) => (c.id === channelId ? { ...c, members } : c))
+        prev.map((c) =>
+          c.id === channelId ? { ...c, members, ...(adminIds ? { adminIds } : {}) } : c
+        )
       );
     };
     // Compte supprimé par un admin : ses messages ont disparu, aperçus compris
@@ -964,8 +977,9 @@ export default function App() {
     );
   }, []);
 
-  // Suppression depuis le menu contextuel (admins) : confirmation explicite puis
-  // appel API (le panneau « Détails » porte sa propre double confirmation).
+  // Suppression depuis le menu contextuel (admins du salon ou du chat) :
+  // confirmation explicite puis appel API (le panneau « Détails » porte sa
+  // propre double confirmation).
   const onDeleteChannelMenu = useCallback(
     async (channel: Channel) => {
       if (channel.isDefault) return;
@@ -986,13 +1000,19 @@ export default function App() {
   );
 
   // Quitter depuis le menu contextuel. Dernier membre d'un salon privé : le
-  // serveur le supprime, on le dit avant.
+  // serveur le supprime, on le dit avant. Seul admin d'un salon où d'autres
+  // restent : le serveur nomme le membre le plus ancien, on le dit aussi.
   const onLeaveChannelMenu = useCallback(
     async (channel: Channel) => {
       if (channel.isDefault) return;
-      const last = channel.isPrivate && channel.members.length <= 1;
+      // Sans le bot qu'un ancien groupe peut compter : le serveur ne le compte pas.
+      const people = salonPeople(channel).length;
+      const last = channel.isPrivate && people <= 1;
+      const onlyAdmin = !!user && people > 1 && isOnlySalonAdmin(channel, user);
       const question = last
         ? `Vous êtes le dernier membre de « ${channel.name} » : en le quittant, le salon et tous ses messages seront supprimés. Continuer ?`
+        : onlyAdmin
+        ? `Quitter « ${channel.name} » ? Vous êtes le seul admin : le membre le plus ancien le deviendra.`
         : `Quitter « ${channel.name} » ?`;
       if (!window.confirm(question)) return;
       try {
@@ -1002,7 +1022,7 @@ export default function App() {
         alert(e instanceof Error ? e.message : String(e));
       }
     },
-    [onLeftChannel]
+    [onLeftChannel, user]
   );
 
   // Masquer une conversation directe : elle sort de la liste jusqu'au prochain
@@ -1184,6 +1204,7 @@ export default function App() {
       {showNewChannel && (
         <NewChannelModal
           currentUserId={user.id}
+          creatorBecomesAdmin={serverHasSalonAdmins(channels)}
           initialName={newChannelName}
           onClose={() => {
             setShowNewChannel(false);

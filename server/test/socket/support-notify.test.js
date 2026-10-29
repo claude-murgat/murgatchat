@@ -35,11 +35,12 @@ describe("POST /support/notify → diffusion temps réel", () => {
     process.env.SUPPORT_NOTIFY_TOKEN = "test-secret";
 
     // Pre-create the "support-dev" channel so we know its id and can subscribe
-    // before the notify fires. notify's ensureChannel reuses it by name.
+    // before the notify fires. notify's ensureChannel reuses it by name. Seeded
+    // in the DB: POST /channels refuses this reserved name.
     const alice = await registerUser(srv.app); // owner
-    const ch = (
-      await authed(srv.app, alice.token).post("/channels").send({ name: "support-dev" })
-    ).body.channel;
+    const ch = await prisma.channel.create({
+      data: { name: "support-dev", memberships: { create: [{ userId: alice.user.id }] } },
+    });
 
     // On connect the server auto-joins the socket to its channel rooms; wait
     // until that's done so the notify can't race ahead of the subscription.
@@ -91,11 +92,14 @@ describe("salon du pipeline : réservé aux admins, temps réel compris", () => 
     const owner = await registerUser(srv.app);
     const admin = await registerUser(srv.app);
     await authed(srv.app, owner.token).patch(`/auth/users/${admin.user.id}`).send({ isAdmin: true });
-    const ch = (
-      await authed(srv.app, owner.token)
-        .post("/channels")
-        .send({ name: "support-dev", isPrivate: true, memberIds: [admin.user.id] })
-    ).body.channel;
+    // Le salon du pipeline tel que notify.ts le tient (nom réservé : posé en base).
+    const ch = await prisma.channel.create({
+      data: {
+        name: "support-dev",
+        isPrivate: true,
+        memberships: { create: [{ userId: owner.user.id }, { userId: admin.user.id }] },
+      },
+    });
     const s = open[open.push(await connectSocket(srv.url, admin.token)) - 1];
     await waitInRoom(srv.io, ch.id, s.id);
     const removed = waitForEvent(s, "channel:removed", (e) => e.channelId === ch.id);
@@ -112,12 +116,14 @@ describe("salon du pipeline : réservé aux admins, temps réel compris", () => 
     process.env.SUPPORT_NOTIFY_TOKEN = "test-secret";
     const owner = await registerUser(srv.app);
     const member = await registerUser(srv.app);
-    // État hérité : un non-admin membre du salon, connecté.
-    const ch = (
-      await authed(srv.app, owner.token)
-        .post("/channels")
-        .send({ name: "support-dev", memberIds: [member.user.id] })
-    ).body.channel;
+    // État hérité : un non-admin membre du salon, connecté (posé en base :
+    // POST /channels refuse ce nom réservé).
+    const ch = await prisma.channel.create({
+      data: {
+        name: "support-dev",
+        memberships: { create: [{ userId: owner.user.id }, { userId: member.user.id }] },
+      },
+    });
     const s = open[open.push(await connectSocket(srv.url, member.token)) - 1];
     await waitInRoom(srv.io, ch.id, s.id);
     const removed = waitForEvent(s, "channel:removed", (e) => e.channelId === ch.id);

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api.ts";
 import type { Channel, User } from "../types.ts";
 import { useOverlayDismiss } from "../hooks/useOverlayDismiss.ts";
-import { isSalon } from "../channelRules.ts";
+import { canDeleteSalon, isSalon } from "../channelRules.ts";
 
 interface BrowseChannelsModalProps {
   currentUser: User;
@@ -11,7 +11,7 @@ interface BrowseChannelsModalProps {
   onClose: () => void;
   onOpen: (channel: Channel) => void;
   onJoined: (channel: Channel) => void;
-  /** Un admin a supprimé un salon public depuis la liste. */
+  /** Un admin (du salon ou du chat) a supprimé un salon public depuis la liste. */
   onDeleted: (channelId: string) => void;
   onCreate: () => void;
 }
@@ -143,7 +143,8 @@ export default function BrowseChannelsModal({
                   {c.description ? ` · ${c.description}` : ""}
                 </div>
               </div>
-              {currentUser.isAdmin && !c.isDefault && (
+              {/* Admin du salon (il en est membre) ou admin du chat, membre ou non. */}
+              {canDeleteSalon(c, currentUser) && (
                 <button
                   type="button"
                   onClick={() => void destroy(c)}

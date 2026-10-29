@@ -270,12 +270,14 @@ describe("POST /support/notify", () => {
     const admin = await registerUser(app); // bootstrap = admin
     const member = await registerUser(app); // invité = non-admin
 
-    // État hérité : un salon support-dev public où un non-admin est déjà membre.
-    const created = (
-      await authed(app, admin.token)
-        .post("/channels")
-        .send({ name: "support-dev", memberIds: [member.user.id] })
-    ).body.channel;
+    // État hérité : un salon support-dev public où un non-admin est déjà membre
+    // (posé en base : POST /channels refuse désormais ce nom réservé).
+    const created = await prisma.channel.create({
+      data: {
+        name: "support-dev",
+        memberships: { create: [{ userId: admin.user.id }, { userId: member.user.id }] },
+      },
+    });
     expect(created.isPrivate).toBe(false);
 
     const res = await request(app)

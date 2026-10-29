@@ -2,7 +2,7 @@ import type { Server } from "socket.io";
 import { prisma } from "./db.ts";
 import { safeUnlink } from "./storage.ts";
 import { revokeUserSessions } from "./socket.ts";
-import { broadcastMembers, isSupportChannel } from "./routes/channels.ts";
+import { broadcastMembers, ensureSalonAdmin, isSupportChannel } from "./routes/channels.ts";
 import { BOT_USERNAME } from "./notify.ts";
 
 // Suppression DÉFINITIVE d'un compte (panneau d'admin, DELETE /auth/users/:id).
@@ -16,6 +16,8 @@ import { BOT_USERNAME } from "./notify.ts";
 //     serializeChannel) en doublon de ses vraies notes — supprimées en entier ;
 //   - ses invitations (cascade `invitedBy`) : rattachées à l'admin qui supprime,
 //     pour que les liens déjà envoyés par e-mail restent valides ;
+//   - les salons dont il était le dernier admin du salon : le plus ancien membre
+//     actif restant le devient (ensureSalonAdmin) ;
 //   - les fichiers chiffrés sur disque : la cascade n'efface que les lignes.
 // Rapports de bug et conversations de support survivent (SetNull, par
 // conception : le backlog admin ne fond pas avec les départs).
@@ -89,6 +91,10 @@ export async function purgeUser(io: Server, userId: string, heirId: string) {
     }
   }
   await Promise.all(keptIds.map((id) => broadcastMembers(io, id)));
+  // Il était peut-être le dernier admin d'un salon : le plus ancien membre actif
+  // restant prend le relais (même règle qu'au départ d'un membre). Un salon après
+  // l'autre : chaque vérification est une courte transaction qui verrouille le sien.
+  for (const id of keptIds) await ensureSalonAdmin(io, id, { announce: true });
   // Ses messages ont disparu de tous les salons, y compris ceux que le compte
   // avait quittés : chaque client retire du fil ouvert ce qui en venait.
   io.emit("user:deleted", { userId });

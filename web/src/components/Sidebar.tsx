@@ -134,7 +134,7 @@ interface SidebarProps {
   onChannelDetails?: (channel: Channel) => void;
   /** Quitter un salon (confirmé par l'appelant). */
   onLeaveChannel?: (channel: Channel) => void;
-  /** Un admin veut supprimer ce salon (confirmé par l'appelant). */
+  /** Un admin (du salon ou du chat) veut supprimer ce salon (confirmé par l'appelant). */
   onDeleteChannel?: (channel: Channel) => void;
   /** Masquer une conversation directe (revient au prochain message). */
   onHideConversation?: (channel: Channel) => void;

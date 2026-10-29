@@ -9,6 +9,11 @@ interface NewChannelModalProps {
   /** Reçoit le salon créé (ouvert ensuite), après l'étape d'ajout de personnes. */
   onCreated: (channel: Channel) => void;
   currentUserId: string;
+  /**
+   * Le serveur a des admins de salon : le créateur devient admin du sien, on le
+   * lui dit. Faux face à un serveur 1.6.0 (voir serverHasSalonAdmins).
+   */
+  creatorBecomesAdmin?: boolean;
   /** Nom pré-rempli (création depuis la recherche). */
   initialName?: string;
 }
@@ -23,6 +28,7 @@ export default function NewChannelModal({
   onClose,
   onCreated,
   currentUserId,
+  creatorBecomesAdmin = false,
   initialName = "",
 }: NewChannelModalProps) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -175,6 +181,9 @@ export default function NewChannelModal({
                 title="Privé"
                 detail="Uniquement les personnes ajoutées : il n'apparaît pas pour les autres."
               />
+              {creatorBecomesAdmin && (
+                <p className="text-xs text-slate-500">Vous serez admin de ce salon.</p>
+              )}
               {error && <p className="text-sm text-red-600">{error}</p>}
             </div>
             <div className="p-4 border-t border-slate-200 flex items-center justify-between gap-2">
