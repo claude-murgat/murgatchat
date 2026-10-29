@@ -78,6 +78,16 @@ export async function ensurePwaReady() {
   }
   if (!pwaSupported()) return { supported: false };
   try {
+    // Consume any pending deep-link the SW stored before this load. Dispatched
+    // as a window event so the React tree can route to it. En premier : les étapes
+    // suivantes passent par le réseau (mise à jour du SW, synchro de l'abonnement
+    // push) ; sur un réseau lent, l'app ouvrait d'abord la dernière conversation
+    // puis sautait vers celle de la notification.
+    const pending = await consumePendingNavigation();
+    if (pending) {
+      window.dispatchEvent(new CustomEvent("pwa:deeplink", { detail: { url: pending } }));
+    }
+
     const reg = await registerServiceWorker();
     swRegistration = reg;
     // Le service worker vérifie, à l'arrivée d'un push, que le message n'a pas
@@ -92,13 +102,6 @@ export async function ensurePwaReady() {
     // resubscribe silently (handles VAPID rotation, browser-side expiry).
     if (Notification.permission === "granted") {
       await ensureSubscribed();
-    }
-
-    // Consume any pending deep-link the SW stored before this load. Dispatched
-    // as a window event so the React tree can route to it.
-    const pending = await consumePendingNavigation();
-    if (pending) {
-      window.dispatchEvent(new CustomEvent("pwa:deeplink", { detail: { url: pending } }));
     }
 
     // Web Share Target (#346) : si on a été ouvert par un partage, récupère les

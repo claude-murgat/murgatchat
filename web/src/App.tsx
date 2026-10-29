@@ -174,6 +174,10 @@ export default function App() {
   const [resumeKey, setResumeKey] = useState(0);
   // Pourquoi le serveur a fermé la session (affiché sur l'écran de connexion).
   const [sessionNotice, setSessionNotice] = useState<string | null>(null);
+  // Faux tant que la liste des salons n'est pas arrivée (ou que sa 1re requête n'a
+  // pas échoué) : l'écran « Chargement… » reste affiché au lieu d'une liste vide
+  // (« Aucun salon ») qui basculait ensuite sur la dernière conversation.
+  const [channelsReady, setChannelsReady] = useState(false);
   const signedIn = !!user;
   useEffect(() => {
     if (signedIn) return;
@@ -228,6 +232,28 @@ export default function App() {
   useEffect(() => {
     channelsRef.current = channels;
   }, [channels]);
+
+  // Première liste des salons reçue depuis la connexion : celle du chargement
+  // initial ou d'une resynchro (socket, retour au premier plan), la première qui
+  // aboutit. Sur un réseau instable, le chargement initial échouait et la
+  // resynchro remplissait la liste sans jamais rouvrir la dernière conversation.
+  // Une seule fois par connexion : la suite ne doit plus changer de conversation.
+  const restorePendingRef = useRef(true);
+  const userId = user?.id;
+  const onChannelsListed = useCallback(
+    (list: Channel[]) => {
+      setChannelsReady(true);
+      if (!userId || !restorePendingRef.current) return;
+      restorePendingRef.current = false;
+      setActiveChannelId((curr) => {
+        if (curr) return curr; // a deep-link / explicit pick already won
+        const saved = loadLastChannelId(userId);
+        if (saved && list.some((c) => c.id === saved)) return saved;
+        return list[0]?.id || null;
+      });
+    },
+    [userId]
+  );
 
   useEffect(() => {
     activeChannelIdRef.current = activeChannelId;
@@ -296,17 +322,21 @@ export default function App() {
     // est donc présent, là où getSocket() attend une chaîne.
     const s = getSocket(token!);
     setSocket(s);
+    let cancelled = false;
     const askedAt = Date.now();
-    api.listChannels().then((res) => {
-      setChannels(res.channels);
-      closeReadChannelNotifications(res.channels, askedAt);
-      setActiveChannelId((curr) => {
-        if (curr) return curr; // a deep-link / explicit pick already won
-        const saved = loadLastChannelId(user.id);
-        if (saved && res.channels.some((c: Channel) => c.id === saved)) return saved;
-        return res.channels[0]?.id || null;
+    api
+      .listChannels()
+      .then((res) => {
+        if (cancelled) return;
+        setChannels(res.channels);
+        closeReadChannelNotifications(res.channels, askedAt);
+        onChannelsListed(res.channels);
+      })
+      // Réseau instable : on affiche l'app, la resynchro (connexion du socket,
+      // retour au premier plan) chargera la liste et rouvrira la conversation.
+      .catch(() => {
+        if (!cancelled) setChannelsReady(true);
       });
-    });
 
     // Liste des experts pour la section CLAUDE — best-effort : un serveur sans
     // pont (ou antérieur à la route) laisse simplement le bouton historique.
@@ -447,6 +477,7 @@ export default function App() {
     s.on("channel:read", onRead);
     s.on("channel:unread", onUnread);
     return () => {
+      cancelled = true;
       s.off("message:new", onNew);
       s.off("channel:created", onCreated);
       s.off("channel:removed", onRemoved);
@@ -461,7 +492,7 @@ export default function App() {
       s.off("channel:read", onRead);
       s.off("channel:unread", onUnread);
     };
-  }, [user]);
+  }, [user, onChannelsListed]);
 
   useEffect(() => {
     if (!user) return;
@@ -595,6 +626,7 @@ export default function App() {
           if (cancelled || attempt !== latest) return;
           setChannels((prev) => mergeChannels(prev, res.channels, activeChannelIdRef.current));
           closeReadChannelNotifications(res.channels, askedAt);
+          onChannelsListed(res.channels);
         })
         .catch(() => {});
     };
@@ -608,7 +640,7 @@ export default function App() {
       socket.off("connect", resync);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [socket]);
+  }, [socket, onChannelsListed]);
 
   useEffect(() => {
     if (!socket) return;
@@ -712,6 +744,8 @@ export default function App() {
     setUser(null);
     setChannels([]);
     setActiveChannelId(null);
+    setChannelsReady(false);
+    restorePendingRef.current = true;
   }, []);
 
   // Fin de session imposée par le serveur : compte désactivé ou supprimé par un
@@ -918,7 +952,7 @@ export default function App() {
     []
   );
 
-  if (!bootstrapped) {
+  if (!bootstrapped || (user && !channelsReady)) {
     return (
       <div className="h-screen grid place-items-center bg-aubergine-900 text-aubergine-400">
         Chargement…
