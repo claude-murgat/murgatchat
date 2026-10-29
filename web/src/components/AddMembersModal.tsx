@@ -3,6 +3,7 @@ import { api } from "../api.ts";
 import Avatar from "./Avatar.tsx";
 import type { Channel, User } from "../types.ts";
 import { useOverlayDismiss } from "../hooks/useOverlayDismiss.ts";
+import { salonLabel } from "../channelRules.ts";
 
 interface AddMembersModalProps {
   channel: Channel;
@@ -74,15 +75,20 @@ export default function AddMembersModal({
         className="bg-white text-slate-900 sm:rounded-xl shadow-2xl w-full h-dvh sm:h-auto sm:max-w-md sm:max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="p-5 border-b border-slate-200 flex items-center justify-between">
-          <h2 className="text-xl font-bold">
-            Ajouter des membres {channel.name ? `à #${channel.name}` : ""}
-          </h2>
-          <button onClick={onClose} className="text-slate-500 hover:text-slate-800">
+        <div className="p-5 border-b border-slate-200 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-xl font-bold">Ajouter des personnes</h2>
+            <div className="text-sm text-slate-500 truncate">{salonLabel(channel)}</div>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-slate-500 hover:text-slate-800 w-8 h-8 shrink-0"
+            aria-label="Fermer"
+          >
             ✕
           </button>
         </div>
-        <div className="p-4">
+        <div className="p-4 space-y-2">
           <input
             autoFocus
             className="w-full border rounded-md px-3 py-2"
@@ -90,6 +96,12 @@ export default function AddMembersModal({
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
+          {/* Pas de « nouveau départ » pour les arrivants : comme dans un salon
+              public, ils lisent tout ce qui a déjà été écrit. */}
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">
+            Les personnes ajoutées verront tout l'historique du salon, messages et fichiers
+            compris.
+          </p>
         </div>
         <div className="px-2 pb-2 overflow-y-auto flex-1">
           {users.map((u) => (
