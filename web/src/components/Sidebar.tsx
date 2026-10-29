@@ -5,6 +5,14 @@ import QuickSwitcher from "./QuickSwitcher.tsx";
 import { isTauri } from "../desktop.ts";
 import { pwaSupported, requestNotificationPermission, isPwaInstalled } from "../pwa.ts";
 import type { Channel, User, ClaudeExpert } from "../types.ts";
+import {
+  canDeleteSalon,
+  canHideConversation,
+  canManageMembers,
+  isHiddenDm,
+  isSalon,
+  isSelfDm as isSelfDmOf,
+} from "../channelRules.ts";
 
 /** Coordonnées viewport où ouvrir le menu contextuel d'une conversation. */
 interface LongPressPosition {
@@ -107,11 +115,10 @@ function lastActivity(c: Channel) {
   return c.lastMessage?.createdAt ? new Date(c.lastMessage.createdAt).getTime() : 0;
 }
 
-// Un salon peut être géré par son créateur ou par un admin (ni DM, ni Claude).
-export function canManageChannel(channel: Channel, user: User) {
-  if (channel.isDirect || channel.kind === "claude") return false;
-  if (user.isAdmin) return true;
-  return !!channel.createdById && channel.createdById === user.id;
+// Ordre d'affichage des salons : alphabétique, comme Slack (les groupes devenus
+// salons privés en 1.6.0 s'y rangent par le nom de leurs membres).
+function bySalonName(a: Channel, b: Channel) {
+  return (a.name || "").localeCompare(b.name || "", "fr", { sensitivity: "base" });
 }
 
 interface SidebarProps {
@@ -123,10 +130,16 @@ interface SidebarProps {
   onSelectMessage: (channelId: string, messageId: string) => void;
   onMarkUnread?: (channelId: string) => void;
   onMarkRead?: (channelId: string) => void;
-  /** Le créateur (ou un admin) veut renommer / modifier ce salon. */
-  onRenameChannel?: (channel: Channel) => void;
-  /** Le créateur (ou un admin) veut supprimer ce salon (confirmé par l'appelant). */
+  /** Ouvre le panneau « Détails » d'un salon (nom, membres, quitter…). */
+  onChannelDetails?: (channel: Channel) => void;
+  /** Quitter un salon (confirmé par l'appelant). */
+  onLeaveChannel?: (channel: Channel) => void;
+  /** Un admin veut supprimer ce salon (confirmé par l'appelant). */
   onDeleteChannel?: (channel: Channel) => void;
+  /** Masquer une conversation directe (revient au prochain message). */
+  onHideConversation?: (channel: Channel) => void;
+  /** « Parcourir les salons » (salons publics). */
+  onBrowseChannels?: () => void;
   onNewChannel: (name: string) => void;
   onNewDm: () => void;
   onChannelJoined: (channel: Channel) => void;
@@ -155,8 +168,11 @@ export default function Sidebar({
   onSelectMessage,
   onMarkUnread,
   onMarkRead,
-  onRenameChannel,
+  onChannelDetails,
+  onLeaveChannel,
   onDeleteChannel,
+  onHideConversation,
+  onBrowseChannels,
   onNewChannel,
   onNewDm,
   onChannelJoined,
@@ -177,6 +193,8 @@ export default function Sidebar({
   // Menu contextuel d'une conversation (appui long / clic droit) :
   // { channelId, unread, x, y } ou null.
   const [convMenu, setConvMenu] = useState<ConvMenuState | null>(null);
+  // Menu du « + » de la section Salons (créer / parcourir) : où l'afficher.
+  const [salonAddMenu, setSalonAddMenu] = useState<LongPressPosition | null>(null);
   // Unified search ("quick switcher"): while non-empty, replaces the channel/DM
   // lists with grouped results (your convos + public salons + people + create).
   const [query, setQuery] = useState("");
@@ -231,7 +249,7 @@ export default function Sidebar({
     setPwaInstallable(false);
   }
 
-  const groups = channels.filter((c) => !c.isDirect && c.kind !== "claude");
+  const groups = channels.filter(isSalon).sort(bySalonName);
   // Les conversations avec les experts Claude vivent dans leur section (une par
   // expert) ; les experts ouverts mais pas encore consultés y ont un bouton.
   const claudeConvs = channels.filter((c) => c.kind === "claude");
@@ -242,15 +260,16 @@ export default function Sidebar({
   // sort de la liste des DM pour l'épingler en tête de la barre latérale, au
   // même niveau que les sections, au lieu de la mêler aux conversations
   // directes (#362).
-  const isSelfDm = (c: Channel) =>
-    c.isDirect && c.members.length === 1 && c.members[0]?.id === user.id;
+  const isSelfDm = (c: Channel) => isSelfDmOf(c, user);
   const selfDm = channels.find(isSelfDm);
   // DMs sorted by most-recent activity (SMS-style, #180): the conversation with
   // the latest message floats to the top — which also surfaces unread ones,
   // since they're usually the most recent (see the coloured badge below, #179).
   // .filter() returns a fresh array, so sorting it never mutates the channels state.
+  // Une conversation masquée en sort jusqu'au prochain message (isHiddenDm) ;
+  // la recherche la retrouve toujours.
   const dms = channels
-    .filter((c) => c.isDirect && !isSelfDm(c))
+    .filter((c) => c.isDirect && !isSelfDm(c) && (!isHiddenDm(c) || c.id === activeChannelId))
     .sort((a, b) => lastActivity(b) - lastActivity(a));
   // Conversations non lues d'une section, comptées comme leurs pastilles (la
   // conversation affichée n'en porte pas) : une section repliée en montre le total.
@@ -389,7 +408,8 @@ export default function Sidebar({
         )}
       </div>
 
-      {/* Unified search — replaces the browse/create channel + DM buttons. */}
+      {/* Recherche unifiée (conversations, personnes, messages). La création passe
+          par le « + » de chaque section ; la recherche garde des raccourcis. */}
       <div className="px-2 pt-3 pb-1 shrink-0">
         <div className="relative">
           <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-aubergine-400 text-sm pointer-events-none">
@@ -398,7 +418,8 @@ export default function Sidebar({
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Rechercher ou créer…"
+            placeholder="Rechercher…"
+            aria-label="Rechercher une conversation, une personne ou un message"
             className="w-full bg-aubergine-800 text-white placeholder-aubergine-400 rounded-md pl-8 pr-8 py-2 text-sm focus:outline-hidden focus:ring-1 focus:ring-slackblue"
           />
           {query && (
@@ -440,7 +461,7 @@ export default function Sidebar({
               onNewChannel(name);
               setQuery("");
             }}
-            onNewGroup={() => {
+            onNewMessage={() => {
               onNewDm();
               setQuery("");
             }}
@@ -465,7 +486,20 @@ export default function Sidebar({
           />
         )}
 
-        <SidebarSection id="groups" title="Salons" unread={unreadIn(groups)}>
+        <SidebarSection
+          id="groups"
+          title="Salons"
+          unread={unreadIn(groups)}
+          action={
+            <SectionAddButton
+              label="Ajouter un salon"
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                setSalonAddMenu({ x: r.left, y: r.bottom + 4 });
+              }}
+            />
+          }
+        >
           {groups.map((c) => (
             <SidebarItem
               key={c.id}
@@ -484,7 +518,12 @@ export default function Sidebar({
           )}
         </SidebarSection>
 
-        <SidebarSection id="dms" title="Messages directs" unread={unreadIn(dms)}>
+        <SidebarSection
+          id="dms"
+          title="Messages directs"
+          unread={unreadIn(dms)}
+          action={<SectionAddButton label="Nouveau message" onClick={() => onNewDm()} />}
+        >
           {dms.map((c) => (
             <DmItem
               key={c.id}
@@ -553,7 +592,13 @@ export default function Sidebar({
       {convMenu &&
         (() => {
           const target = channels.find((c) => c.id === convMenu.channelId);
-          const manageable = target ? canManageChannel(target, user) : false;
+          // Exécute l'action du menu sur la conversation visée, menu refermé.
+          const act = (fn?: (c: Channel) => void) => () => {
+            setConvMenu(null);
+            if (target) fn?.(target);
+          };
+          const itemClass = "block w-full text-left px-3 py-2.5 text-sm hover:bg-slate-100";
+          const dangerClass = "block w-full text-left px-3 py-2.5 text-sm text-red-600 hover:bg-red-50";
           return (
             <>
               <div
@@ -595,37 +640,76 @@ export default function Sidebar({
                     Marquer comme non lu
                   </button>
                 )}
-                {manageable && target && (
+                {target && isSalon(target) && (
                   <>
                     <div className="border-t border-slate-200" />
-                    <button
-                      onClick={() => {
-                        const ch = target;
-                        setConvMenu(null);
-                        onRenameChannel?.(ch);
-                      }}
-                      className="block w-full text-left px-3 py-2.5 text-sm hover:bg-slate-100"
-                    >
-                      ✏️ Modifier le salon
+                    <button onClick={act(onChannelDetails)} className={itemClass}>
+                      Détails du salon
                     </button>
-                    {!target.isDefault && (
-                      <button
-                        onClick={() => {
-                          const ch = target;
-                          setConvMenu(null);
-                          onDeleteChannel?.(ch);
-                        }}
-                        className="block w-full text-left px-3 py-2.5 text-sm text-red-600 hover:bg-red-50"
-                      >
-                        🗑️ Supprimer le salon
+                    {canManageMembers(target) && (
+                      <button onClick={act(onLeaveChannel)} className={itemClass}>
+                        Quitter le salon
                       </button>
                     )}
+                    {canDeleteSalon(target, user) && (
+                      <button onClick={act(onDeleteChannel)} className={dangerClass}>
+                        Supprimer le salon
+                      </button>
+                    )}
+                  </>
+                )}
+                {target && canHideConversation(target, user) && (
+                  <>
+                    <div className="border-t border-slate-200" />
+                    <button onClick={act(onHideConversation)} className={itemClass}>
+                      Masquer la conversation
+                    </button>
                   </>
                 )}
               </div>
             </>
           );
         })()}
+
+      {/* Menu du « + » de la section Salons. */}
+      {salonAddMenu && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setSalonAddMenu(null)}
+            aria-hidden="true"
+          />
+          <div
+            role="menu"
+            className="fixed bg-white text-slate-800 rounded-md shadow-lg overflow-hidden z-50 w-56"
+            style={{
+              left: Math.max(8, Math.min(salonAddMenu.x, window.innerWidth - 232)),
+              top: Math.min(salonAddMenu.y, window.innerHeight - 120),
+            }}
+          >
+            <button
+              role="menuitem"
+              onClick={() => {
+                setSalonAddMenu(null);
+                onNewChannel("");
+              }}
+              className="block w-full text-left px-3 py-2.5 text-sm hover:bg-slate-100"
+            >
+              Créer un salon
+            </button>
+            <button
+              role="menuitem"
+              onClick={() => {
+                setSalonAddMenu(null);
+                onBrowseChannels?.();
+              }}
+              className="block w-full text-left px-3 py-2.5 text-sm hover:bg-slate-100"
+            >
+              Parcourir les salons
+            </button>
+          </div>
+        </>
+      )}
     </aside>
   );
 }
@@ -659,10 +743,46 @@ interface SidebarSectionProps {
   title: string;
   /** Nombre de conversations non lues, affiché sur l'en-tête quand la section est repliée. */
   unread: number;
+  /** Bouton posé à droite de l'en-tête (le « + » des sections Salons et Messages directs). */
+  action?: ReactNode;
   children?: ReactNode;
 }
 
-function SidebarSection({ id, title, unread, children }: SidebarSectionProps) {
+// Le « + » d'une en-tête de section, comme dans Slack. Cible tactile de 36 px
+// sur mobile (l'en-tête lui-même est en petit texte).
+function SectionAddButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: (e: React.MouseEvent<HTMLButtonElement>) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className="shrink-0 w-9 h-9 md:w-6 md:h-6 -my-2 md:my-0 grid place-items-center rounded text-aubergine-400 hover:text-white hover:bg-aubergine-600"
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        aria-hidden="true"
+      >
+        <line x1="12" y1="5" x2="12" y2="19" />
+        <line x1="5" y1="12" x2="19" y2="12" />
+      </svg>
+    </button>
+  );
+}
+
+function SidebarSection({ id, title, unread, action, children }: SidebarSectionProps) {
   const [collapsed, setCollapsed] = useState(() => loadSectionCollapsed(id));
   const s = unread > 1 ? "s" : "";
 
@@ -674,45 +794,48 @@ function SidebarSection({ id, title, unread, children }: SidebarSectionProps) {
 
   return (
     <div>
-      <button
-        type="button"
-        onClick={toggle}
-        aria-expanded={!collapsed}
-        title={
-          collapsed
-            ? `Déplier ${title}${unread ? ` (${unread} conversation${s} non lue${s})` : ""}`
-            : `Replier ${title}`
-        }
-        className="w-full flex items-center gap-1 px-2 mb-1 text-xs uppercase tracking-wide text-aubergine-400 hover:text-white cursor-pointer"
-      >
-        {/* Chevron : pointe vers le bas quand la section est ouverte, vers la
-            droite quand elle est repliée. La rotation est animée, mais reste
-            inerte si l'utilisateur a demandé moins d'animations. */}
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-          className={`shrink-0 transition-transform motion-reduce:transition-none ${
-            collapsed ? "-rotate-90" : ""
-          }`}
+      <div className="flex items-center gap-1 pr-1 mb-1">
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={!collapsed}
+          title={
+            collapsed
+              ? `Déplier ${title}${unread ? ` (${unread} conversation${s} non lue${s})` : ""}`
+              : `Replier ${title}`
+          }
+          className="flex-1 min-w-0 flex items-center gap-1 px-2 text-xs uppercase tracking-wide text-aubergine-400 hover:text-white cursor-pointer"
         >
-          <polyline points="6 9 12 15 18 9" />
-        </svg>
-        <span>{title}</span>
-        {/* Repliée, la section cache les pastilles « Non lu » de ses lignes : elle
-            en reprend le total, à leur aplomb et dans la même teinte. */}
-        {collapsed && unread > 0 && (
-          <span className="ml-auto min-w-4 h-4 px-1 rounded-full bg-slackred ring-2 ring-slackred/30 text-white text-[10px] font-bold leading-4 tracking-normal text-center">
-            {unread}
-          </span>
-        )}
-      </button>
+          {/* Chevron : pointe vers le bas quand la section est ouverte, vers la
+              droite quand elle est repliée. La rotation est animée, mais reste
+              inerte si l'utilisateur a demandé moins d'animations. */}
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            className={`shrink-0 transition-transform motion-reduce:transition-none ${
+              collapsed ? "-rotate-90" : ""
+            }`}
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+          <span>{title}</span>
+          {/* Repliée, la section cache les pastilles « Non lu » de ses lignes : elle
+              en reprend le total, à leur aplomb et dans la même teinte. */}
+          {collapsed && unread > 0 && (
+            <span className="ml-auto min-w-4 h-4 px-1 rounded-full bg-slackred ring-2 ring-slackred/30 text-white text-[10px] font-bold leading-4 tracking-normal text-center">
+              {unread}
+            </span>
+          )}
+        </button>
+        {action}
+      </div>
       {/* Démonté plutôt que masqué en CSS : une section repliée ne doit pas
           rester atteignable au clavier ni annoncée aux lecteurs d'écran. */}
       {!collapsed && <div className="space-y-0.5">{children}</div>}
@@ -754,7 +877,11 @@ function SidebarItem({ active, onClick, onLongPress, prefix, label, unread, typi
       >
         {prefix}
       </span>
-      <span className="truncate flex-1">{label}</span>
+      {/* Nom complet au survol : un salon issu d'un ancien groupe porte la liste
+          de ses membres, souvent tronquée. */}
+      <span className="truncate flex-1" title={label}>
+        {label}
+      </span>
       {unread && !active && (
         <span
           className="w-2.5 h-2.5 rounded-full bg-slackred shrink-0 ring-2 ring-slackred/30"

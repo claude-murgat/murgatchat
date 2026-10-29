@@ -46,8 +46,14 @@ export interface Channel {
   isDirect: boolean;
   isPrivate: boolean;
   isDefault: boolean;
-  /** Créateur du salon (null = salon historique) : seul lui ou un admin peut le modifier/supprimer. */
+  /** Créateur du salon (null = salon historique ou ancien groupe) — information seule depuis la 1.6.0. */
   createdById: string | null;
+  /**
+   * Conversation directe masquée par le lecteur (horodatage ISO), null sinon :
+   * elle reste cachée tant qu'aucun message n'est arrivé depuis (voir isHiddenDm).
+   * Absent d'un serveur antérieur à la 1.6.0.
+   */
+  hiddenAt?: string | null;
   /** "claude" = conversation privée avec un expert Claude (section CLAUDE). */
   kind?: "standard" | "claude";
   /** Clé de l'expert consulté (canaux kind="claude") : "supervision", "management"… */

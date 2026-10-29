@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { api } from "../api.ts";
 import Avatar from "./Avatar.tsx";
 import type { Channel, SearchResult, User } from "../types.ts";
+import { isHiddenDm } from "../channelRules.ts";
 
 interface QuickSwitcherProps {
   query: string;
@@ -13,14 +14,15 @@ interface QuickSwitcherProps {
   onJoined: (channel: Channel) => void;
   onOpened: (channel: Channel) => void;
   onCreateChannel: (name: string) => void;
-  onNewGroup: () => void;
+  /** « Nouveau message » : une personne, ou plusieurs pour un salon privé. */
+  onNewMessage: () => void;
   onlineUserIds?: Set<string>;
 }
 
 // Unified sidebar search. Rendered in place of the channel/DM lists while the
-// search field has a query. One field replaces the old "browse public channels",
-// "new channel" and "new DM" buttons: as you type it surfaces your existing
-// conversations, public salons to join, people to DM, and create actions.
+// search field has a query: as you type it surfaces your existing conversations
+// (by name or by member), messages, public salons to join, people to DM, and
+// create shortcuts. Since 1.6.0 creation also lives behind the sections' "+".
 export default function QuickSwitcher({
   query,
   user,
@@ -30,7 +32,7 @@ export default function QuickSwitcher({
   onJoined,
   onOpened,
   onCreateChannel,
-  onNewGroup,
+  onNewMessage,
   onlineUserIds,
 }: QuickSwitcherProps) {
   const [publicRaw, setPublicRaw] = useState<Channel[]>([]);
@@ -76,9 +78,27 @@ export default function QuickSwitcher({
   }, [q]);
 
   const joinedIds = new Set(channels.map((c) => c.id));
-  const existing = channels.filter((c) =>
-    norm(c.isDirect ? c.displayName : c.name).includes(ql)
+  // Une conversation correspond par son nom… ou par ses membres : taper le nom de
+  // quelqu'un montre aussi les salons qu'on partage avec lui, même renommés
+  // (un groupe devenu salon privé ne porte plus forcément ses noms, 1.6.0).
+  // Le salon par défaut réunit tout le monde : il correspondrait à n'importe quel
+  // nom. Les correspondances par le nom passent d'abord (la conversation directe
+  // avec la personne cherchée reste en tête, donc sous Entrée), puis les salons
+  // partagés.
+  const othersMatching = (c: Channel) =>
+    c.members.filter(
+      (m) => m.id !== user.id && (norm(m.displayName).includes(ql) || norm(m.username).includes(ql))
+    );
+  const byName = channels.filter((c) => norm(c.isDirect ? c.displayName : c.name).includes(ql));
+  const byMember = channels.filter(
+    (c) =>
+      !byName.includes(c) &&
+      !c.isDirect &&
+      !c.isDefault &&
+      c.kind !== "claude" &&
+      othersMatching(c).length > 0
   );
+  const existing = [...byName, ...byMember];
   const publicChannels = publicRaw.filter((c) => !joinedIds.has(c.id));
   const people = peopleRaw.filter((u) => u.id !== user.id);
 
@@ -92,6 +112,14 @@ export default function QuickSwitcher({
     } finally {
       setBusyId(null);
     }
+  }
+
+  // Une conversation masquée se rouvre par le serveur, qui la remet dans la
+  // liste (sur tous les appareils) ; sinon on l'ouvre simplement.
+  function openExisting(c: Channel) {
+    const other = c.members.find((m) => m.id !== user.id);
+    if (isHiddenDm(c) && other) void dm(other);
+    else onSelectChannel(c);
   }
 
   async function dm(u: User) {
@@ -117,13 +145,13 @@ export default function QuickSwitcher({
   // donnent l'index global de la première ligne de chaque section, pour savoir
   // quelle ligne surligner.
   const items: Array<() => void> = [
-    ...existing.map((c) => () => onSelectChannel(c)),
+    ...existing.map((c) => () => openExisting(c)),
     ...messages.map((m) => () => onSelectMessage(m.channelId, m.id)),
     ...publicChannels.map((c) => () => join(c)),
     ...people.map((u) => () => dm(u)),
     () => onCreateChannel(q),
     () => dm(user),
-    () => onNewGroup(),
+    () => onNewMessage(),
   ];
   const messagesBase = existing.length;
   const publicBase = messagesBase + messages.length;
@@ -171,9 +199,16 @@ export default function QuickSwitcher({
             <Row
               key={c.id}
               active={active === i}
-              onClick={() => onSelectChannel(c)}
+              onClick={() => openExisting(c)}
               prefix={c.isDirect ? "💬" : c.isPrivate ? "🔒" : "#"}
               label={(c.isDirect ? c.displayName : c.name) || "conversation"}
+              sub={
+                !c.isDirect && !norm(c.name).includes(ql)
+                  ? `avec ${othersMatching(c)
+                      .map((m) => m.displayName)
+                      .join(", ")}`
+                  : undefined
+              }
             />
           ))}
         </Section>
@@ -248,9 +283,10 @@ export default function QuickSwitcher({
         />
         <Row
           active={active === createBase + 2}
-          onClick={onNewGroup}
+          onClick={onNewMessage}
           prefix="👥"
-          label="Nouveau groupe de discussion"
+          label="Nouveau message"
+          sub="Une personne, ou plusieurs pour un salon privé"
         />
       </Section>
 

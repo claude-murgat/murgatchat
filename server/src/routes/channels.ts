@@ -15,6 +15,7 @@ import { requireAuth } from "../auth.ts";
 import { publicUser } from "./auth.ts";
 import { encryptBody, decryptBody } from "../crypto.ts";
 import { safeUnlink } from "../storage.ts";
+import { BOT_USERNAME, supportChannelName } from "../notify.ts";
 
 // Formes « hydratées » renvoyées par nos requêtes Prisma. Les relations sont
 // déclarées OPTIONNELLES parce que chaque appelant choisit son `include` : un
@@ -60,6 +61,140 @@ export async function isMember(userId: string, channelId: string) {
   return m !== null;
 }
 
+// Dernier message d'une conversation tel que la barre latérale s'en sert (aperçu,
+// tri des DM, non-lu) : un message de service n'y compte pas — « Bob a quitté le
+// salon » ne doit rendre le salon non lu chez personne.
+const LAST_MESSAGE_WHERE = { delivered: true, kind: "user" } satisfies Prisma.MessageWhereInput;
+const CHANNEL_INCLUDE = {
+  memberships: { include: { user: true } },
+  messages: { orderBy: { createdAt: "desc" }, take: 1, where: LAST_MESSAGE_WHERE },
+} satisfies Prisma.ChannelInclude;
+
+/** Auteur d'une action sur un salon, tel qu'annoncé à la personne concernée. */
+type Actor = { id: string; displayName: string };
+
+// Pourquoi un salon disparaît de la liste d'un membre (évènement
+// `channel:removed`) : son client peut le dire au lieu de le faire disparaître
+// sans explication. Un client antérieur ne lit que `channelId`.
+type RemovalInfo = {
+  reason: "left" | "removed" | "deleted";
+  by?: Actor;
+  channelName?: string | null;
+};
+
+/** « Alice », « Alice et Bob », « Alice, Bob et Chloé ». */
+export function joinNames(names: string[]) {
+  if (names.length <= 1) return names[0] || "";
+  return `${names.slice(0, -1).join(", ")} et ${names[names.length - 1]}`;
+}
+
+// Nom par défaut d'un salon privé créé à partir d'une liste de personnes (et
+// des groupes convertis par la migration 20261029000000) : les membres par ordre
+// alphabétique, dans la limite de 80 caractères d'un nom de salon.
+export function defaultSalonName(displayNames: string[]) {
+  const names = [...displayNames]
+    .sort((a, b) => a.localeCompare(b, "fr", { sensitivity: "base" }))
+    .join(", ");
+  return names.length > 80 ? `${names.slice(0, 79)}…` : names;
+}
+
+// Message de service posté au nom de `actorId` (« a ajouté Bob au salon ») :
+// jamais notifié (ni push, ni évènement `notification`), exclu des non-lus, de
+// l'aperçu et de la recherche (pas de `searchableBody`). Diffusé sous son propre
+// évènement `message:system` : un client antérieur à la 1.6.0 l'ignore en direct
+// (sur `message:new`, il en aurait fait un non-lu) et ne le voit qu'au
+// rechargement du fil, comme un message de l'acteur — d'où un texte qui se lit
+// tel quel après son nom.
+export async function postSystemMessage(
+  io: Server | null | undefined,
+  channelId: string,
+  actorId: string,
+  text: string
+) {
+  // Au mieux : le salon a pu disparaître entre-temps (deux derniers membres qui
+  // partent en même temps) — l'action elle-même a réussi, la trace n'a plus lieu
+  // d'être.
+  try {
+    const msg = await prisma.message.create({
+      data: {
+        channelId,
+        authorId: actorId,
+        kind: "system",
+        body: encryptBody(text),
+        searchableBody: null,
+      },
+      include: { author: true, attachments: true },
+    });
+    const serialized = serializeMessage(msg);
+    io?.to(`channel:${channelId}`).emit("message:system", serialized);
+    return serialized;
+  } catch (err) {
+    console.warn("[channels] message de service non posté", channelId, (err as Error).message);
+    return null;
+  }
+}
+
+// Supprime un salon et tout son contenu (suppression par un admin, départ du
+// dernier membre d'un salon privé, purge d'un compte) : la cascade emporte
+// messages, membres et lignes de pièces jointes ; les fichiers chiffrés sur
+// disque sont effacés ici, messages programmés compris.
+export async function destroyChannel(io: Server | null | undefined, channelId: string) {
+  const memberRows = await prisma.membership.findMany({
+    where: { channelId },
+    select: { userId: true },
+  });
+  const msgs = await prisma.message.findMany({
+    where: { channelId },
+    select: { attachments: { select: { storagePath: true } } },
+  });
+  const blobs = msgs.flatMap((m) => m.attachments.map((a) => a.storagePath));
+  // deleteMany : idempotent si une suppression concurrente est passée avant.
+  await prisma.channel.deleteMany({ where: { id: channelId } });
+  await Promise.all(blobs.map((p) => safeUnlink(p)));
+  for (const { userId } of memberRows) {
+    io?.to(`user:${userId}`).emit("channel:removed", { channelId, reason: "deleted" });
+    io?.in(`user:${userId}`).socketsLeave(`channel:${channelId}`);
+  }
+}
+
+// Le salon du pipeline de support (réservé aux admins, voir notify.ts) : son
+// historique survit au départ de ses membres — la prochaine notification les
+// réinscrit de toute façon.
+export function isSupportChannel(channel: Pick<Channel, "isDirect" | "name">) {
+  return !channel.isDirect && channel.name === supportChannelName();
+}
+
+// Un salon privé sans plus aucun membre (le bot technique ne compte pas : il ne
+// lit rien) n'est plus visible de personne, ni supprimable par un admin — il
+// est supprimé avec son contenu. Renvoie true s'il l'a été.
+export async function destroyIfAbandoned(io: Server | null | undefined, channel: Channel) {
+  if (!channel.isPrivate || channel.isDefault || isSupportChannel(channel)) return false;
+  const people = await prisma.membership.count({
+    where: { channelId: channel.id, user: { username: { not: BOT_USERNAME } } },
+  });
+  if (people > 0) return false;
+  await destroyChannel(io, channel.id);
+  return true;
+}
+
+// Un message livré dans une conversation directe la fait revenir chez ceux qui
+// l'avaient masquée, sur tous leurs appareils. Sans cela, `hiddenAt` resterait
+// posé : supprimer ensuite le dernier message la ferait disparaître de nouveau.
+export async function unhideConversation(io: Server | null | undefined, channelId: string) {
+  const hidden = await prisma.membership.findMany({
+    where: { channelId, hiddenAt: { not: null } },
+    select: { userId: true },
+  });
+  if (hidden.length === 0) return;
+  await prisma.membership.updateMany({
+    where: { channelId, hiddenAt: { not: null } },
+    data: { hiddenAt: null },
+  });
+  for (const { userId } of hidden) {
+    io?.to(`user:${userId}`).emit("channel:hidden", { channelId, hiddenAt: null });
+  }
+}
+
 // Retire un membre (départ, exclusion, admin rétrogradé du salon du pipeline) :
 // membership, messages programmés qui n'y partiront plus (et leurs fichiers), et
 // abonnements temps réel — ses sockets quittent la room, ses appareils retirent
@@ -67,7 +202,8 @@ export async function isMember(userId: string, channelId: string) {
 export async function removeMember(
   io: Server | null | undefined,
   channelId: string,
-  userId: string
+  userId: string,
+  info?: RemovalInfo
 ) {
   const pending = await prisma.message.findMany({
     where: { channelId, authorId: userId, delivered: false },
@@ -80,9 +216,32 @@ export async function removeMember(
   await Promise.all(
     pending.flatMap((m) => m.attachments).map((a) => safeUnlink(a.storagePath))
   );
-  io?.to(`user:${userId}`).emit("channel:removed", { channelId });
+  io?.to(`user:${userId}`).emit("channel:removed", { channelId, ...info });
   io?.in(`user:${userId}`).socketsLeave(`channel:${channelId}`);
   await broadcastMembers(io, channelId);
+}
+
+// Un salon que l'appelant peut gérer, ni DM ni conversation d'expert. Un salon
+// PRIVÉ n'existe que pour ses membres, admins compris : sans en être membre, il
+// répond comme s'il n'existait pas (null → 404).
+async function findManageable(channelId: string, userId: string) {
+  const channel = await prisma.channel.findUnique({ where: { id: channelId } });
+  if (!channel || channel.isDirect || channel.kind === "claude") return null;
+  const membership = await prisma.membership.findUnique({
+    where: { userId_channelId: { userId, channelId } },
+  });
+  if (channel.isPrivate && !membership) return null;
+  return { channel, membership };
+}
+
+// Personnes qu'on peut ajouter à un salon : des comptes actifs, jamais le bot
+// technique « Claude » (auteur des messages des experts et du pipeline).
+async function addableUsers(ids: unknown[]) {
+  const wanted = ids.filter((id): id is string => typeof id === "string" && id.length > 0);
+  if (wanted.length === 0) return [];
+  return prisma.user.findMany({
+    where: { id: { in: wanted }, status: "active", username: { not: BOT_USERNAME } },
+  });
 }
 
 router.get("/", requireAuth, async (req, res) => {
@@ -93,11 +252,12 @@ router.get("/", requireAuth, async (req, res) => {
         include: {
           memberships: { include: { user: true } },
           // Un message masqué par l'appelant ne compte pas comme dernier
-          // message : il ne doit pas rendre le salon « non lu ».
+          // message : il ne doit pas rendre le salon « non lu ». Un message de
+          // service non plus (LAST_MESSAGE_WHERE).
           messages: {
             orderBy: { createdAt: "desc" },
             take: 1,
-            where: { delivered: true, hiddenBy: { none: { userId: req.userId } } },
+            where: { ...LAST_MESSAGE_WHERE, hiddenBy: { none: { userId: req.userId } } },
           },
         },
       },
@@ -120,30 +280,43 @@ router.post("/", requireAuth, async (req, res) => {
   const parsed = createChannelSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const { name, description, isPrivate, memberIds = [] } = parsed.data;
+  const channel = await createSalon(req, {
+    name: name.trim(),
+    description,
+    isPrivate: !!isPrivate,
+    memberIds: (await addableUsers(memberIds)).map((u) => u.id),
+  });
+  res.json({ channel: serializeChannel(channel, req.userId) });
+});
 
-  const allMembers = Array.from(new Set([req.userId, ...memberIds]));
+// Crée un salon avec l'appelant et `memberIds`, et l'annonce à chacun : les
+// personnes ajoutées par l'appelant reçoivent `addedBy` (leur client le signale).
+async function createSalon(
+  req: Express.Request,
+  data: { name: string; description?: string; isPrivate: boolean; memberIds: string[] }
+) {
+  const allMembers = Array.from(new Set([req.userId, ...data.memberIds]));
   const channel = await prisma.channel.create({
     data: {
-      name,
-      description,
-      isPrivate: !!isPrivate,
+      name: data.name,
+      description: data.description,
+      isPrivate: data.isPrivate,
       isDirect: false,
       createdById: req.userId,
       memberships: { create: allMembers.map((userId) => ({ userId })) },
     },
-    include: {
-      memberships: { include: { user: true } },
-      messages: { orderBy: { createdAt: "desc" }, take: 1 },
-    },
+    include: CHANNEL_INCLUDE,
   });
-
+  const addedBy = req.user ? { id: req.user.id, displayName: req.user.displayName } : undefined;
   for (const m of channel.memberships) {
     const personalized = serializeChannel(channel, m.userId);
-    req.io?.to(`user:${m.userId}`).emit("channel:created", personalized);
+    req.io
+      ?.to(`user:${m.userId}`)
+      .emit("channel:created", m.userId === req.userId ? personalized : { ...personalized, addedBy });
     req.io?.in(`user:${m.userId}`).socketsJoin(`channel:${channel.id}`);
   }
-  res.json({ channel: serializeChannel(channel, req.userId) });
-});
+  return channel;
+}
 
 router.post("/dm", requireAuth, async (req, res) => {
   const body = req.body || {};
@@ -175,13 +348,36 @@ router.post("/dm", requireAuth, async (req, res) => {
 
   // Always include the caller. For a self-DM, that's the *only* member.
   const targetIds = [...new Set([req.userId, ...ids])];
-  // `satisfies` (et non une annotation) : on veut la VÉRIFICATION contre le
-  // type Prisma tout en gardant les littéraux (`"desc"`), sans quoi Prisma ne
-  // peut plus inférer la forme du résultat (`channel.memberships`).
-  const include = {
-    memberships: { include: { user: true } },
-    messages: { orderBy: { createdAt: "desc" }, take: 1 },
-  } satisfies Prisma.ChannelInclude;
+
+  // Plusieurs personnes : depuis la 1.6.0, un groupe est un salon privé géré par
+  // ses membres. Les clients à jour passent par POST /channels ; un client
+  // antérieur (desktop pas encore mis à jour, app Android) arrive ici avec son
+  // « Créer le groupe » : comme avant, on rouvre le groupe qui réunit déjà
+  // exactement ces personnes plutôt que d'en créer un double.
+  if (ids.length >= 2) {
+    const candidates = await prisma.channel.findMany({
+      where: {
+        isDirect: false,
+        isPrivate: true,
+        isDefault: false,
+        kind: "standard",
+        NOT: { name: supportChannelName() },
+        AND: targetIds.map((uid) => ({ memberships: { some: { userId: uid } } })),
+      },
+      include: CHANNEL_INCLUDE,
+      orderBy: { createdAt: "asc" },
+    });
+    const existing = candidates.find((c) => c.memberships.length === targetIds.length);
+    if (existing) return res.json({ channel: serializeChannel(existing, req.userId) });
+    const members = await addableUsers(ids);
+    if (members.length !== ids.length) return res.status(400).json({ error: "invalid_target" });
+    const channel = await createSalon(req, {
+      name: defaultSalonName([req.user?.displayName || "", ...members.map((u) => u.displayName)]),
+      isPrivate: true,
+      memberIds: members.map((u) => u.id),
+    });
+    return res.json({ channel: serializeChannel(channel, req.userId) });
+  }
 
   // Réutiliser un DM existant avec exactement le même ensemble de membres
   const candidates = await prisma.channel.findMany({
@@ -189,13 +385,25 @@ router.post("/dm", requireAuth, async (req, res) => {
       isDirect: true,
       AND: targetIds.map((uid) => ({ memberships: { some: { userId: uid } } })),
     },
-    include: { memberships: { select: { userId: true } } },
+    include: { memberships: { select: { userId: true, hiddenAt: true } } },
   });
-  const existingId = candidates.find(
-    (c) => c.memberships.length === targetIds.length
-  )?.id;
-  if (existingId) {
-    const full = await prisma.channel.findUnique({ where: { id: existingId }, include });
+  const existing = candidates.find((c) => c.memberships.length === targetIds.length);
+  if (existing) {
+    // Rouvrir une conversation masquée la remet dans la liste, sur tous les
+    // appareils de l'appelant.
+    if (existing.memberships.some((m) => m.userId === req.userId && m.hiddenAt)) {
+      await prisma.membership.update({
+        where: { userId_channelId: { userId: req.userId, channelId: existing.id } },
+        data: { hiddenAt: null },
+      });
+      req.io
+        ?.to(`user:${req.userId}`)
+        .emit("channel:hidden", { channelId: existing.id, hiddenAt: null });
+    }
+    const full = await prisma.channel.findUnique({
+      where: { id: existing.id },
+      include: CHANNEL_INCLUDE,
+    });
     return res.json({ channel: serializeChannel(full!, req.userId) });
   }
 
@@ -204,7 +412,7 @@ router.post("/dm", requireAuth, async (req, res) => {
       isDirect: true,
       memberships: { create: targetIds.map((userId) => ({ userId })) },
     },
-    include,
+    include: CHANNEL_INCLUDE,
   });
   for (const m of channel.memberships) {
     const personalized = serializeChannel(channel, m.userId);
@@ -268,7 +476,7 @@ router.get("/:id/messages", requireAuth, async (req, res) => {
     const fu = await prisma.message.findFirst({
       where: {
         channelId: id,
-        delivered: true,
+        ...LAST_MESSAGE_WHERE,
         createdAt: { gt: member.lastReadAt },
         NOT: { authorId: req.userId },
         hiddenBy: { none: { userId: req.userId } },
@@ -370,7 +578,8 @@ router.patch("/messages/:messageId", requireAuth, async (req, res) => {
   const { body } = req.body || {};
 
   const msg = await prisma.message.findUnique({ where: { id: messageId } });
-  if (!msg || msg.authorId !== req.userId || !msg.delivered) {
+  // Un message de service (« a ajouté Bob ») n'est pas un texte de son auteur.
+  if (!msg || msg.authorId !== req.userId || !msg.delivered || msg.kind === "system") {
     return res.status(404).json({ error: "not_found" });
   }
   // Retiré du salon (privé ou non) : plus aucune écriture, pas même sur ses
@@ -418,7 +627,7 @@ router.delete("/messages/:messageId", requireAuth, async (req, res) => {
       replies: { include: { attachments: true } },
     },
   });
-  if (!msg || msg.authorId !== req.userId || !msg.delivered) {
+  if (!msg || msg.authorId !== req.userId || !msg.delivered || msg.kind === "system") {
     return res.status(404).json({ error: "not_found" });
   }
   if (!(await isMember(req.userId, msg.channelId))) {
@@ -466,7 +675,7 @@ router.post("/messages/:messageId/reactions", requireAuth, async (req, res) => {
   }
 
   const msg = await prisma.message.findUnique({ where: { id: messageId } });
-  if (!msg) return res.status(404).json({ error: "not_found" });
+  if (!msg || msg.kind === "system") return res.status(404).json({ error: "not_found" });
   const member = await prisma.membership.findUnique({
     where: { userId_channelId: { userId: req.userId, channelId: msg.channelId } },
   });
@@ -501,10 +710,7 @@ router.get("/public", requireAuth, async (req, res) => {
       memberships: { none: { userId: req.userId } },
       ...(q ? { name: { contains: q, mode: "insensitive" } } : {}),
     },
-    include: {
-      memberships: { include: { user: true } },
-      messages: { orderBy: { createdAt: "desc" }, take: 1 },
-    },
+    include: CHANNEL_INCLUDE,
     orderBy: { createdAt: "asc" },
     take: 50,
   });
@@ -517,87 +723,138 @@ router.post("/:id/join", requireAuth, async (req, res) => {
   if (!channel || channel.isDirect || channel.isPrivate) {
     return res.status(404).json({ error: "not_found" });
   }
-  await prisma.membership
-    .create({ data: { userId: req.userId, channelId: id } })
-    .catch(() => {});
-  const full = await prisma.channel.findUnique({
-    where: { id },
-    include: {
-      memberships: { include: { user: true } },
-      messages: { orderBy: { createdAt: "desc" }, take: 1 },
-    },
+  const joined = await prisma.membership.createMany({
+    data: [{ userId: req.userId, channelId: id }],
+    skipDuplicates: true,
   });
+  const full = await prisma.channel.findUnique({ where: { id }, include: CHANNEL_INCLUDE });
   const personalized = serializeChannel(full!, req.userId);
   req.io?.to(`user:${req.userId}`).emit("channel:created", personalized);
   req.io?.in(`user:${req.userId}`).socketsJoin(`channel:${id}`);
   await broadcastMembers(req.io, id);
+  if (joined.count > 0) await postSystemMessage(req.io, id, req.userId, "a rejoint le salon");
   res.json({ channel: personalized });
 });
 
+// Tout membre d'un salon peut y ajouter des personnes (1.6.0). Elles voient tout
+// l'historique, comme dans un salon public — le client le rappelle avant l'ajout.
 router.post("/:id/members", requireAuth, async (req, res) => {
   const { id } = req.params;
   const userIds = Array.isArray(req.body?.userIds) ? req.body.userIds : [];
   if (userIds.length === 0) return res.status(400).json({ error: "no_users" });
 
-  const channel = await prisma.channel.findUnique({ where: { id } });
   // Les conversations de l'expert Claude (kind "claude") sont figées à
   // {utilisateur, bot} : ni ajout, ni départ, ni retrait de membre.
-  if (!channel || channel.isDirect || channel.kind === "claude")
-    return res.status(404).json({ error: "not_found" });
-  const requester = await prisma.membership.findUnique({
-    where: { userId_channelId: { userId: req.userId, channelId: id } },
-  });
-  if (!requester) return res.status(403).json({ error: "not_a_member" });
+  const found = await findManageable(id, req.userId);
+  if (!found) return res.status(404).json({ error: "not_found" });
+  if (!found.membership) return res.status(403).json({ error: "not_a_member" });
 
-  const valid = await prisma.user.findMany({
-    where: { id: { in: userIds } },
-    select: { id: true },
+  const existing = await prisma.membership.findMany({
+    where: { channelId: id },
+    select: { userId: true },
   });
+  const already = new Set(existing.map((m) => m.userId));
+  const added = (await addableUsers(userIds)).filter((u) => !already.has(u.id));
   await prisma.membership.createMany({
-    data: valid.map((u) => ({ userId: u.id, channelId: id })),
+    data: added.map((u) => ({ userId: u.id, channelId: id })),
     skipDuplicates: true,
   });
 
-  const full = await prisma.channel.findUnique({
-    where: { id },
-    include: {
-      memberships: { include: { user: true } },
-      messages: { orderBy: { createdAt: "desc" }, take: 1 },
-    },
-  });
-  for (const u of valid) {
+  const full = await prisma.channel.findUnique({ where: { id }, include: CHANNEL_INCLUDE });
+  const addedBy = req.user ? { id: req.user.id, displayName: req.user.displayName } : undefined;
+  for (const u of added) {
     const personalized = serializeChannel(full!, u.id);
-    req.io?.to(`user:${u.id}`).emit("channel:created", personalized);
+    req.io?.to(`user:${u.id}`).emit("channel:created", { ...personalized, addedBy });
     req.io?.in(`user:${u.id}`).socketsJoin(`channel:${id}`);
   }
   await broadcastMembers(req.io, id);
+  if (added.length) {
+    const names = joinNames(added.map((u) => u.displayName));
+    await postSystemMessage(req.io, id, req.userId, `a ajouté ${names} au salon`);
+  }
   res.json({ channel: serializeChannel(full!, req.userId) });
 });
 
+// Départ volontaire. Le dernier membre qui quitte un salon privé le supprime :
+// plus personne ne pourrait le voir (un salon public, lui, reste à rejoindre).
+async function leaveSalon(req: Express.Request, channel: Channel) {
+  await removeMember(req.io, channel.id, req.userId, {
+    reason: "left",
+    channelName: channel.name,
+  });
+  if (await destroyIfAbandoned(req.io, channel)) return;
+  const remaining = await prisma.membership.count({ where: { channelId: channel.id } });
+  // Personne pour lire un « a quitté le salon » (salon public resté vide).
+  if (remaining === 0) return;
+  await postSystemMessage(req.io, channel.id, req.userId, "a quitté le salon");
+}
+
 router.post("/:id/leave", requireAuth, async (req, res) => {
-  const { id } = req.params;
-  const channel = await prisma.channel.findUnique({ where: { id } });
-  if (!channel || channel.isDirect || channel.kind === "claude")
-    return res.status(404).json({ error: "not_found" });
-  if (channel.isDefault) return res.status(403).json({ error: "cannot_leave_default" });
-  await removeMember(req.io, id, req.userId);
+  const found = await findManageable(req.params.id, req.userId);
+  if (!found) return res.status(404).json({ error: "not_found" });
+  if (found.channel.isDefault) return res.status(403).json({ error: "cannot_leave_default" });
+  if (found.membership) await leaveSalon(req, found.channel);
   res.json({ ok: true });
 });
 
+// Tout membre peut retirer quelqu'un du salon ; la personne retirée apprend qui
+// l'a fait, et le salon en garde la trace (message de service).
 router.delete("/:id/members/:userId", requireAuth, async (req, res) => {
   const { id, userId } = req.params;
-  const channel = await prisma.channel.findUnique({ where: { id } });
-  if (!channel || channel.isDirect || channel.kind === "claude")
-    return res.status(404).json({ error: "not_found" });
+  const found = await findManageable(id, req.userId);
+  if (!found) return res.status(404).json({ error: "not_found" });
+  const { channel, membership } = found;
   if (channel.isDefault) {
     return res.status(403).json({ error: "cannot_remove_from_default" });
   }
-  const requester = await prisma.membership.findUnique({
+  if (!membership) return res.status(403).json({ error: "not_a_member" });
+  if (userId === req.userId) {
+    await leaveSalon(req, channel);
+    return res.json({ ok: true });
+  }
+  const target = await prisma.membership.findUnique({
+    where: { userId_channelId: { userId, channelId: id } },
+    include: { user: true },
+  });
+  if (!target) return res.status(404).json({ error: "not_a_member" });
+  await removeMember(req.io, id, userId, {
+    reason: "removed",
+    by: req.user ? { id: req.user.id, displayName: req.user.displayName } : undefined,
+    channelName: channel.name,
+  });
+  // Deux membres qui se retirent l'un l'autre au même instant : personne ne reste.
+  if (await destroyIfAbandoned(req.io, channel)) return res.json({ ok: true });
+  await postSystemMessage(
+    req.io,
+    id,
+    req.userId,
+    `a retiré ${target.user.displayName} du salon`
+  );
+  res.json({ ok: true });
+});
+
+// « Masquer » une conversation directe : elle quitte la liste de l'appelant (sur
+// tous ses appareils) jusqu'au prochain message ou jusqu'à ce qu'il la rouvre.
+// Elle est marquée lue au passage : un non-lu caché resterait sinon compté dans
+// le badge de l'app sans pastille visible. Rien ne change pour l'autre personne ;
+// on ne « quitte » pas un DM.
+router.post("/:id/hide", requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const channel = await prisma.channel.findUnique({ where: { id } });
+  const membership = await prisma.membership.findUnique({
     where: { userId_channelId: { userId: req.userId, channelId: id } },
   });
-  if (!requester) return res.status(403).json({ error: "not_a_member" });
-  await removeMember(req.io, id, userId);
-  res.json({ ok: true });
+  if (!channel || !channel.isDirect || !membership) {
+    return res.status(404).json({ error: "not_found" });
+  }
+  const hiddenAt = new Date();
+  await prisma.membership.update({
+    where: { id: membership.id },
+    data: { hiddenAt, lastReadAt: hiddenAt },
+  });
+  req.io?.to(`user:${req.userId}`).emit("channel:hidden", { channelId: id, hiddenAt });
+  req.io?.to(`user:${req.userId}`).emit("channel:read", { channelId: id });
+  res.json({ ok: true, hiddenAt });
 });
 
 // Niveau de notification de l'appelant pour ce channel : "all" | "mentions" | "none".
@@ -620,23 +877,16 @@ router.patch("/:id/notifications", requireAuth, async (req, res) => {
   res.json({ ok: true, notifyLevel: parsed.data.level });
 });
 
-// Un salon (ni DM, ni conversation Claude) peut être renommé / modifié par son
-// créateur ou par un admin. Les salons historiques sans créateur (createdById
-// null, antérieurs à la colonne) sont gérés par les admins uniquement.
+// Renommer / décrire un salon : tout membre (1.6.0). Changer sa visibilité :
+// un admin seulement — rendre public un salon privé exposerait tout son
+// historique. Le salon par défaut (« Général ») ne se modifie que par un admin
+// et reste public. Un admin peut aussi modérer un salon public sans en être
+// membre ; un salon privé n'existe que pour ses membres (findManageable).
 const updateChannelSchema = z.object({
-  name: z.string().min(1).max(80).optional(),
+  name: z.string().trim().min(1).max(80).optional(),
   description: z.string().max(300).nullable().optional(),
   isPrivate: z.boolean().optional(),
 });
-
-function canManageChannel(
-  channel: { createdById?: string | null },
-  userId: string,
-  isAdmin: boolean
-) {
-  if (isAdmin) return true;
-  return !!channel.createdById && channel.createdById === userId;
-}
 
 router.patch("/:id", requireAuth, async (req, res) => {
   const parsed = updateChannelSchema.safeParse(req.body || {});
@@ -646,83 +896,67 @@ router.patch("/:id", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "nothing_to_update" });
   }
 
-  const channel = await prisma.channel.findUnique({ where: { id: req.params.id } });
-  if (!channel || channel.isDirect || channel.kind === "claude") {
-    return res.status(404).json({ error: "not_found" });
-  }
+  const found = await findManageable(req.params.id, req.userId);
+  if (!found) return res.status(404).json({ error: "not_found" });
+  const { channel, membership } = found;
   const isAdmin = !!req.user?.isAdmin;
-  const membership = await prisma.membership.findUnique({
-    where: { userId_channelId: { userId: req.userId, channelId: channel.id } },
-  });
-  // Le créateur doit toujours être membre ; l'admin peut gérer même sans
-  // appartenance (salon privé auquel il n'appartient pas, modération).
   if (!isAdmin && !membership) return res.status(403).json({ error: "not_a_member" });
-  if (!canManageChannel(channel, req.userId, isAdmin)) {
-    return res.status(403).json({ error: "not_channel_owner" });
-  }
-  // Le salon par défaut reste public et ne change pas de visibilité.
-  if (channel.isDefault && isPrivate !== undefined && isPrivate !== channel.isPrivate) {
-    return res.status(403).json({ error: "cannot_make_default_private" });
+  if (channel.isDefault && !isAdmin) return res.status(403).json({ error: "admin_only" });
+  const visibilityChange = isPrivate !== undefined && isPrivate !== channel.isPrivate;
+  if (visibilityChange) {
+    // Le salon par défaut reste public et ne change pas de visibilité.
+    if (channel.isDefault) return res.status(403).json({ error: "cannot_make_default_private" });
+    if (!isAdmin) return res.status(403).json({ error: "admin_only" });
+    // Un salon privé n'existe que pour ses membres : l'admin qui le rendrait
+    // privé sans en être le perdrait aussitôt (et un salon vide, tout le monde).
+    if (isPrivate && !membership) return res.status(403).json({ error: "not_a_member" });
   }
 
   const data: Prisma.ChannelUpdateInput = {};
-  if (name !== undefined) data.name = name.trim();
+  const renamed = name !== undefined && name !== channel.name;
+  if (renamed) data.name = name;
   if (description !== undefined) {
     const trimmed = typeof description === "string" ? description.trim() : "";
     data.description = trimmed ? trimmed : null;
   }
-  if (isPrivate !== undefined) data.isPrivate = isPrivate;
+  if (visibilityChange) data.isPrivate = isPrivate;
 
   const updated = await prisma.channel.update({
     where: { id: channel.id },
     data,
-    include: {
-      memberships: { include: { user: true } },
-      messages: { orderBy: { createdAt: "desc" }, take: 1, where: { delivered: true } },
-    },
+    include: CHANNEL_INCLUDE,
   });
   // Diffusion personnalisée par membre (notifyLevel / unread diffèrent), comme
   // channel:created : chaque appareil met à jour sa liste sans recharger.
   for (const m of updated.memberships) {
     req.io?.to(`user:${m.userId}`).emit("channel:updated", serializeChannel(updated, m.userId));
   }
+  if (renamed) {
+    await postSystemMessage(req.io, channel.id, req.userId, `a renommé le salon en « ${name} »`);
+  }
+  if (visibilityChange) {
+    await postSystemMessage(
+      req.io,
+      channel.id,
+      req.userId,
+      isPrivate ? "a rendu le salon privé" : "a rendu le salon public"
+    );
+  }
   res.json({ channel: serializeChannel(updated, req.userId) });
 });
 
+// Supprimer un salon et tout son contenu : un admin seulement (1.6.0) ; les
+// autres le quittent. Un salon privé n'est supprimable que par un admin qui en
+// est membre — il n'existe pas pour les autres.
 router.delete("/:id", requireAuth, async (req, res) => {
-  const channel = await prisma.channel.findUnique({ where: { id: req.params.id } });
-  if (!channel || channel.isDirect || channel.kind === "claude") {
-    return res.status(404).json({ error: "not_found" });
-  }
+  const found = await findManageable(req.params.id, req.userId);
+  if (!found) return res.status(404).json({ error: "not_found" });
+  const { channel, membership } = found;
   if (channel.isDefault) return res.status(403).json({ error: "cannot_delete_default" });
-  const isAdmin = !!req.user?.isAdmin;
-  const membership = await prisma.membership.findUnique({
-    where: { userId_channelId: { userId: req.userId, channelId: channel.id } },
-  });
-  if (!isAdmin && !membership) return res.status(403).json({ error: "not_a_member" });
-  if (!canManageChannel(channel, req.userId, isAdmin)) {
-    return res.status(403).json({ error: "not_channel_owner" });
+  if (!req.user?.isAdmin) {
+    return res.status(403).json({ error: membership ? "admin_only" : "not_a_member" });
   }
-
-  const memberRows = await prisma.membership.findMany({
-    where: { channelId: channel.id },
-    select: { userId: true },
-  });
-  const memberIds = memberRows.map((m) => m.userId);
-  // Pièces jointes liées aux messages du salon : la cascade Prisma supprime les
-  // lignes, mais les blobs sur disque doivent être retirés explicitement.
-  const msgs = await prisma.message.findMany({
-    where: { channelId: channel.id },
-    select: { attachments: { select: { storagePath: true } } },
-  });
-  const blobs = msgs.flatMap((m) => m.attachments.map((a) => a.storagePath));
-  await prisma.channel.delete({ where: { id: channel.id } });
-  await Promise.all(blobs.map((p) => safeUnlink(p)));
-
-  for (const userId of memberIds) {
-    req.io?.to(`user:${userId}`).emit("channel:removed", { channelId: channel.id });
-    req.io?.in(`user:${userId}`).socketsLeave(`channel:${channel.id}`);
-  }
+  await destroyChannel(req.io, channel.id);
   res.json({ ok: true });
 });
 
@@ -765,6 +999,9 @@ export function serializeChannel(channel: ChannelWithRelations, viewerId: string
     // Niveau de notification de l'appelant pour ce channel (défaut "all" si la
     // membership n'est pas hydratée, p. ex. juste après une création).
     notifyLevel: viewerMembership?.notifyLevel || "all",
+    // Conversation directe masquée par l'appelant (null sinon) : le client la
+    // cache tant qu'aucun message n'est arrivé depuis.
+    hiddenAt: viewerMembership?.hiddenAt ?? null,
     members,
     lastMessage: last
       ? {
@@ -804,6 +1041,8 @@ export function serializeMessage(m: MessageWithRelations) {
   return {
     id: m.id,
     channelId: m.channelId,
+    // "user" ou "system" (message de service : voir postSystemMessage).
+    kind: m.kind === "system" ? "system" : "user",
     parentId: m.parentId ?? null,
     // Preview of the quoted message, when this is a reply. The client uses
     // it to render the inline quote without fetching the parent separately.

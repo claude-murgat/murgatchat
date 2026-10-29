@@ -15,12 +15,17 @@ afterAll(() => {
   io.close();
 });
 
-// owner + one extra member sharing a fresh channel.
+// owner + one extra member sharing a fresh channel. Le membre est ajouté dès la
+// création : un ajout après coup poserait un message de service (« a ajouté… »)
+// dans le fil que ces tests comptent.
 async function setup() {
   const owner = await registerUser(app);
   const member = await registerUser(app);
-  const ch = (await authed(app, owner.token).post("/channels").send({ name: "salon" })).body.channel;
-  await authed(app, owner.token).post(`/channels/${ch.id}/members`).send({ userIds: [member.user.id] });
+  const ch = (
+    await authed(app, owner.token)
+      .post("/channels")
+      .send({ name: "salon", memberIds: [member.user.id] })
+  ).body.channel;
   return { owner, member, channelId: ch.id };
 }
 

@@ -308,10 +308,17 @@ Génère une clé prod avec : `openssl rand -hex 32`.
 | GET     | `/auth/users?q=&page=`             | lister les utilisateurs (admin)              |
 | PATCH   | `/auth/users/:id`                  | `{ isAdmin?, status? }` — rôle (propriétaire) ou désactivation (admin ; sessions ouvertes coupées aussitôt) |
 | DELETE  | `/auth/users/:id`                  | suppression définitive d'un compte **déjà désactivé** (admin ; propriétaire pour un admin) — voir `server/src/userPurge.ts` |
-| GET     | `/users?q=`                        | recherche d'utilisateurs                     |
+| GET     | `/users?q=`                        | recherche d'utilisateurs (comptes actifs, sans le bot) |
 | GET     | `/channels`                        | mes conversations                            |
-| POST    | `/channels`                        | créer un salon                               |
-| POST    | `/channels/dm`                     | ouvrir ou retrouver un DM                    |
+| POST    | `/channels`                        | créer un salon (`{ name, description?, isPrivate?, memberIds? }`) |
+| GET     | `/channels/public?q=`              | salons publics dont je ne suis pas membre (« Parcourir les salons ») |
+| POST    | `/channels/dm`                     | ouvrir ou retrouver un DM (`userIds` à plusieurs : salon privé, pour les clients antérieurs à la 1.6.0) |
+| PATCH   | `/channels/:id`                    | renommer / décrire (tout membre) ; visibilité (admin) |
+| DELETE  | `/channels/:id`                    | supprimer un salon et son contenu (admin)    |
+| POST    | `/channels/:id/members`            | ajouter des personnes (tout membre)          |
+| DELETE  | `/channels/:id/members/:userId`    | retirer quelqu'un (tout membre)              |
+| POST    | `/channels/:id/join` · `/leave`    | rejoindre un salon public · quitter un salon |
+| POST    | `/channels/:id/hide`               | masquer une conversation directe (revient au prochain message) |
 | GET     | `/channels/:id/messages`           | messages d'un salon                          |
 | GET     | `/channels/:id/scheduled`          | mes messages planifiés dans le salon         |
 | PATCH   | `/channels/scheduled/:id`          | modifier un planifié (body, scheduledAt)     |
@@ -423,8 +430,27 @@ pour les secrets) :
 
 ## Événements Socket.IO
 
-Côté client → serveur : `channel:join`, `channel:read`, `message:send` (`{ channelId, body?, attachmentIds?, scheduledAt? }`).
-Côté serveur → client : `message:new`, `channel:created`, `notification`.
+Côté client → serveur : `channel:join`, `channel:read`, `channel:unread`, `typing`, `message:send` (`{ channelId, body?, attachmentIds?, scheduledAt?, parentId? }`).
+Côté serveur → client : `message:new` (avec `kind: "system"` pour un message de service), `message:updated`, `message:deleted`, `message:hidden`, `reaction:update`, `channel:created` (`addedBy` quand quelqu'un vous ajoute), `channel:updated`, `channel:removed` (`reason` `left`/`removed`/`deleted`, `by`, `channelName`), `channel:hidden`, `channel:members`, `channel:read`, `channel:unread`, `notification`, `presence:state`, `presence:update`, `typing:update`, `claude:progress`, `session:revoked`, `user:deleted`.
+
+### Salons et conversations directes (1.6.0)
+
+Comme dans Slack, la barre latérale range les **salons** (publics ou privés) et les
+**messages directs** (conversations à deux, plus « Mes notes ») ; un « + » à côté de
+chaque section crée un salon (nom → visibilité → personnes) ou un nouveau message.
+Un « groupe de discussion » est un **salon privé** : choisir plusieurs personnes dans
+« Nouveau message » en crée un, et la migration `20261029000000_private_salons` a converti
+les anciens DM de groupe. Règles (serveur, `server/src/routes/channels.ts`) :
+
+- **tout membre** d'un salon ajoute, retire, renomme, décrit et quitte ; les personnes
+  ajoutées voient tout l'historique ;
+- **un admin seulement** supprime un salon ou change sa visibilité ; « Général » ne se
+  modifie que par un admin et ne se quitte ni ne se supprime ;
+- un **salon privé n'existe que pour ses membres**, admins compris (404 sinon) ; le
+  dernier membre qui le quitte le supprime ;
+- une conversation directe ne se quitte pas : elle se **masque** jusqu'au prochain message ;
+- chaque changement laisse un **message de service** (« Charles a ajouté Bob au salon ») :
+  jamais notifié, jamais non lu, ni cherchable ni modifiable.
 
 ## Décisions techniques
 

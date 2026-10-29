@@ -74,6 +74,10 @@ model Membership {
   // membre est mentionné) ou "none" (muet). Par défaut on notifie tout, ce qui
   // reproduit le comportement historique pré-réglage.
   notifyLevel String @default("all")
+  // « Masquer » une conversation directe : elle sort de la liste du membre
+  // jusqu'au prochain message (horodatage comparé au dernier message côté
+  // client) ou jusqu'à ce qu'il la rouvre (POST /channels/dm la remet à null).
+  hiddenAt  DateTime?
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
@@ -95,6 +99,11 @@ model Message {
   delivered   Boolean   @default(true)
   editedAt    DateTime?
   parentId    String?
+  // "user" (message ordinaire) ou "system" (message de service : « Charles a
+  // ajouté Bob », « Bob a quitté le salon »). Un message de service n'est ni
+  // notifié, ni compté comme non lu, ni indexé pour la recherche, ni
+  // modifiable ; son auteur est le membre qui a fait l'action.
+  kind        String    @default("user")
 
   channel     Channel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
   author      User         @relation(fields: [authorId], references: [id], onDelete: Cascade)

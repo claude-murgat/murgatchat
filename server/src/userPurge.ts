@@ -2,7 +2,8 @@ import type { Server } from "socket.io";
 import { prisma } from "./db.ts";
 import { safeUnlink } from "./storage.ts";
 import { revokeUserSessions } from "./socket.ts";
-import { broadcastMembers } from "./routes/channels.ts";
+import { broadcastMembers, isSupportChannel } from "./routes/channels.ts";
+import { BOT_USERNAME } from "./notify.ts";
 
 // Suppression DÉFINITIVE d'un compte (panneau d'admin, DELETE /auth/users/:id).
 // La base fait l'essentiel par cascade : memberships, messages (avec leurs pièces
@@ -21,13 +22,27 @@ import { broadcastMembers } from "./routes/channels.ts";
 export async function purgeUser(io: Server, userId: string, heirId: string) {
   const memberships = await prisma.membership.findMany({
     where: { userId },
-    include: { channel: { include: { memberships: { select: { userId: true } } } } },
+    include: {
+      channel: {
+        include: {
+          memberships: { select: { userId: true, user: { select: { username: true } } } },
+        },
+      },
+    },
   });
-  // Un DM de groupe garde ses survivants (au moins deux) : il reste une vraie
-  // conversation entre eux.
+  // Un salon (privé ou non, groupes compris depuis la 1.6.0) garde ses
+  // survivants. Un salon privé dont il était le dernier membre (le bot technique
+  // ne compte pas) part avec lui : plus personne ne pourrait le voir — même règle
+  // que le départ du dernier membre (destroyIfAbandoned).
+  const survivors = (c: (typeof memberships)[number]["channel"]) =>
+    c.memberships.filter((m) => m.userId !== userId && m.user.username !== BOT_USERNAME);
   const doomed = memberships
     .map((m) => m.channel)
-    .filter((c) => (c.isDirect || c.kind === "claude") && c.memberships.length <= 2);
+    .filter(
+      (c) =>
+        ((c.isDirect || c.kind === "claude") && c.memberships.length <= 2) ||
+        (c.isPrivate && !c.isDefault && !isSupportChannel(c) && survivors(c).length === 0)
+    );
   const doomedIds = doomed.map((c) => c.id);
   const keptIds = memberships
     .map((m) => m.channelId)

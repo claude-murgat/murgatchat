@@ -8,6 +8,8 @@ import MessageMarkdown from "./MessageMarkdown.tsx";
 import AttachmentModal from "./AttachmentModal.tsx";
 import DownloadIcon from "./DownloadIcon.tsx";
 import ForwardMessageModal from "./ForwardMessageModal.tsx";
+import type { DetailsTab } from "./ChannelDetailsModal.tsx";
+import { canManageMembers, isSalon, salonLabel } from "../channelRules.ts";
 import { api, attachmentUrl, downloadAttachment } from "../api.ts";
 import { extOf, fileIcon } from "../fileIcon.ts";
 import { isWindowFocused } from "../desktop.ts";
@@ -342,9 +344,8 @@ interface ChannelViewProps {
   socket?: Socket | null;
   onlineUserIds?: Set<string>;
   onAddMembers?: () => void;
-  onShowMembers?: () => void;
-  /** Le créateur (ou un admin) veut modifier le salon ouvert (renommer, visibilité…). */
-  onEditChannel?: () => void;
+  /** Ouvre le panneau « Détails » du salon ouvert, sur l'onglet voulu. */
+  onShowDetails?: (tab: DetailsTab) => void;
   onNotifyLevelChange?: (channelId: string, level: NotifyLevel) => void;
   channels?: Channel[];
   onSwitchChannel?: (channel: Channel) => void;
@@ -365,8 +366,7 @@ export default function ChannelView({
   socket,
   onlineUserIds,
   onAddMembers,
-  onShowMembers,
-  onEditChannel,
+  onShowDetails,
   // Persiste le niveau de notification choisi pour ce channel (remonte à App.jsx).
   onNotifyLevelChange,
   // Liste complète des conversations + bascule, pour le transfert de message (#124).
@@ -704,6 +704,9 @@ export default function ChannelView({
       claudeStatusTimer.current = setTimeout(() => setClaudeStatus(""), 45000);
     }
     socket.on("message:new", onNew);
+    // Messages de service (« a ajouté Bob ») : leur propre évènement depuis la
+    // 1.6.0, pour que les clients antérieurs n'en fassent pas des non-lus.
+    socket.on("message:system", onNew);
     socket.on("claude:progress", onClaudeProgress);
     socket.on("message:updated", onUpdated);
     socket.on("message:deleted", onDeleted);
@@ -713,6 +716,7 @@ export default function ChannelView({
     socket.on("typing:update", onTyping);
     return () => {
       socket.off("message:new", onNew);
+      socket.off("message:system", onNew);
       socket.off("claude:progress", onClaudeProgress);
       socket.off("message:updated", onUpdated);
       socket.off("message:deleted", onDeleted);
@@ -1044,7 +1048,7 @@ export default function ChannelView({
     ? channel.displayName
     : isClaude
     ? channel.name || "Expert Claude"
-    : `# ${channel.name}`;
+    : salonLabel(channel);
   const currentNotifyOption =
     NOTIFY_OPTIONS.find((o) => o.value === (channel.notifyLevel || "all")) ||
     NOTIFY_OPTIONS[0];
@@ -1052,15 +1056,10 @@ export default function ChannelView({
     ? channel.members.find((m) => m.id !== currentUser?.id) || channel.members[0]
     : null;
   const dmOnline = dmOther && onlineUserIds?.has(dmOther.id);
-  // Le créateur du salon (ou un admin) peut le modifier / supprimer : bouton
-  // visible dans l'en-tête, en plus du menu contextuel de la barre latérale
-  // (appui long PWA / clic droit desktop). Ni DM, ni conversation Claude.
-  const canManage =
-    !!currentUser &&
-    !channel.isDirect &&
-    !isClaude &&
-    (currentUser.isAdmin ||
-      (!!channel.createdById && channel.createdById === currentUser.id));
+  // Salon (ni DM, ni expert) : le bouton « Détails » (et le nombre de membres)
+  // ouvre le panneau de gestion, ouvert à tout membre depuis la 1.6.0 (le
+  // panneau n'affiche que les actions permises).
+  const salon = isSalon(channel);
 
   let lastDay: string | null = null;
 
@@ -1130,7 +1129,7 @@ export default function ChannelView({
             </div>
           ) : (
             <div className="text-xs text-slate-500 truncate">
-              <button onClick={onShowMembers} className="hover:underline">
+              <button onClick={() => onShowDetails?.("members")} className="hover:underline">
                 {channel.members.length} membre{channel.members.length > 1 ? "s" : ""}
               </button>
               {channel.description ? ` · ${channel.description}` : ""}
@@ -1138,17 +1137,17 @@ export default function ChannelView({
           )}
         </div>
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          {!channel.isDirect && !isClaude && (
+          {canManageMembers(channel) && (
             <button
               onClick={onAddMembers}
               className="text-xs px-2 py-1.5 rounded-sm border border-slate-300 hover:bg-slate-100 hidden sm:inline-block"
-              title="Ajouter des membres"
+              title="Ajouter des personnes"
             >
               + Membres
             </button>
           )}
           {/* Version compacte du bouton "+ Membres" sur mobile : icône seule. */}
-          {!channel.isDirect && !isClaude && (
+          {canManageMembers(channel) && (
             <button
               onClick={onAddMembers}
               className="sm:hidden w-10 h-10 grid place-items-center rounded-sm text-slate-600 hover:bg-slate-100"
@@ -1157,15 +1156,15 @@ export default function ChannelView({
               <span className="text-xl leading-none">+</span>
             </button>
           )}
-          {canManage && onEditChannel && (
+          {salon && onShowDetails && (
             <button
-              onClick={onEditChannel}
+              onClick={() => onShowDetails("about")}
               className="w-10 h-10 sm:w-auto sm:h-auto sm:px-2 sm:py-1.5 grid place-items-center sm:inline-block text-xs rounded-sm text-slate-600 hover:bg-slate-100 sm:border sm:border-slate-300"
-              title="Modifier le salon"
-              aria-label="Modifier le salon"
+              title="Détails du salon"
+              aria-label="Détails du salon"
             >
-              <span aria-hidden="true">✏️</span>
-              <span className="hidden sm:inline ml-1">Modifier</span>
+              <span aria-hidden="true">ⓘ</span>
+              <span className="hidden sm:inline ml-1">Détails</span>
             </button>
           )}
           <button
@@ -1269,9 +1268,12 @@ export default function ChannelView({
           const prev = messages[idx - 1];
           // Replies break the grouping (visual separator on top of the quote
           // bubble), even if the same author posted just before.
+          // Un message de service ne se regroupe avec rien (ni avant, ni après).
           const groupWithPrev =
+            m.kind !== "system" &&
             !m.parent &&
             prev &&
+            prev.kind !== "system" &&
             !prev.parent &&
             prev.author?.id === m.author?.id &&
             // Soustraction de deux Date : JS les convertit en millisecondes ; le
@@ -1298,22 +1300,32 @@ export default function ChannelView({
                   <div className="flex-1 border-t border-slackred/50" />
                 </div>
               )}
-              <MessageRow
-                rowRef={(el) => {
-                  if (el) messageRefs.current[m.id] = el;
-                  else delete messageRefs.current[m.id];
-                }}
-                message={m}
-                grouped={groupWithPrev}
-                currentUser={currentUser}
-                onEdit={editMessage}
-                onDelete={deleteMessage}
-                onHide={hideMessage}
-                onReply={() => setReplyingTo(m)}
-                onForward={() => setForwardingMessage(m)}
-                onReact={reactToMessage}
-                onJumpToParent={jumpToMessage}
-              />
+              {m.kind === "system" ? (
+                <SystemMessageRow
+                  rowRef={(el) => {
+                    if (el) messageRefs.current[m.id] = el;
+                    else delete messageRefs.current[m.id];
+                  }}
+                  message={m}
+                />
+              ) : (
+                <MessageRow
+                  rowRef={(el) => {
+                    if (el) messageRefs.current[m.id] = el;
+                    else delete messageRefs.current[m.id];
+                  }}
+                  message={m}
+                  grouped={groupWithPrev}
+                  currentUser={currentUser}
+                  onEdit={editMessage}
+                  onDelete={deleteMessage}
+                  onHide={hideMessage}
+                  onReply={() => setReplyingTo(m)}
+                  onForward={() => setForwardingMessage(m)}
+                  onReact={reactToMessage}
+                  onJumpToParent={jumpToMessage}
+                />
+              )}
             </div>
           );
         })}
@@ -1551,6 +1563,35 @@ function QuoteBubble({ parent, onJump }: QuoteBubbleProps) {
         {snippet || <em>(pièce jointe)</em>}
       </div>
     </button>
+  );
+}
+
+// Message de service (« Charles a ajouté Bob au salon ») : une ligne
+// d'information centrée, sans avatar ni actions — on ne le modifie, ne le
+// supprime, n'y réagit ni n'y répond (le serveur le refuse aussi).
+function SystemMessageRow({
+  message,
+  rowRef,
+}: {
+  message: Message;
+  rowRef?: (el: HTMLDivElement | null) => void;
+}) {
+  const time = new Date(message.createdAt).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return (
+    <div
+      ref={rowRef}
+      data-system-message
+      className="my-1.5 px-4 text-center text-xs text-slate-500"
+    >
+      <span className="font-semibold text-slate-600">
+        {message.author?.displayName || "Quelqu'un"}
+      </span>{" "}
+      {message.body}
+      <span className="ml-1.5 text-slate-400">{time}</span>
+    </div>
   );
 }
 

@@ -4,7 +4,7 @@ import type { Server as HttpServer } from "node:http";
 import type { User } from "@prisma/client";
 import { authenticate } from "./auth.ts";
 import { prisma } from "./db.ts";
-import { serializeMessage, isMember } from "./routes/channels.ts";
+import { serializeMessage, isMember, unhideConversation } from "./routes/channels.ts";
 import { safeUnlink } from "./storage.ts";
 import { encryptBody } from "./crypto.ts";
 import { sendExpoPush } from "./push.ts";
@@ -338,7 +338,7 @@ export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
           where: { userId_channelId: { userId, channelId } },
           // kind du canal : détecter les conversations de l'expert Claude sans
           // requête supplémentaire (voir le hook après notifyMembers).
-          include: { channel: { select: { kind: true, expert: true } } },
+          include: { channel: { select: { kind: true, expert: true, isDirect: true } } },
         });
         if (!member) return ack?.({ error: "not_a_member" });
 
@@ -349,7 +349,13 @@ export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
           // (we only render the cited message, never its own parent), so there's
           // no nesting — `parent.parentId` is allowed (was rejected under the old
           // Slack-thread model).
-          if (!parent || parent.channelId !== channelId || !parent.delivered) {
+          // On ne répond pas à un message de service (« a ajouté Bob »).
+          if (
+            !parent ||
+            parent.channelId !== channelId ||
+            !parent.delivered ||
+            parent.kind === "system"
+          ) {
             return ack?.({ error: "invalid_parent" });
           }
         }
@@ -411,6 +417,8 @@ export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
         // render the inline quote bubble from `serialized.parent`.
         const serialized = serializeMessage(msg);
         io.to(`channel:${channelId}`).emit("message:new", serialized);
+        // Conversation directe masquée chez quelqu'un : ce message la fait revenir.
+        if (member.channel.isDirect) await unhideConversation(io, channelId);
 
         await notifyMembers(io, channelId, userId, serialized);
         ack?.({ ok: true, message: serialized });
@@ -450,13 +458,18 @@ export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
 
     socket.on("channel:unread", async ({ channelId }) => {
       if (!channelId) return;
+      // Non-membre : rien, pas même l'écho aux autres appareils — il trahirait
+      // l'existence d'un salon privé (et qu'il contient des messages).
+      if (!(await isMember(userId, channelId).catch(() => false))) return;
       // Marquer comme non lu : on recule `lastReadAt` juste avant le dernier
       // message livré du salon (hors messages qu'il a masqués), pour que
       // serializeChannel le recalcule en "non lu" (voir la logique `unread`
       // dans routes/channels.js).
+      // Un message de service (« Bob a quitté le salon ») ne compte pas : il ne
+      // rend jamais un salon non lu (cf. LAST_MESSAGE_WHERE dans routes/channels).
       const last = await prisma.message
         .findFirst({
-          where: { channelId, delivered: true, hiddenBy: { none: { userId } } },
+          where: { channelId, delivered: true, kind: "user", hiddenBy: { none: { userId } } },
           orderBy: { createdAt: "desc" },
           select: { createdAt: true },
         })
@@ -499,7 +512,7 @@ export async function dispatchScheduledMessages(io: Server) {
     include: {
       author: true,
       attachments: { select: { storagePath: true } },
-      channel: { select: { kind: true, expert: true } },
+      channel: { select: { kind: true, expert: true, isDirect: true } },
     },
     take: 50,
   });
@@ -522,6 +535,7 @@ export async function dispatchScheduledMessages(io: Server) {
     });
     const serialized = serializeMessage(updated);
     io.to(`channel:${msg.channelId}`).emit("message:new", serialized);
+    if (msg.channel.isDirect) await unhideConversation(io, msg.channelId);
 
     await notifyMembers(io, msg.channelId, msg.authorId, serialized);
 

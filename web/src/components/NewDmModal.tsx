@@ -3,19 +3,40 @@ import { api } from "../api.ts";
 import Avatar from "./Avatar.tsx";
 import type { Channel, User } from "../types.ts";
 import { useOverlayDismiss } from "../hooks/useOverlayDismiss.ts";
+import { defaultSalonName, isSalon, sameMembers, salonLabel } from "../channelRules.ts";
 
 interface NewDmModalProps {
   onClose: () => void;
   /** Reçoit la conversation directe ouverte (ou rouverte) par le serveur. */
   onOpened: (channel: Channel) => void;
-  currentUserId: string;
+  /** Reçoit le salon privé créé (plusieurs personnes choisies). */
+  onCreated: (channel: Channel) => void;
+  /** Ouvre une conversation existante (salon privé déjà formé avec ces personnes). */
+  onSelectChannel: (channel: Channel) => void;
+  currentUser: User;
+  /** Conversations du lecteur : pour proposer un salon privé déjà formé. */
+  channels: Channel[];
 }
 
-export default function NewDmModal({ onClose, onOpened, currentUserId }: NewDmModalProps) {
+// « Nouveau message » : une personne = conversation directe ; plusieurs = un
+// salon privé avec elles (1.6.0 : un groupe est un salon privé, géré par ses
+// membres), nommé d'après les participants tant qu'on ne le renomme pas.
+export default function NewDmModal({
+  onClose,
+  onOpened,
+  onCreated,
+  onSelectChannel,
+  currentUser,
+  channels,
+}: NewDmModalProps) {
   const overlayDismiss = useOverlayDismiss(onClose);
+  const currentUserId = currentUser.id;
   const [users, setUsers] = useState<User[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Les personnes choisies, gardées entières : la liste affichée change avec la
+  // recherche, la sélection (et le nom proposé) ne doit pas en dépendre.
+  const [selected, setSelected] = useState<Map<string, User>>(() => new Map());
   const [q, setQ] = useState("");
+  const [salonName, setSalonName] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -40,29 +61,54 @@ export default function NewDmModal({ onClose, onOpened, currentUserId }: NewDmMo
   // with picking anyone else. The opposite checkboxes are *disabled* (instead
   // of silently cleared) so the constraint is visible in the UI.
   const selfPicked = selected.has(currentUserId);
-  const othersPicked = selected.size > 0 && !selfPicked;
+  const others = [...selected.values()].filter((u) => u.id !== currentUserId);
+  const othersPicked = others.length > 0;
+  const isGroup = others.length >= 2;
+  const proposedName = defaultSalonName([
+    currentUser.displayName,
+    ...others.map((u) => u.displayName),
+  ]);
+  const name = salonName ?? proposedName;
+  // Un salon privé réunit déjà exactement ces personnes : on le propose plutôt
+  // que d'en créer un double (c'est ce qui encombrait les listes).
+  const existing = isGroup
+    ? channels.find(
+        (c) =>
+          isSalon(c) &&
+          c.isPrivate &&
+          !c.isDefault &&
+          sameMembers(c, [currentUserId, ...others.map((u) => u.id)])
+      )
+    : undefined;
 
-  function toggle(id: string) {
-    const isSelf = id === currentUserId;
-    if (isSelf) {
+  function toggle(u: User) {
+    const isSelf = u.id === currentUserId;
+    setSelected((prev) => {
       // Ticking yourself empties the rest (single-member self-DM).
-      setSelected((prev) => (prev.has(id) ? new Set() : new Set([id])));
-    } else {
-      setSelected((prev) => {
-        const next = new Set(prev);
-        next.delete(currentUserId); // defensive — disabled above prevents reaching this
-        next.has(id) ? next.delete(id) : next.add(id);
-        return next;
-      });
-    }
+      if (isSelf) return prev.has(u.id) ? new Map() : new Map([[u.id, u]]);
+      const next = new Map(prev);
+      next.delete(currentUserId); // defensive — disabled above prevents reaching this
+      if (next.has(u.id)) next.delete(u.id);
+      else next.set(u.id, u);
+      return next;
+    });
   }
 
   async function start() {
     if (selected.size === 0) return;
     setBusy(true);
     try {
-      const res = await api.openDm(Array.from(selected));
-      onOpened(res.channel);
+      if (isGroup) {
+        const res = await api.createChannel({
+          name: name.trim() || proposedName,
+          isPrivate: true,
+          memberIds: others.map((u) => u.id),
+        });
+        onCreated(res.channel);
+      } else {
+        const res = await api.openDm([...selected.keys()]);
+        onOpened(res.channel);
+      }
     } catch (err) {
       // `request()` (api.ts) ne rejette qu'avec des Error : simple vue typée.
       alert((err as Error).message);
@@ -76,12 +122,18 @@ export default function NewDmModal({ onClose, onOpened, currentUserId }: NewDmMo
       {...overlayDismiss}
     >
       <div
+        role="dialog"
+        aria-label="Nouveau message"
         className="bg-white text-slate-900 sm:rounded-xl shadow-2xl w-full h-dvh sm:h-auto sm:max-w-md sm:max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-5 border-b border-slate-200 flex items-center justify-between">
           <h2 className="text-xl font-bold">Nouveau message</h2>
-          <button onClick={onClose} className="text-slate-500 hover:text-slate-800">
+          <button
+            onClick={onClose}
+            className="text-slate-500 hover:text-slate-800 w-8 h-8"
+            aria-label="Fermer"
+          >
             ✕
           </button>
         </div>
@@ -94,10 +146,10 @@ export default function NewDmModal({ onClose, onOpened, currentUserId }: NewDmMo
             onChange={(e) => setQ(e.target.value)}
           />
           <p className="text-xs text-slate-500 mt-1">
-            Sélectionnez plusieurs personnes pour créer un groupe.
+            Une personne pour un message direct, plusieurs pour créer un salon privé avec elles.
           </p>
         </div>
-        <div className="px-2 pb-2 overflow-y-auto flex-1">
+        <div className="px-2 pb-2 overflow-y-auto flex-1 min-h-0">
           {users.map((u) => {
             const isMe = u.id === currentUserId;
             const disabled = isMe ? othersPicked : selfPicked;
@@ -121,11 +173,11 @@ export default function NewDmModal({ onClose, onOpened, currentUserId }: NewDmMo
                   type="checkbox"
                   checked={selected.has(u.id)}
                   disabled={disabled}
-                  onChange={() => toggle(u.id)}
+                  onChange={() => toggle(u)}
                 />
                 <Avatar user={u} size={32} />
-                <div className="flex-1">
-                  <div className="text-sm font-medium">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate">
                     {isMe ? "📝 Mes notes" : u.displayName}
                     {isMe && (
                       <span className="ml-1 text-xs text-slate-500 font-normal">
@@ -133,7 +185,7 @@ export default function NewDmModal({ onClose, onOpened, currentUserId }: NewDmMo
                       </span>
                     )}
                   </div>
-                  <div className="text-xs text-slate-500">@{u.username}</div>
+                  <div className="text-xs text-slate-500 truncate">@{u.username}</div>
                 </div>
               </label>
             );
@@ -142,20 +194,54 @@ export default function NewDmModal({ onClose, onOpened, currentUserId }: NewDmMo
             <div className="px-3 py-3 text-sm text-slate-500">Aucun utilisateur</div>
           )}
         </div>
-        <div className="p-4 border-t border-slate-200 flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="px-3 py-1.5 rounded-md border border-slate-300"
-          >
-            Annuler
-          </button>
-          <button
-            onClick={start}
-            disabled={busy || selected.size === 0}
-            className="px-3 py-1.5 rounded-md bg-aubergine-700 text-white font-medium hover:bg-aubergine-800 disabled:opacity-50"
-          >
-            {selected.size > 1 ? `Créer le groupe (${selected.size})` : "Démarrer"}
-          </button>
+        <div className="border-t border-slate-200">
+          {isGroup && (
+            <div className="px-4 pt-3 space-y-2">
+              <label className="block">
+                <span className="text-sm font-semibold">Nom du salon privé</span>
+                <input
+                  className="mt-1 w-full border rounded-md px-3 py-2"
+                  value={name}
+                  maxLength={80}
+                  onChange={(e) => setSalonName(e.target.value)}
+                />
+              </label>
+              {existing && (
+                <div className="text-sm bg-amber-50 border border-amber-200 rounded-md px-3 py-2 flex items-center justify-between gap-2">
+                  <span className="min-w-0">
+                    Vous avez déjà <strong className="break-words">{salonLabel(existing)}</strong>{" "}
+                    avec ces personnes.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onSelectChannel(existing)}
+                    className="shrink-0 px-2 py-1 rounded-md bg-white border border-amber-300 hover:bg-amber-100 font-medium"
+                  >
+                    Ouvrir
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          <div className="p-4 flex justify-end gap-2">
+            <button
+              onClick={onClose}
+              className="px-3 py-1.5 rounded-md border border-slate-300"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={start}
+              disabled={busy || selected.size === 0 || (isGroup && !name.trim())}
+              className="px-3 py-1.5 rounded-md bg-aubergine-700 text-white font-medium hover:bg-aubergine-800 disabled:opacity-50"
+            >
+              {isGroup
+                ? existing
+                  ? "Créer un autre salon"
+                  : `Créer le salon privé (${others.length + 1})`
+                : "Démarrer"}
+            </button>
+          </div>
         </div>
       </div>
     </div>

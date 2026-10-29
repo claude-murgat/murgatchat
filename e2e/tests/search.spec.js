@@ -53,15 +53,19 @@ async function bootstrapAdmin(page) {
   return t;
 }
 
-// Crée un salon via la recherche unifiée (action « Créer le salon « … » »).
+// Crée un salon privé via la recherche unifiée (action « Créer le salon « … » »).
 async function createPrivateChannel(page, name) {
-  await page.getByPlaceholder(/Rechercher ou créer/).fill(name);
+  await page.getByPlaceholder(/^Rechercher/).fill(name);
   await page.getByRole("button", { name: /Créer le salon/ }).click();
-  await expect(page.getByText("Créer une conversation")).toBeVisible();
-  await page.getByPlaceholder("Nom du salon (ex. marketing)").fill(name);
-  await page.getByText("Salon privé").click();
-  await page.getByRole("button", { name: "Créer" }).click();
-  await expect(page.getByText("Créer une conversation")).toBeHidden();
+  const dialog = page.getByRole("dialog", { name: "Créer un salon" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByPlaceholder("ex. projet-chantier").fill(name);
+  await dialog.getByRole("button", { name: "Suivant" }).click();
+  await dialog.getByText("Privé", { exact: true }).click();
+  await dialog.getByRole("button", { name: "Créer", exact: true }).click();
+  const skip = page.getByRole("button", { name: "Ignorer pour l'instant" });
+  await skip.click();
+  await expect(skip).toBeHidden();
 }
 
 test("recherche par mot-clé : liste les messages et ouvre celui cliqué", async ({ page }) => {
@@ -83,7 +87,7 @@ test("recherche par mot-clé : liste les messages et ouvre celui cliqué", async
 
   // Recherche du mot-clé depuis la barre latérale : la section « Messages »
   // remonte le message du salon A, terme surligné (<mark>) dans l'extrait.
-  await page.getByPlaceholder(/Rechercher ou créer/).fill("xylophone");
+  await page.getByPlaceholder(/^Rechercher/).fill("xylophone");
   const hit = page.locator("mark", { hasText: /xylophone/i });
   await expect(hit).toBeVisible();
 

@@ -285,6 +285,9 @@ export const api = {
     request(`/channels/${id}/members/${userId}`, { method: "DELETE" }),
   openDm: (userIds: string[]) =>
     request("/channels/dm", { method: "POST", body: { userIds } }),
+  // « Masquer » une conversation directe (revient au prochain message).
+  hideConversation: (id: string) =>
+    request(`/channels/${encodeURIComponent(id)}/hide`, { method: "POST" }),
   messages: (channelId: string, before?: string) =>
     request(
       `/channels/${channelId}/messages` +

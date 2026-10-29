@@ -22,6 +22,9 @@ function token() {
 function channelName() {
   return process.env.SUPPORT_NOTIFY_CHANNEL || "support-dev";
 }
+// Exporté : les groupes créés par un client antérieur (POST /channels/dm à
+// plusieurs) ne doivent jamais rouvrir ce salon réservé aux admins.
+export const supportChannelName = channelName;
 
 export function notifyEnabled() {
   return Boolean(token());

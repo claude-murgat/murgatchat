@@ -147,7 +147,7 @@ test("un push de message déjà lu ailleurs ne s'affiche pas, et efface les noti
   //    On quitte d'abord #Général pour « Mes notes » (créée via la recherche).
   await closeAll(page);
   page.on("dialog", (d) => d.accept());
-  await page.getByPlaceholder(/Rechercher ou créer/).fill("notes");
+  await page.getByPlaceholder(/^Rechercher/).fill("notes");
   await page.getByRole("button", { name: /Mes notes \(conversation avec soi-même\)/ }).click();
   await expect(page.getByPlaceholder(/^Message à /)).toBeVisible();
   await expect(page.getByPlaceholder("Message dans #Général")).toHaveCount(0);
