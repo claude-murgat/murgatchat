@@ -124,11 +124,62 @@ jobs:
     needs: [desktop, release]
     runs-on: ubuntu-latest
     steps:
-      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          tag_name: ${{ github.ref_name }}
-          draft: false
-          # Conserve le drapeau au moment où l'on sort du brouillon : sans lui, une
-          # pré-release deviendrait la « latest » et serait proposée à tous les
-          # postes installés — exactement ce que ce canal cherche à éviter.
-          prerelease: ${{ needs.release.outputs.prerelease == 'true' }}
+      # Un PATCH minimal (`draft=false`) plutôt que softprops/action-gh-release.
+      # Face à un brouillon existant, l'action réécrit d'abord TOUTE la release
+      # (tag_name, target_commitish, name, body, prerelease…), puis la publie
+      # par ce même PATCH minimal ; un 5xx sur la réécriture l'arrête net, sans
+      # nouvel essai. Pour la v1.6.2, GitHub a répondu 500 à cette réécriture
+      # (job relancé compris) comme à `gh release edit`, qui renvoie lui aussi
+      # tag_name et prerelease ; le seul `draft=false` est passé d'emblée.
+      #
+      # Le drapeau `prerelease` n'est donc PAS renvoyé : le job `release` l'a
+      # posé sur le brouillon, et un PATCH laisse intacts les champs omis. On
+      # vérifie qu'il correspond au tag AVANT de publier : sans lui, une
+      # pré-release deviendrait la « latest » et serait proposée à tous les
+      # postes installés — exactement ce que ce canal cherche à éviter. Après
+      # publication, on contrôle ce que lit l'auto-updater (/releases/latest).
+      # Relancer le job est sans risque : une release déjà publiée n'est que
+      # revérifiée.
+      - name: Publier la release (sortie du brouillon)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ID: ${{ needs.release.outputs.id }}
+          PRERELEASE: ${{ needs.release.outputs.prerelease }}
+        run: |
+          : "${ID:?id de la release absent (job release)}"
+          R="repos/$GITHUB_REPOSITORY/releases"
+          # Un 5xx passager de l'API ne doit pas laisser la release en brouillon.
+          retry() {
+            for i in 1 2 3; do
+              "$@" && return 0
+              [ "$i" = 3 ] || { echo "Essai $i/3 en échec, nouvel essai dans $((15 * i)) s" >&2; sleep $((15 * i)); }
+            done
+            return 1
+          }
+          etat() { gh api "$R/$ID" --jq '"\(.draft) \(.prerelease)"'; }
+          latest() { gh api "$R/latest" --jq .tag_name; }
+
+          S=$(retry etat)
+          read -r DRAFT PRE <<< "$S"
+          if [ "$PRE" != "$PRERELEASE" ]; then
+            echo "::error::Release $ID ($GITHUB_REF_NAME) : prerelease=$PRE, attendu $PRERELEASE. Publication refusée."
+            exit 1
+          fi
+          if [ "$DRAFT" = true ]; then
+            retry gh api -X PATCH "$R/$ID" -F draft=false --jq '"Publiée : \(.html_url)"' \
+              || { echo "::error::Impossible de sortir la release $ID du brouillon."; exit 1; }
+          else
+            echo "$GITHUB_REF_NAME est déjà publiée : simple vérification."
+          fi
+
+          verifier() {
+            [ "$(etat)" = "false $PRERELEASE" ] || return 1
+            L=$(latest) || return 1
+            if [ "$PRERELEASE" = true ]; then [ "$L" != "$GITHUB_REF_NAME" ]; else [ "$L" = "$GITHUB_REF_NAME" ]; fi
+          }
+          if ! retry verifier; then
+            echo "::error::Contrôle final en échec pour $GITHUB_REF_NAME : (draft prerelease) = $(etat), « latest » = $(latest)."
+            exit 1
+          fi
+          echo "« latest » : $L"
