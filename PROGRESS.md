@@ -1614,7 +1614,14 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      désactivé. Rien ne remonte à l'admin du chat : un salon privé reste invisible des
      non-membres. Pas de migration.
 141. **Côté appli** — badge « Désactivé » dans « Détails » › « Membres », pas de « Nommer admin »
-     pour un compte désactivé. Tests : 346 backend, 35 e2e (`salons-manage` : 10 parcours).
+     pour un compte désactivé ; la seule admin qui quitte un salon dont les autres membres sont
+     désactivés est prévenue que personne ne prendra le relais.
+142. **Relecture indépendante avant la release** — rien de grave ; trois points corrigés : un
+     compte désactivé pendant qu'il crée un salon n'en reste plus le seul admin (vérification
+     après la création), l'avertissement de départ ne promet plus un relais impossible, et le
+     filtre qui écarte le bot ne dépend plus de l'ordre de chargement des modules (`notify.ts`
+     chargé le premier, comme dans certains tests : le bot pouvait devenir admin). Tests : 348
+     backend, 36 e2e (`salons-manage` : 11 parcours).
 
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),

@@ -75,6 +75,15 @@ export function isOnlySalonAdmin(c: Channel, user: Pick<User, "id">) {
 }
 
 /**
+ * Quelqu'un pour reprendre le salon si `user` le quitte : un autre membre au
+ * compte actif. Le serveur ne nomme jamais un compte désactivé (1.6.2) : sans
+ * lui, le seul admin qui part laisse le salon sans admin.
+ */
+export function hasSalonHeir(c: Channel, user: Pick<User, "id">) {
+  return salonPeople(c).some((m) => m.id !== user.id && m.status !== "disabled");
+}
+
+/**
  * Administrer le salon (visibilité, suppression, admins) : admin du salon, ou
  * admin du chat — qui garde tous ses droits, y compris sur un salon dont il
  * n'est pas admin. « Général » reste aux admins du chat (canEditSalon).

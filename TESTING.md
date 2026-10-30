@@ -7,7 +7,7 @@ organisée en quatre couches de test, par ordre de valeur (plus des garde-fous
 
 | Couche | Outil | Ce qu'elle protège | Vérifiée |
 | --- | --- | --- | --- |
-| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 346 tests |
+| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 348 tests |
 | **E2E Web** (priorité 2) | Playwright | Câblage de l'UI web (auth, envoi, édition, suppression, threads, persistance) | ✅ parcours vert |
 | **Mobile** (priorité 3) | `expo export` + smoke APK | Le bundle RN se compile ; l'app se lance | Documentée |
 | **Charge** (k6) | k6 (HTTP + Socket.IO) | Tenue à 150 utilisateurs simultanés (REST + temps réel) | ✅ script validé (smoke) |
@@ -82,7 +82,8 @@ npm test -- test/http/auth.test.js   # un fichier
   tout membre renomme, ajoute (jamais le bot ni un compte désactivé), retire et quitte, seul un
   admin supprime ou change la visibilité, un compte désactivé n'est plus admin du salon (relais du
   plus ancien membre actif à la désactivation, rôle retrouvé à la réactivation, ni dernier admin ni
-  nommable), « Général » réservé aux admins, salon privé inexistant
+  nommable, création et désactivation simultanées ; `salon-load-order.test.js` : notify.ts chargé
+  avant channels.ts, le bot reste écarté des successeurs), « Général » réservé aux admins, salon privé inexistant
   pour un non-membre admin compris, dernier membre d'un salon privé = salon supprimé (le bot ne
   compte pas ; `support-dev` garde son historique), messages de service ni non lus, ni aperçu, ni cherchables, ni modifiables, `POST /channels/dm` à plusieurs →
   salon privé rouvert ensuite, masquage d'un DM qui le marque lu, purge d'un compte), messages (edit/delete/thread ; **« Supprimer pour moi »** :
@@ -140,7 +141,9 @@ suivant, suppression par un admin. Admins du salon : le créateur porte le badge
 un simple membre n'a ni visibilité modifiable, ni suppression, ni « Retirer » face à un admin ;
 « Nommer admin » donne ses droits en direct (sans rechargement) ; repasser un salon privé en
 public demande confirmation ; quand l'unique admin s'en va, le plus ancien membre prend le relais,
-de même quand son compte est désactivé (il apparaît « Désactivé », sans « Nommer admin »).
+de même quand son compte est désactivé (il apparaît « Désactivé », sans « Nommer admin ») ; la
+seule admin d'un salon dont les autres membres sont désactivés est prévenue que personne ne prendra
+le relais (détails et menu contextuel).
 `delete-for-me.spec.js` : « Supprimer pour moi » sur le message d'un autre — masqué de
 son côté (même après rechargement), toujours visible de l'auteur.
 `push-read-state.spec.js` : injecte de vrais évènements `push` dans le service worker

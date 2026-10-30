@@ -1214,6 +1214,29 @@ describe("compte désactivé : il n'est plus admin du salon (1.6.2)", () => {
     ]);
   });
 
+  // Création et désactivation simultanées : jamais un salon dont le seul admin
+  // est un compte désactivé, quel que soit l'ordre d'arrivée.
+  it("désactiver un compte pendant qu'il crée un salon : le salon garde un admin actif", async () => {
+    const { token: owner } = await registerUser(app);
+    const { token: aliceTok, user: alice } = await registerUser(app);
+    const { token: bobTok, user: bob } = await registerUser(app);
+    const [created, disabled] = await Promise.all([
+      authed(app, aliceTok).post("/channels").send({ name: "course", memberIds: [bob.id] }),
+      setStatus(owner, alice.id, "disabled"),
+    ]);
+    expect(disabled.status).toBe(200);
+    // Désactivée avant l'authentification de sa requête : refusée. Sinon, Bob
+    // reprend le salon, annoncé comme à toute désactivation.
+    expect([200, 401]).toContain(created.status);
+    if (created.status === 200) {
+      const id = created.body.channel.id;
+      expect(await adminIdsSeenBy(bobTok, id)).toEqual([bob.id]);
+      expect(await systemLog(bobTok, id)).toEqual([
+        { body: "est maintenant admin du salon", authorId: bob.id },
+      ]);
+    }
+  });
+
   it("rejoindre un salon public dont le seul admin est désactivé : on le reprend", async () => {
     const { token: owner } = await registerUser(app);
     const { token: aliceTok, user: alice } = await registerUser(app);

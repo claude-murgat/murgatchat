@@ -10,6 +10,7 @@ import {
   canManageMembers,
   canManageRoles,
   canRemoveMember,
+  hasSalonHeir,
   isBot,
   isOnlySalonAdmin,
   isSalonAdmin,
@@ -94,8 +95,10 @@ export default function ChannelDetailsModal({
   // Le bot qu'un ancien groupe peut compter n'est pas une personne : avec lui
   // seul, le salon privé est supprimé à votre départ et personne ne devient admin.
   const lastOne = salonPeople(channel).length <= 1;
-  // Le seul admin qui part laisse le rôle au membre le plus ancien (serveur).
+  // Le seul admin qui part laisse le rôle au membre actif le plus ancien
+  // (serveur) — s'il en reste un : les comptes désactivés ne le reprennent pas.
   const lastAdminLeaving = !lastOne && isOnlySalonAdmin(channel, currentUser);
+  const heirLeft = hasSalonHeir(channel, currentUser);
   // Rendre public un salon privé expose tout son historique à tout le chat :
   // comme quitter ou supprimer, cela se confirme.
   const makingPublic = visibilityEditable && !!channel.isPrivate && !isPrivate;
@@ -395,7 +398,9 @@ export default function ChannelDetailsModal({
                   ? "Vous ne verrez plus ce salon. Un membre pourra vous ajouter à nouveau."
                   : "Le salon disparaîtra de votre liste ; vous pourrez le rejoindre à nouveau."}
                 {lastAdminLeaving &&
-                  " Vous êtes le seul admin : le membre le plus ancien le deviendra."}
+                  (heirLeft
+                    ? " Vous êtes le seul admin : le membre le plus ancien le deviendra."
+                    : " Vous êtes le seul admin et les autres membres sont désactivés : le salon restera sans admin.")}
               </p>
             )}
             {/* Le droit de supprimer peut se perdre en direct (rôle d'admin retiré). */}

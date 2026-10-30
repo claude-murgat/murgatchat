@@ -203,11 +203,16 @@ const ACTIVE_ADMIN = {
 } satisfies Prisma.MembershipWhereInput;
 
 // Ceux qui peuvent reprendre un salon : des personnes au compte actif — jamais
-// le bot technique, qui ne lit rien.
-const ACTIVE_PERSON = {
-  username: { not: BOT_USERNAME },
-  status: "active",
-} satisfies Prisma.UserWhereInput;
+// le bot technique, qui ne lit rien. Une fonction, pas une constante : ce
+// module et notify.ts (BOT_USERNAME) s'importent l'un l'autre, et quand
+// notify.ts est chargé le premier, ce module s'évalue avant que BOT_USERNAME
+// existe.
+function activePerson() {
+  return {
+    username: { not: BOT_USERNAME },
+    status: "active",
+  } satisfies Prisma.UserWhereInput;
+}
 
 // Admins d'un salon, tels que les voient les clients (`adminIds`) : toujours
 // vide hors d'un salon géré, quoi que dise la colonne, et sans les comptes
@@ -265,7 +270,7 @@ const HEIR_ORDER = [
 
 async function findHeir(db: Prisma.TransactionClient, channelId: string) {
   return db.membership.findFirst({
-    where: { channelId, user: ACTIVE_PERSON },
+    where: { channelId, user: activePerson() },
     orderBy: HEIR_ORDER,
   });
 }
@@ -281,7 +286,7 @@ async function promoteHeir(channelId: string, preferredUserId?: string | null) {
     if ((await tx.membership.count({ where: { channelId, ...ACTIVE_ADMIN } })) > 0) return null;
     const preferred = preferredUserId
       ? await tx.membership.findFirst({
-          where: { channelId, userId: preferredUserId, user: ACTIVE_PERSON },
+          where: { channelId, userId: preferredUserId, user: activePerson() },
         })
       : null;
     const heir = preferred ?? (await findHeir(tx, channelId));
@@ -330,7 +335,7 @@ export async function ensureSalonAdmins(io?: Server | null) {
       isDefault: false,
       memberships: {
         none: ACTIVE_ADMIN,
-        some: { user: ACTIVE_PERSON },
+        some: { user: activePerson() },
       },
     },
     select: { id: true, name: true, isDirect: true, kind: true, isDefault: true, createdById: true },
@@ -534,6 +539,11 @@ async function createSalon(
       .emit("channel:created", m.userId === req.userId ? personalized : { ...personalized, addedBy });
     req.io?.in(`user:${m.userId}`).socketsJoin(`channel:${channel.id}`);
   }
+  // Créateur désactivé pendant la création (sa requête avait passé
+  // l'authentification) : syncSalonAdminsOf, qui ne voyait pas encore ce salon,
+  // est relayé ici. L'une des deux vérifications voit toujours l'autre : le
+  // salon ne garde pas pour seul admin un compte désactivé.
+  await ensureSalonAdmin(req.io, channel.id, { announce: true });
   return channel;
 }
 

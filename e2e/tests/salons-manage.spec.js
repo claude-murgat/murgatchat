@@ -490,3 +490,36 @@ test("la seule admin désactivée : le plus ancien membre prend le relais en dir
   await expect(aliceRow.getByRole("button", { name: "Nommer admin" })).toHaveCount(0);
   await expect(memberRow(details, carol).getByRole("button", { name: "Nommer admin" })).toBeVisible();
 });
+
+test("la seule admin quitte un salon dont les autres membres sont désactivés : elle sait que personne ne prend le relais", async ({
+  browser,
+  request,
+}) => {
+  const { admin, alice, bob } = await setup(request);
+  const { channel } = await call(request, alice.token, "POST", "/channels", {
+    name: `isole-${tag()}`,
+    memberIds: [bob.user.id],
+  });
+  await call(request, admin.token, "PATCH", `/auth/users/${bob.user.id}`, { status: "disabled" });
+  const page = await openAs(browser, alice);
+  await openSalon(page, channel.name);
+
+  await page.getByRole("button", { name: "Détails du salon" }).click();
+  const details = page.getByRole("dialog", { name: /^Détails de/ });
+  await details.getByRole("button", { name: "Quitter le salon" }).click();
+  await expect(
+    details.getByText(
+      "Vous êtes le seul admin et les autres membres sont désactivés : le salon restera sans admin."
+    )
+  ).toBeVisible();
+  await expect(details.getByText("le membre le plus ancien le deviendra")).toHaveCount(0);
+
+  // Même avertissement depuis le menu contextuel (boîte de confirmation).
+  await details.getByRole("button", { name: "Fermer" }).click();
+  const question = new Promise((resolve) =>
+    page.once("dialog", (d) => resolve(d.message()))
+  );
+  await sidebarItem(page, channel.name).click({ button: "right" });
+  await page.getByRole("button", { name: "Quitter le salon" }).click();
+  expect(await question).toContain("les autres membres sont désactivés, le salon restera sans admin");
+});
