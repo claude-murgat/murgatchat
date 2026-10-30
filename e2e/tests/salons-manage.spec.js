@@ -12,7 +12,8 @@ import { test, expect } from "@playwright/test";
 //     suppriment, et un simple membre ne retire pas un admin. Le nommé reçoit
 //     ses droits en direct, et rendre public un salon privé se confirme. La
 //     seule admin qui part en est prévenue : le plus ancien membre la remplace,
-//     comme quand son compte est désactivé (elle apparaît alors « Désactivé ») ;
+//     comme quand son compte est désactivé (elle apparaît alors « Désactivé »,
+//     sauf dans « Général ») ;
 //   - quitter un salon, masquer une conversation directe (elle revient au
 //     prochain message) ;
 //   - chaque changement laisse une trace dans le salon (message de service).
@@ -522,4 +523,31 @@ test("la seule admin quitte un salon dont les autres membres sont désactivés :
   await sidebarItem(page, channel.name).click({ button: "right" });
   await page.getByRole("button", { name: "Quitter le salon" }).click();
   expect(await question).toContain("les autres membres sont désactivés, le salon restera sans admin");
+});
+
+test("« Désactivé » dans les membres d'un salon, pas dans « Général »", async ({ browser, request }) => {
+  const { admin, alice, bob } = await setup(request);
+  const { channel } = await call(request, alice.token, "POST", "/channels", {
+    name: `badge-${tag()}`,
+    memberIds: [bob.user.id],
+  });
+  await call(request, admin.token, "PATCH", `/auth/users/${bob.user.id}`, { status: "disabled" });
+  // Ouverte après la désactivation : les listes de membres portent déjà le statut
+  // de Bob — le salon le montre, ce qui rend la vérification sur « Général » parlante.
+  const page = await openAs(browser, alice);
+  await openSalon(page, channel.name);
+  await page.getByRole("button", { name: "Détails du salon" }).click();
+  let details = page.getByRole("dialog", { name: /^Détails de/ });
+  await details.getByRole("tab", { name: /Membres/ }).click();
+  await expect(memberRow(details, bob).getByText("Désactivé", { exact: true })).toBeVisible();
+  await details.getByRole("button", { name: "Fermer" }).click();
+  await expect(details).toBeHidden();
+
+  // Tout le chat est membre de « Général » : le badge n'y est pas affiché.
+  await openSalon(page, "Général");
+  await page.getByRole("button", { name: "Détails du salon" }).click();
+  details = page.getByRole("dialog", { name: /^Détails de .*Général/ });
+  await details.getByRole("tab", { name: /Membres/ }).click();
+  await expect(memberRow(details, bob)).toBeVisible();
+  await expect(memberRow(details, bob).getByText("Désactivé", { exact: true })).toHaveCount(0);
 });

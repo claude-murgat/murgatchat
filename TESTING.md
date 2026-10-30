@@ -141,7 +141,8 @@ suivant, suppression par un admin. Admins du salon : le créateur porte le badge
 un simple membre n'a ni visibilité modifiable, ni suppression, ni « Retirer » face à un admin ;
 « Nommer admin » donne ses droits en direct (sans rechargement) ; repasser un salon privé en
 public demande confirmation ; quand l'unique admin s'en va, le plus ancien membre prend le relais,
-de même quand son compte est désactivé (il apparaît « Désactivé », sans « Nommer admin ») ; la
+de même quand son compte est désactivé (il apparaît « Désactivé », sans « Nommer admin » ; pas de
+badge dans « Général ») ; la
 seule admin d'un salon dont les autres membres sont désactivés est prévenue que personne ne prendra
 le relais (détails et menu contextuel).
 `delete-for-me.spec.js` : « Supprimer pour moi » sur le message d'un autre — masqué de

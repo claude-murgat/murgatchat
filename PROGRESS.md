@@ -1613,7 +1613,8 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      `ensureSalonAdmins` reprend en silence les salons qu'une 1.6.1 laissait à un compte
      désactivé. Rien ne remonte à l'admin du chat : un salon privé reste invisible des
      non-membres. Pas de migration.
-141. **Côté appli** — badge « Désactivé » dans « Détails » › « Membres », pas de « Nommer admin »
+141. **Côté appli** — badge « Désactivé » dans « Détails » › « Membres » d'un salon (pas dans
+     « Général », dont tout le chat est membre — choix du propriétaire), pas de « Nommer admin »
      pour un compte désactivé ; la seule admin qui quitte un salon dont les autres membres sont
      désactivés est prévenue que personne ne prendra le relais.
 142. **Relecture indépendante avant la release** — rien de grave ; trois points corrigés : un
@@ -1621,7 +1622,7 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      après la création), l'avertissement de départ ne promet plus un relais impossible, et le
      filtre qui écarte le bot ne dépend plus de l'ordre de chargement des modules (`notify.ts`
      chargé le premier, comme dans certains tests : le bot pouvait devenir admin). Tests : 348
-     backend, 36 e2e (`salons-manage` : 11 parcours).
+     backend, 37 e2e (`salons-manage` : 12 parcours).
 
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),

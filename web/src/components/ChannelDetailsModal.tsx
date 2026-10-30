@@ -325,6 +325,10 @@ export default function ChannelDetailsModal({
                 const roleButton =
                   rolesEditable &&
                   (admin ? !isOnlySalonAdmin(channel, u) : !isBot(u) && !disabled);
+                // Badge « Désactivé » : pas dans « Général », dont tout le chat est
+                // membre — il y listerait les comptes désactivés (choix du
+                // propriétaire), sans rôle d'admin du salon à y expliquer.
+                const disabledBadge = disabled && !channel.isDefault;
                 const removable = canRemoveMember(channel, currentUser, u);
                 return (
                   <div key={u.id} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-md">
@@ -343,7 +347,7 @@ export default function ChannelDetailsModal({
                             Admin
                           </span>
                         )}
-                        {disabled && (
+                        {disabledBadge && (
                           <span
                             title="Compte désactivé"
                             className="shrink-0 text-[11px] font-semibold text-slate-600 bg-slate-200 rounded-sm px-1.5 py-0.5"
