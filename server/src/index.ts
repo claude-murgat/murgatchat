@@ -159,10 +159,11 @@ export function startServer() {
     ensureDefaultChannel()
       .then((c) => console.log(`Default channel ready: ${c.name} (${c.id})`))
       .catch((e) => console.error("ensureDefaultChannel error", e));
-    // Admins du salon : chaque salon qui n'en a pas (tous, au premier démarrage
-    // après la migration 20261029150000) en reçoit un — son créateur s'il en est
-    // encore membre, sinon le plus ancien membre actif. Sans message de service,
-    // idempotent ; les clients déjà reconnectés reçoivent channel:members.
+    // Admins du salon : chaque salon qui n'en a pas d'actif (tous, au premier
+    // démarrage après la migration 20261029150000 ; en 1.6.2, ceux dont le seul
+    // admin est un compte désactivé) en reçoit un — son créateur s'il en est
+    // encore membre actif, sinon le plus ancien membre actif. Sans message de
+    // service, idempotent ; les clients déjà reconnectés reçoivent channel:members.
     ensureSalonAdmins(io)
       .then((n) => n > 0 && console.log(`Salon admins ready: ${n} salon(s) backfilled`))
       .catch((e) => console.error("ensureSalonAdmins error", e));
