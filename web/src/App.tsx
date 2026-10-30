@@ -1002,20 +1002,24 @@ export default function App() {
   // Quitter depuis le menu contextuel. Dernier membre d'un salon privé : le
   // serveur le supprime, on le dit avant. Seul admin d'un salon où d'autres
   // restent : le serveur nomme le membre actif le plus ancien, on le dit aussi
-  // — ou, s'ils sont tous désactivés, que le salon restera sans admin.
+  // — ou, s'ils sont tous désactivés, que le salon restera sans admin (et, s'il
+  // est privé, que personne ne pourra vous y rajouter d'ici là).
   const onLeaveChannelMenu = useCallback(
     async (channel: Channel) => {
       if (channel.isDefault) return;
       // Sans le bot qu'un ancien groupe peut compter : le serveur ne le compte pas.
       const people = salonPeople(channel).length;
       const last = channel.isPrivate && people <= 1;
+      const heir = !!user && hasSalonHeir(channel, user);
+      const stranded = !!user && !!channel.isPrivate && people > 1 && !heir;
       const onlyAdmin = !!user && people > 1 && isOnlySalonAdmin(channel, user);
-      const handover =
-        !!user && hasSalonHeir(channel, user)
-          ? "le membre le plus ancien le deviendra"
-          : "les autres membres sont désactivés, le salon restera sans admin";
+      const handover = heir
+        ? "le membre le plus ancien le deviendra"
+        : "les autres membres sont désactivés, le salon restera sans admin";
       const question = last
         ? `Vous êtes le dernier membre de « ${channel.name} » : en le quittant, le salon et tous ses messages seront supprimés. Continuer ?`
+        : stranded
+        ? `Quitter « ${channel.name} » ? Personne ne pourra vous y rajouter : ses autres membres sont désactivés. Il restera sans admin tant que l'un d'eux n'est pas réactivé.`
         : onlyAdmin
         ? `Quitter « ${channel.name} » ? Vous êtes le seul admin : ${handover}.`
         : `Quitter « ${channel.name} » ?`;

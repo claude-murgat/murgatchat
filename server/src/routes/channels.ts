@@ -291,6 +291,11 @@ async function promoteHeir(channelId: string, preferredUserId?: string | null) {
       : null;
     const heir = preferred ?? (await findHeir(tx, channelId));
     if (!heir) return null;
+    // Le verrou du salon ne couvre pas le statut des comptes : un admin réactivé
+    // entre le décompte (encore désactivé) et ce choix (actif) est choisi alors
+    // qu'il porte déjà le rôle. Le salon a donc un admin actif : rien à nommer
+    // ni à annoncer — il retrouve son rôle en silence, comme toute réactivation.
+    if (heir.role === "admin") return null;
     // updateMany : le successeur a pu partir à l'instant — son propre départ
     // repasse par ensureSalonAdmin, qui en désignera un autre.
     const { count } = await tx.membership.updateMany({
@@ -1007,6 +1012,11 @@ router.post("/:id/members", requireAuth, async (req, res) => {
   if (added.length) {
     const names = joinNames(added.map((u) => u.displayName));
     await postSystemMessage(req.io, id, req.userId, `a ajouté ${names} au salon`);
+    // Celui qui ajoute, désactivé pendant l'ajout (sa requête avait passé
+    // l'authentification) : syncSalonAdminsOf ne voyait pas encore les
+    // arrivants, l'un d'eux reprend ici le salon resté sans admin actif. Comme
+    // à la création, l'une des deux vérifications voit toujours l'autre.
+    await ensureSalonAdmin(req.io, id, { announce: true });
   }
   res.json({ channel: serializeChannel(full!, req.userId) });
 });

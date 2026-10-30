@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { createServer } from "../../src/index.ts";
 import {
   ensureDefaultChannel,
   ensureSalonAdmins,
+  syncSalonAdminsOf,
   defaultSalonName,
   joinNames,
 } from "../../src/routes/channels.ts";
@@ -938,9 +939,16 @@ describe("départs : retirer un admin, le dernier admin qui part, un salon vide 
     const { user: off } = await registerUser(app);
     const solo = await create(creator, { name: "fantome", isPrivate: true, memberIds: [off.id] });
     await prisma.user.update({ where: { id: off.id }, data: { status: "disabled" } });
-    await authed(app, creator).post(`/channels/${solo.id}/leave`);
-    // Un compte désactivé ne compterait pas comme admin (1.6.2).
-    expect(await adminsOf(solo.id)).toEqual([]);
+    expect((await authed(app, creator).post(`/channels/${solo.id}/leave`)).status).toBe(200);
+    // Le salon privé survit (le compte désactivé en reste membre : il le reprendra
+    // s'il est réactivé), mais personne n'est nommé — un compte désactivé ne
+    // compterait pas comme admin (1.6.2).
+    expect(await prisma.channel.findUnique({ where: { id: solo.id } })).not.toBeNull();
+    const left = await prisma.membership.findMany({
+      where: { channelId: solo.id },
+      select: { userId: true, role: true },
+    });
+    expect(left).toEqual([{ userId: off.id, role: "member" }]);
 
     const duo = await create(creator, { name: "duo", memberIds: [b.id] });
     await setRole(creator, duo.id, b.id, "admin");
@@ -1214,27 +1222,130 @@ describe("compte désactivé : il n'est plus admin du salon (1.6.2)", () => {
     ]);
   });
 
-  // Création et désactivation simultanées : jamais un salon dont le seul admin
-  // est un compte désactivé, quel que soit l'ordre d'arrivée.
-  it("désactiver un compte pendant qu'il crée un salon : le salon garde un admin actif", async () => {
+  // Courses désactivation / écriture : la requête de l'admin passe
+  // l'authentification et ses lectures, puis la désactivation tombe avant son
+  // écriture — syncSalonAdminsOf ne voit pas encore le salon ou les arrivants.
+  // Forcé à coup sûr : un verrou tenu sur la ligne User d'un membre ajouté fait
+  // attendre l'insertion de son adhésion (contrôle de clé étrangère).
+  async function holdUserRow(userId) {
+    let release;
+    const gate = new Promise((resolve) => (release = resolve));
+    let ready;
+    const locked = new Promise((resolve) => (ready = resolve));
+    const held = prisma.$transaction(
+      async (tx) => {
+        await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE`;
+        ready();
+        await gate;
+      },
+      { timeout: 20000 }
+    );
+    await locked;
+    return async () => {
+      release();
+      await held;
+    };
+  }
+
+  // Attend qu'une écriture soit bloquée sur un verrou (les fichiers de test
+  // passent l'un après l'autre : rien d'autre n'attend dans la base).
+  async function waitForBlockedWrite() {
+    for (let i = 0; i < 400; i++) {
+      const [{ n }] = await prisma.$queryRaw`SELECT count(*)::int AS n FROM pg_locks WHERE NOT granted`;
+      if (n > 0) return;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error("aucune écriture bloquée");
+  }
+
+  it("désactivée pendant qu'elle crée un salon : celui-ci ne garde pas pour seule admin un compte désactivé", async () => {
     const { token: owner } = await registerUser(app);
     const { token: aliceTok, user: alice } = await registerUser(app);
     const { token: bobTok, user: bob } = await registerUser(app);
-    const [created, disabled] = await Promise.all([
-      authed(app, aliceTok).post("/channels").send({ name: "course", memberIds: [bob.id] }),
-      setStatus(owner, alice.id, "disabled"),
+    const release = await holdUserRow(bob.id);
+    const creating = authed(app, aliceTok)
+      .post("/channels")
+      .send({ name: "course", memberIds: [bob.id] })
+      .then((r) => r);
+    await waitForBlockedWrite();
+    expect((await setStatus(owner, alice.id, "disabled")).status).toBe(200);
+    await release();
+    const created = await creating;
+
+    expect(created.status).toBe(200);
+    const id = created.body.channel.id;
+    expect(await adminIdsSeenBy(bobTok, id)).toEqual([bob.id]);
+    expect(await systemLog(bobTok, id)).toEqual([
+      { body: "est maintenant admin du salon", authorId: bob.id },
     ]);
-    expect(disabled.status).toBe(200);
-    // Désactivée avant l'authentification de sa requête : refusée. Sinon, Bob
-    // reprend le salon, annoncé comme à toute désactivation.
-    expect([200, 401]).toContain(created.status);
-    if (created.status === 200) {
-      const id = created.body.channel.id;
-      expect(await adminIdsSeenBy(bobTok, id)).toEqual([bob.id]);
-      expect(await systemLog(bobTok, id)).toEqual([
-        { body: "est maintenant admin du salon", authorId: bob.id },
-      ]);
+  });
+
+  it("désactivée pendant qu'elle ajoute quelqu'un à son salon : l'arrivant le reprend", async () => {
+    const { token: owner } = await registerUser(app);
+    const { token: aliceTok, user: alice } = await registerUser(app);
+    const { token: danTok, user: dan } = await registerUser(app);
+    const ch = await create(aliceTok, { name: "solo", isPrivate: true });
+    const release = await holdUserRow(dan.id);
+    const adding = authed(app, aliceTok)
+      .post(`/channels/${ch.id}/members`)
+      .send({ userIds: [dan.id] })
+      .then((r) => r);
+    await waitForBlockedWrite();
+    expect((await setStatus(owner, alice.id, "disabled")).status).toBe(200);
+    await release();
+    expect((await adding).status).toBe(200);
+
+    expect(await adminIdsSeenBy(danTok, ch.id)).toEqual([dan.id]);
+    expect(await systemLog(danTok, ch.id)).toEqual([
+      { body: `a ajouté ${dan.displayName} au salon`, authorId: alice.id },
+      { body: "est maintenant admin du salon", authorId: dan.id },
+    ]);
+  });
+
+  it("une admin réactivée pendant qu'on cherche un successeur retrouve son rôle, sans annonce", async () => {
+    const { token: owner } = await registerUser(app);
+    const { token: aliceTok, user: alice } = await registerUser(app);
+    const { token: bobTok, user: bob } = await registerUser(app);
+    const ch = await create(aliceTok, { name: "retour", memberIds: [bob.id] });
+    await setJoinedAt(alice.id, ch.id, "2026-01-01");
+    await setJoinedAt(bob.id, ch.id, "2026-01-02");
+    await setStatus(owner, bob.id, "disabled");
+    await setStatus(owner, alice.id, "disabled");
+
+    // Bob réactivé : la reprise compte les admins actifs (aucun, Alice est
+    // encore désactivée)… et Alice est réactivée juste après ce décompte, avant
+    // le choix du successeur. Le verrou du salon ne couvre pas les comptes.
+    await prisma.user.update({ where: { id: bob.id }, data: { status: "active" } });
+    const realTransaction = prisma.$transaction.bind(prisma);
+    const spy = vi.spyOn(prisma, "$transaction").mockImplementationOnce((fn, options) =>
+      realTransaction(async (tx) => {
+        const membership = new Proxy(tx.membership, {
+          get(target, prop, receiver) {
+            if (prop !== "count") return Reflect.get(target, prop, receiver);
+            return async (args) => {
+              const n = await target.count(args);
+              await prisma.user.update({ where: { id: alice.id }, data: { status: "active" } });
+              return n;
+            };
+          },
+        });
+        return fn(
+          new Proxy(tx, {
+            get: (target, prop, receiver) =>
+              prop === "membership" ? membership : Reflect.get(target, prop, receiver),
+          })
+        );
+      }, options)
+    );
+    try {
+      await syncSalonAdminsOf(io, bob.id);
+    } finally {
+      spy.mockRestore();
     }
+
+    expect(await adminsOf(ch.id)).toEqual([alice.id]);
+    expect(await adminIdsSeenBy(bobTok, ch.id)).toEqual([alice.id]);
+    expect(await systemTexts(bobTok, ch.id)).toEqual([]);
   });
 
   it("rejoindre un salon public dont le seul admin est désactivé : on le reprend", async () => {

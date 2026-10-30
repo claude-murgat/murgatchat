@@ -1621,8 +1621,20 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      compte désactivé pendant qu'il crée un salon n'en reste plus le seul admin (vérification
      après la création), l'avertissement de départ ne promet plus un relais impossible, et le
      filtre qui écarte le bot ne dépend plus de l'ordre de chargement des modules (`notify.ts`
-     chargé le premier, comme dans certains tests : le bot pouvait devenir admin). Tests : 348
-     backend, 37 e2e (`salons-manage` : 12 parcours).
+     chargé le premier, comme dans certains tests : le bot pouvait devenir admin).
+143. **Seconde relecture** (trois angles — invariant et concurrence, confidentialité, client et
+     tests —, chaque point soumis à un contradicteur) : rien de grave, quatre points mineurs
+     corrigés. Un ajout de membres revérifie lui aussi l'admin du salon après coup (désactivation
+     tombée pendant l'ajout). Un admin réactivé pendant le choix d'un successeur — le verrou du
+     salon ne couvre pas le statut des comptes — retrouve son rôle sans être annoncé comme
+     nouvel admin. Quitter un salon privé dont les autres membres sont désactivés ne promet plus
+     qu'« un membre pourra vous ajouter à nouveau ». Un test passait même si le salon était
+     supprimé. Les courses sont désormais forcées dans les tests (verrou Postgres sur la ligne
+     d'un compte, transaction interceptée), et chaque test échoue sans son correctif. Écarté par
+     le contradicteur : un « oracle de temps » sur les salons privés de la personne désactivée
+     (rien n'est exposé, la suppression définitive avait déjà ce profil). Limite connue : une
+     appli desktop 1.6.1 non encore mise à jour affiche le code brut `target_disabled` si l'on
+     nomme admin un compte désactivé. Tests : 350 backend, 38 e2e (`salons-manage` : 13 parcours).
 
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
