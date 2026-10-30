@@ -551,3 +551,42 @@ test("« Désactivé » dans les membres d'un salon, pas dans « Général »", 
   await expect(memberRow(details, bob)).toBeVisible();
   await expect(memberRow(details, bob).getByText("Désactivé", { exact: true })).toHaveCount(0);
 });
+
+test("quitter un salon privé dont les autres membres sont désactivés : personne ne pourra vous y rajouter", async ({
+  browser,
+  request,
+}) => {
+  const { admin, alice, bob } = await setup(request);
+  const { channel } = await call(request, alice.token, "POST", "/channels", {
+    name: `prive-isole-${tag()}`,
+    isPrivate: true,
+    memberIds: [bob.user.id],
+  });
+  await call(request, admin.token, "PATCH", `/auth/users/${bob.user.id}`, { status: "disabled" });
+  const page = await openAs(browser, alice);
+  await openSalon(page, channel.name);
+
+  // Détails : pas de « Un membre pourra vous ajouter à nouveau », démenti ici.
+  await page.getByRole("button", { name: "Détails du salon" }).click();
+  const details = page.getByRole("dialog", { name: /^Détails de/ });
+  await details.getByRole("button", { name: "Quitter le salon" }).click();
+  await expect(
+    details.getByText(
+      "Vous ne verrez plus ce salon, et personne ne pourra vous y rajouter : ses autres membres sont désactivés. Il restera sans admin tant que l'un d'eux n'est pas réactivé."
+    )
+  ).toBeVisible();
+  await expect(details.getByText("Un membre pourra vous ajouter à nouveau")).toHaveCount(0);
+  await details.getByRole("button", { name: "Fermer" }).click();
+
+  // Menu contextuel : même avertissement, puis départ confirmé.
+  const question = new Promise((resolve) => page.once("dialog", (d) => resolve(d.message())));
+  await sidebarItem(page, channel.name).click({ button: "right" });
+  await page.getByRole("button", { name: "Quitter le salon" }).click();
+  expect(await question).toContain("Personne ne pourra vous y rajouter : ses autres membres sont désactivés.");
+  await expect(sidebarItem(page, channel.name)).toHaveCount(0);
+
+  // Le salon a survécu, sans admin ; Bob réactivé le reprend.
+  await call(request, admin.token, "PATCH", `/auth/users/${bob.user.id}`, { status: "active" });
+  const { channels } = await call(request, bob.token, "GET", "/channels");
+  expect(channels.find((c) => c.id === channel.id)?.adminIds).toEqual([bob.user.id]);
+});

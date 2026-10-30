@@ -99,6 +99,10 @@ export default function ChannelDetailsModal({
   // (serveur) — s'il en reste un : les comptes désactivés ne le reprennent pas.
   const lastAdminLeaving = !lastOne && isOnlySalonAdmin(channel, currentUser);
   const heirLeft = hasSalonHeir(channel, currentUser);
+  // Salon privé dont tous les autres membres sont désactivés : il survit à votre
+  // départ (le serveur les compte encore), mais personne d'actif ne pourra vous
+  // y rajouter ni l'administrer tant que l'un d'eux n'est pas réactivé.
+  const strandedPrivate = !!channel.isPrivate && !lastOne && !heirLeft;
   // Rendre public un salon privé expose tout son historique à tout le chat :
   // comme quitter ou supprimer, cela se confirme.
   const makingPublic = visibilityEditable && !!channel.isPrivate && !isPrivate;
@@ -398,10 +402,13 @@ export default function ChannelDetailsModal({
               <p className="text-sm text-slate-700">
                 {channel.isPrivate && lastOne
                   ? "Vous êtes le dernier membre : le salon et tous ses messages seront supprimés."
+                  : strandedPrivate
+                  ? "Vous ne verrez plus ce salon, et personne ne pourra vous y rajouter : ses autres membres sont désactivés. Il restera sans admin tant que l'un d'eux n'est pas réactivé."
                   : channel.isPrivate
                   ? "Vous ne verrez plus ce salon. Un membre pourra vous ajouter à nouveau."
                   : "Le salon disparaîtra de votre liste ; vous pourrez le rejoindre à nouveau."}
                 {lastAdminLeaving &&
+                  !strandedPrivate &&
                   (heirLeft
                     ? " Vous êtes le seul admin : le membre le plus ancien le deviendra."
                     : " Vous êtes le seul admin et les autres membres sont désactivés : le salon restera sans admin.")}
