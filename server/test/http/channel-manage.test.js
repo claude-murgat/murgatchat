@@ -931,7 +931,7 @@ describe("départs : retirer un admin, le dernier admin qui part, un salon vide 
     ]);
   });
 
-  it("à défaut de membre actif, le plus ancien compte désactivé ; un admin qui part en laissant un autre admin ne change rien", async () => {
+  it("sans membre actif, personne n'est nommé ; un admin qui part en laissant un autre admin ne change rien", async () => {
     await registerUser(app);
     const { token: creator, user: creatorUser } = await registerUser(app);
     const { token: bTok, user: b } = await registerUser(app);
@@ -939,7 +939,8 @@ describe("départs : retirer un admin, le dernier admin qui part, un salon vide 
     const solo = await create(creator, { name: "fantome", isPrivate: true, memberIds: [off.id] });
     await prisma.user.update({ where: { id: off.id }, data: { status: "disabled" } });
     await authed(app, creator).post(`/channels/${solo.id}/leave`);
-    expect(await adminsOf(solo.id)).toEqual([off.id]);
+    // Un compte désactivé ne compterait pas comme admin (1.6.2).
+    expect(await adminsOf(solo.id)).toEqual([]);
 
     const duo = await create(creator, { name: "duo", memberIds: [b.id] });
     await setRole(creator, duo.id, b.id, "admin");
@@ -1022,10 +1023,10 @@ describe("départs : retirer un admin, le dernier admin qui part, un salon vide 
 });
 
 describe("ensureSalonAdmins — rattrapage au démarrage", () => {
-  it("donne un admin à chaque salon géré qui n'en a pas, en silence, une seule fois", async () => {
+  it("donne un admin actif à chaque salon géré qui n'en a pas, en silence, une seule fois", async () => {
     const { user: admin } = await registerUser(app);
     const { user: alice } = await registerUser(app);
-    const { user: bob } = await registerUser(app);
+    const { token: bobTok, user: bob } = await registerUser(app);
     const { user: carol } = await registerUser(app);
     const { user: dan } = await registerUser(app);
     const bot = await ensureBot();
@@ -1063,6 +1064,20 @@ describe("ensureSalonAdmins — rattrapage au démarrage", () => {
     const onlyBot = await legacy({ name: "que-le-bot", createdById: bot.id }, [
       [bot.id, "2026-01-01"],
     ]);
+    // Laissé par une 1.6.1 : son seul admin est un compte désactivé.
+    const staleAdmin = await prisma.channel.create({
+      data: {
+        name: "admin-desactive",
+        createdById: dan.id,
+        memberships: {
+          create: [
+            { userId: dan.id, role: "admin", joinedAt: new Date("2026-01-01") },
+            { userId: bob.id, joinedAt: new Date("2026-01-02") },
+            { userId: alice.id, joinedAt: new Date("2026-01-03") },
+          ],
+        },
+      },
+    });
     const settled = await prisma.channel.create({
       data: {
         name: "deja-pourvu",
@@ -1087,11 +1102,16 @@ describe("ensureSalonAdmins — rattrapage au démarrage", () => {
     expect(await ensureSalonAdmins()).toBe(5);
     expect(await adminsOf(byCreator.id)).toEqual([bob.id]); // le créateur, pas le plus ancien
     expect(await adminsOf(creatorGone.id)).toEqual([carol.id]); // Dan, désactivé, passe son tour
-    // Encore membre, le créateur passe devant, même désactivé.
-    expect(await adminsOf(creatorDisabled.id)).toEqual([dan.id]);
+    // Encore membre, le créateur ne passe devant qu'avec un compte actif.
+    expect(await adminsOf(creatorDisabled.id)).toEqual([carol.id]);
     expect(await adminsOf(withBot.id)).toEqual([carol.id]); // jamais le bot
-    expect(await adminsOf(onlyDisabled.id)).toEqual([dan.id]); // faute de mieux
+    // Personne d'actif : personne à nommer (un compte désactivé ne compterait pas).
+    expect(await adminsOf(onlyDisabled.id)).toEqual([]);
     expect(await adminsOf(onlyBot.id)).toEqual([]);
+    // Dan garde son rôle (il le retrouvera s'il est réactivé), mais ne compte
+    // plus : le plus ancien membre actif reprend le salon.
+    expect(await adminsOf(staleAdmin.id)).toEqual([dan.id, bob.id].sort());
+    expect(await adminIdsSeenBy(bobTok, staleAdmin.id)).toEqual([bob.id]);
     expect(await adminsOf(settled.id)).toEqual([bob.id]);
     for (const c of [dm, expert, support, def]) expect(await adminsOf(c.id)).toEqual([]);
     // Personne n'a rien fait : aucun message de service.
@@ -1099,6 +1119,137 @@ describe("ensureSalonAdmins — rattrapage au démarrage", () => {
 
     // Idempotent.
     expect(await ensureSalonAdmins()).toBe(0);
-    expect(await prisma.membership.count({ where: { role: "admin" } })).toBe(6);
+    expect(await prisma.membership.count({ where: { role: "admin" } })).toBe(7);
+  });
+});
+
+describe("compte désactivé : il n'est plus admin du salon (1.6.2)", () => {
+  const setStatus = (token, userId, status) =>
+    authed(app, token).patch(`/auth/users/${userId}`).send({ status });
+
+  it("désactiver le dernier admin actif : le plus ancien membre actif prend le relais ; réactivé, il retrouve son rôle", async () => {
+    const { token: owner } = await registerUser(app);
+    const { token: aliceTok, user: alice } = await registerUser(app);
+    const { token: bobTok, user: bob } = await registerUser(app);
+    const { user: carol } = await registerUser(app);
+    const { user: dan } = await registerUser(app);
+    // Seule admin du salon : Carol, plus ancien membre actif (Dan est désactivé), reprend.
+    const solo = await create(aliceTok, {
+      name: "relais",
+      isPrivate: true,
+      memberIds: [bob.id, carol.id, dan.id],
+    });
+    await setJoinedAt(dan.id, solo.id, "2026-01-01");
+    await setJoinedAt(carol.id, solo.id, "2026-01-02");
+    await setJoinedAt(bob.id, solo.id, "2026-01-03");
+    await prisma.user.update({ where: { id: dan.id }, data: { status: "disabled" } });
+    // Un autre admin actif y reste : personne à nommer.
+    const duo = await create(aliceTok, { name: "duo", memberIds: [bob.id] });
+    await setRole(aliceTok, duo.id, bob.id, "admin");
+    // Simple membre : rien ne bouge.
+    const other = await create(bobTok, { name: "autre", memberIds: [alice.id] });
+
+    const res = await setStatus(owner, alice.id, "disabled");
+    expect(res.status).toBe(200);
+    // Rien des salons (privés compris) ne remonte à l'admin du chat.
+    expect(Object.keys(res.body)).toEqual(["user"]);
+
+    expect(await adminIdsSeenBy(bobTok, solo.id)).toEqual([carol.id]);
+    expect(await adminsOf(solo.id)).toEqual([alice.id, carol.id].sort()); // son rôle est gardé
+    expect(await systemLog(bobTok, solo.id)).toEqual([
+      { body: "est maintenant admin du salon", authorId: carol.id },
+    ]);
+    expect(await adminIdsSeenBy(bobTok, duo.id)).toEqual([bob.id]);
+    expect(await systemTexts(bobTok, duo.id)).toEqual([`a nommé ${bob.displayName} admin du salon`]);
+    expect(await adminIdsSeenBy(bobTok, other.id)).toEqual([bob.id]);
+    expect(await systemTexts(bobTok, other.id)).toEqual([]);
+
+    // Réactivée, elle retrouve son rôle, à côté de qui a pris le relais, en silence.
+    expect((await setStatus(owner, alice.id, "active")).status).toBe(200);
+    expect((await adminIdsSeenBy(bobTok, solo.id)).sort()).toEqual([alice.id, carol.id].sort());
+    expect((await adminIdsSeenBy(bobTok, duo.id)).sort()).toEqual([alice.id, bob.id].sort());
+    expect(await systemTexts(bobTok, solo.id)).toEqual(["est maintenant admin du salon"]);
+  });
+
+  it("un admin désactivé ne compte plus : dernier admin actif, nomination refusée, retrait par un simple membre", async () => {
+    const { token: owner } = await registerUser(app);
+    const { token: aliceTok, user: alice } = await registerUser(app);
+    const { token: bobTok, user: bob } = await registerUser(app);
+    const { token: carolTok, user: carol } = await registerUser(app);
+    const { user: dan } = await registerUser(app);
+    const ch = await create(aliceTok, { name: "equipe", memberIds: [bob.id, carol.id, dan.id] });
+    await setRole(aliceTok, ch.id, bob.id, "admin");
+    await setStatus(owner, alice.id, "disabled");
+    await setStatus(owner, dan.id, "disabled");
+
+    // Bob est le dernier admin actif : Alice, désactivée, ne prend pas le relais.
+    const demoted = await setRole(bobTok, ch.id, bob.id, "member");
+    expect(demoted.status).toBe(409);
+    expect(demoted.body.error).toBe("last_admin");
+    const named = await setRole(bobTok, ch.id, dan.id, "admin");
+    expect(named.status).toBe(403);
+    expect(named.body.error).toBe("target_disabled");
+    // Un simple membre retire l'admin désactivée comme un simple membre.
+    expect((await authed(app, carolTok).delete(`/channels/${ch.id}/members/${alice.id}`)).status).toBe(
+      200
+    );
+    expect(await adminsOf(ch.id)).toEqual([bob.id]);
+    expect(await adminIdsSeenBy(carolTok, ch.id)).toEqual([bob.id]);
+  });
+
+  it("réactiver un membre d'un salon resté sans admin actif : il le reprend", async () => {
+    const { token: owner } = await registerUser(app);
+    const { token: aliceTok, user: alice } = await registerUser(app);
+    const { token: bobTok, user: bob } = await registerUser(app);
+    const ch = await create(aliceTok, { name: "veille", isPrivate: true, memberIds: [bob.id] });
+    await setStatus(owner, bob.id, "disabled");
+    await setStatus(owner, alice.id, "disabled");
+    // Plus personne d'actif : personne à nommer, Alice garde son rôle inerte.
+    expect(await adminsOf(ch.id)).toEqual([alice.id]);
+
+    expect((await setStatus(owner, bob.id, "active")).status).toBe(200);
+    expect(await adminIdsSeenBy(bobTok, ch.id)).toEqual([bob.id]);
+    expect(await systemLog(bobTok, ch.id)).toEqual([
+      { body: "est maintenant admin du salon", authorId: bob.id },
+    ]);
+  });
+
+  // Création et désactivation simultanées : jamais un salon dont le seul admin
+  // est un compte désactivé, quel que soit l'ordre d'arrivée.
+  it("désactiver un compte pendant qu'il crée un salon : le salon garde un admin actif", async () => {
+    const { token: owner } = await registerUser(app);
+    const { token: aliceTok, user: alice } = await registerUser(app);
+    const { token: bobTok, user: bob } = await registerUser(app);
+    const [created, disabled] = await Promise.all([
+      authed(app, aliceTok).post("/channels").send({ name: "course", memberIds: [bob.id] }),
+      setStatus(owner, alice.id, "disabled"),
+    ]);
+    expect(disabled.status).toBe(200);
+    // Désactivée avant l'authentification de sa requête : refusée. Sinon, Bob
+    // reprend le salon, annoncé comme à toute désactivation.
+    expect([200, 401]).toContain(created.status);
+    if (created.status === 200) {
+      const id = created.body.channel.id;
+      expect(await adminIdsSeenBy(bobTok, id)).toEqual([bob.id]);
+      expect(await systemLog(bobTok, id)).toEqual([
+        { body: "est maintenant admin du salon", authorId: bob.id },
+      ]);
+    }
+  });
+
+  it("rejoindre un salon public dont le seul admin est désactivé : on le reprend", async () => {
+    const { token: owner } = await registerUser(app);
+    const { token: aliceTok, user: alice } = await registerUser(app);
+    const { token: bobTok, user: bob } = await registerUser(app);
+    const pub = await create(aliceTok, { name: "ouvert" });
+    await setStatus(owner, alice.id, "disabled");
+
+    const joined = await authed(app, bobTok).post(`/channels/${pub.id}/join`);
+    expect(joined.status).toBe(200);
+    expect(joined.body.channel.adminIds).toEqual([bob.id]);
+    expect(await systemLog(bobTok, pub.id)).toEqual([
+      { body: "a rejoint le salon", authorId: bob.id },
+      { body: "est maintenant admin du salon", authorId: bob.id },
+    ]);
   });
 });

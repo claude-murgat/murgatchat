@@ -316,7 +316,7 @@ Génère une clé prod avec : `openssl rand -hex 32`.
 | PATCH   | `/channels/:id`                    | renommer / décrire (tout membre ; `409 reserved_name` vers ou depuis le nom du salon du pipeline) ; visibilité (admin du salon ou admin) |
 | DELETE  | `/channels/:id`                    | supprimer un salon et son contenu (admin du salon ou admin) |
 | POST    | `/channels/:id/members`            | ajouter des personnes (tout membre)          |
-| PATCH   | `/channels/:id/members/:userId`    | `{ role: "admin" \| "member" }` : nommer ou retirer un admin du salon (admin du salon ou admin ; `409 last_admin` pour le dernier, `403 no_roles` hors salon géré) |
+| PATCH   | `/channels/:id/members/:userId`    | `{ role: "admin" \| "member" }` : nommer ou retirer un admin du salon (admin du salon ou admin ; `409 last_admin` pour le dernier actif, `403 target_disabled` pour un compte désactivé, `403 no_roles` hors salon géré) |
 | DELETE  | `/channels/:id/members/:userId`    | retirer quelqu'un (tout membre ; un admin du salon : admin du salon ou admin) |
 | POST    | `/channels/:id/join` · `/leave`    | rejoindre un salon public · quitter un salon |
 | POST    | `/channels/:id/hide`               | masquer une conversation directe (revient au prochain message) |
@@ -456,11 +456,15 @@ Administration), qui gardent la main sur tous les salons. Règles (serveur,
   exclure un admin du salon ; un admin du chat renomme ou supprime un salon public, et y
   nomme des admins, sans en être membre (il doit en être membre pour changer sa
   visibilité ou en retirer quelqu'un) ;
-- un salon garde **toujours au moins un admin du salon** tant qu'il y reste quelqu'un :
-  le dernier ne peut pas se retirer le rôle (`409 last_admin`) ; s'il quitte le salon, en
-  est retiré ou que son compte est supprimé, le **plus ancien membre actif** prend le
-  relais (à défaut, le plus ancien membre ; jamais le bot) ; qui rejoint un salon public
-  resté vide en devient l'admin ;
+- un salon garde **toujours au moins un admin du salon actif** tant qu'il y reste un
+  membre actif : le dernier ne peut pas se retirer le rôle (`409 last_admin`) ; s'il
+  quitte le salon, en est retiré, ou que son compte est désactivé ou supprimé, le **plus
+  ancien membre actif** prend le relais (jamais le bot ni un compte désactivé) ; qui
+  rejoint un salon public resté sans admin actif en devient l'admin ;
+- un **compte désactivé n'est plus admin de rien** (1.6.2) : il garde son rôle, qu'il
+  retrouve s'il est réactivé, mais il sort d'`adminIds`, ne compte pas comme dernier
+  admin, se retire comme un simple membre et ne peut pas être nommé
+  (`403 target_disabled`) ; réactivé dans un salon resté sans admin actif, il le reprend ;
 - pas d'admins du salon dans les conversations directes, les conversations d'expert,
   « Général » ni le salon du pipeline (`adminIds` toujours vide, `403 no_roles`) ;
   « Général » ne se modifie que par un admin du chat et ne se quitte ni ne se supprime ;
@@ -480,12 +484,15 @@ Administration), qui gardent la main sur tous les salons. Règles (serveur,
 Le rôle est stocké par adhésion (`Membership.role` : `"admin"` | `"member"`, migration
 `20261029150000_salon_admins`). Chaque salon sérialisé (`GET /channels`,
 `GET /channels/public`, `channel:created`, `channel:updated`, réponses des routes) porte
-`adminIds`, les ids de ses admins du salon parmi `members` ; `channel:members` diffuse
+`adminIds`, les ids de ses admins du salon actifs parmi `members` ; `channel:members` diffuse
 `{ channelId, members, adminIds }` (un client 1.6.0 ignore ce champ). Au démarrage,
-`ensureSalonAdmins()` donne un admin à chaque salon qui n'en a pas (tous, au premier
-démarrage après la migration) : son créateur s'il en est encore membre, sinon le plus
-ancien membre actif — sans message de service ; les clients déjà reconnectés reçoivent
-`channel:members` ; sans effet ensuite.
+`ensureSalonAdmins()` donne un admin à chaque salon qui n'en a pas d'actif (tous, au
+premier démarrage après la migration ; en 1.6.2, ceux qu'une 1.6.1 laissait à un compte
+désactivé) : son créateur s'il en est encore membre actif, sinon le plus ancien membre
+actif — sans message de service ; les clients déjà reconnectés reçoivent
+`channel:members` ; sans effet ensuite. Désactiver ou réactiver un compte
+(`PATCH /auth/users/:id`) applique la même règle à ses salons, annoncée cette fois
+(« Bob est maintenant admin du salon »).
 
 ## Décisions techniques
 

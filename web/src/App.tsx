@@ -38,7 +38,7 @@ import UpdateBanner from "./components/UpdateBanner.tsx";
 import InstallPwaBanner from "./components/InstallPwaBanner.tsx";
 import { checkForUpdate } from "./version.ts";
 import { setLogContext, logEvent } from "./logbuffer.ts";
-import { isOnlySalonAdmin, salonPeople, serverHasSalonAdmins } from "./channelRules.ts";
+import { hasSalonHeir, isOnlySalonAdmin, salonPeople, serverHasSalonAdmins } from "./channelRules.ts";
 import type {
   Channel,
   Message,
@@ -1001,7 +1001,8 @@ export default function App() {
 
   // Quitter depuis le menu contextuel. Dernier membre d'un salon privé : le
   // serveur le supprime, on le dit avant. Seul admin d'un salon où d'autres
-  // restent : le serveur nomme le membre le plus ancien, on le dit aussi.
+  // restent : le serveur nomme le membre actif le plus ancien, on le dit aussi
+  // — ou, s'ils sont tous désactivés, que le salon restera sans admin.
   const onLeaveChannelMenu = useCallback(
     async (channel: Channel) => {
       if (channel.isDefault) return;
@@ -1009,10 +1010,14 @@ export default function App() {
       const people = salonPeople(channel).length;
       const last = channel.isPrivate && people <= 1;
       const onlyAdmin = !!user && people > 1 && isOnlySalonAdmin(channel, user);
+      const handover =
+        !!user && hasSalonHeir(channel, user)
+          ? "le membre le plus ancien le deviendra"
+          : "les autres membres sont désactivés, le salon restera sans admin";
       const question = last
         ? `Vous êtes le dernier membre de « ${channel.name} » : en le quittant, le salon et tous ses messages seront supprimés. Continuer ?`
         : onlyAdmin
-        ? `Quitter « ${channel.name} » ? Vous êtes le seul admin : le membre le plus ancien le deviendra.`
+        ? `Quitter « ${channel.name} » ? Vous êtes le seul admin : ${handover}.`
         : `Quitter « ${channel.name} » ?`;
       if (!window.confirm(question)) return;
       try {
