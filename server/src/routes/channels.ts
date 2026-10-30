@@ -192,11 +192,33 @@ export function isManagedSalon(
   );
 }
 
+// Un admin du salon n'a la main que tant que son compte est actif (1.6.2).
+// Désactivé, il garde son rôle — il le retrouve s'il est réactivé — mais ne
+// compte plus : ni dans `adminIds`, ni comme dernier admin, ni pour se protéger
+// d'un retrait par un simple membre. Un salon n'a donc jamais pour seul admin
+// un compte que personne ne peut plus utiliser.
+const ACTIVE_ADMIN = {
+  role: "admin",
+  user: { status: "active" },
+} satisfies Prisma.MembershipWhereInput;
+
+// Ceux qui peuvent reprendre un salon : des personnes au compte actif — jamais
+// le bot technique, qui ne lit rien.
+const ACTIVE_PERSON = {
+  username: { not: BOT_USERNAME },
+  status: "active",
+} satisfies Prisma.UserWhereInput;
+
 // Admins d'un salon, tels que les voient les clients (`adminIds`) : toujours
-// vide hors d'un salon géré, quoi que dise la colonne.
-function salonAdminIds(channel: Channel & { memberships?: Membership[] | null }) {
+// vide hors d'un salon géré, quoi que dise la colonne, et sans les comptes
+// désactivés.
+function salonAdminIds(
+  channel: Channel & { memberships?: (Membership & { user: Pick<User, "status"> })[] | null }
+) {
   if (!isManagedSalon(channel)) return [];
-  return (channel.memberships || []).filter((m) => m.role === "admin").map((m) => m.userId);
+  return (channel.memberships || [])
+    .filter((m) => m.role === "admin" && m.user.status === "active")
+    .map((m) => m.userId);
 }
 
 function isSalonAdmin(channel: Channel, membership: Pick<Membership, "role"> | null) {
@@ -232,37 +254,34 @@ async function lockSalon(tx: Prisma.TransactionClient, channelId: string) {
   return tx.channel.findUnique({ where: { id: channelId } });
 }
 
-// Le membre qui reprend un salon resté sans admin : le plus ancien membre actif,
-// à défaut le plus ancien tout court (compte désactivé) — jamais le bot
-// technique, qui ne lit rien.
+// Le membre qui reprend un salon resté sans admin actif : le plus ancien membre
+// actif. Un compte désactivé ne compterait pas comme admin : faute de membre
+// actif, personne n'est nommé — le prochain à revenir (réactivé, ou qui rejoint
+// le salon public) le reprendra.
 const HEIR_ORDER = [
   { joinedAt: "asc" },
   { id: "asc" },
 ] satisfies Prisma.MembershipOrderByWithRelationInput[];
 
 async function findHeir(db: Prisma.TransactionClient, channelId: string) {
-  const person = { username: { not: BOT_USERNAME } };
-  return (
-    (await db.membership.findFirst({
-      where: { channelId, user: { ...person, status: "active" } },
-      orderBy: HEIR_ORDER,
-    })) ??
-    (await db.membership.findFirst({ where: { channelId, user: person }, orderBy: HEIR_ORDER }))
-  );
+  return db.membership.findFirst({
+    where: { channelId, user: ACTIVE_PERSON },
+    orderBy: HEIR_ORDER,
+  });
 }
 
-// Promeut, sans bruit, un membre d'un salon géré qui n'a plus d'admin ; renvoie
-// sa membership, ou null s'il n'y avait rien à faire. `preferredUserId` (le
-// créateur, au rattrapage du démarrage) passe devant s'il en est encore membre
-// et n'est pas le bot — compte désactivé compris : il a créé le salon.
+// Promeut, sans bruit, un membre d'un salon géré qui n'a plus d'admin actif ;
+// renvoie sa membership, ou null s'il n'y avait rien à faire. `preferredUserId`
+// (le créateur, au rattrapage du démarrage) passe devant s'il en est encore
+// membre, avec un compte actif.
 async function promoteHeir(channelId: string, preferredUserId?: string | null) {
   return prisma.$transaction(async (tx) => {
     const channel = await lockSalon(tx, channelId);
     if (!channel || !isManagedSalon(channel)) return null;
-    if ((await tx.membership.count({ where: { channelId, role: "admin" } })) > 0) return null;
+    if ((await tx.membership.count({ where: { channelId, ...ACTIVE_ADMIN } })) > 0) return null;
     const preferred = preferredUserId
       ? await tx.membership.findFirst({
-          where: { channelId, userId: preferredUserId, user: { username: { not: BOT_USERNAME } } },
+          where: { channelId, userId: preferredUserId, user: ACTIVE_PERSON },
         })
       : null;
     const heir = preferred ?? (await findHeir(tx, channelId));
@@ -277,11 +296,12 @@ async function promoteHeir(channelId: string, preferredUserId?: string | null) {
   });
 }
 
-// Invariant des salons gérés : tant qu'il y reste quelqu'un (hors bot), il y a au
-// moins un admin du salon. Appelé après chaque départ (quitter, être retiré,
-// compte purgé) : si le dernier admin est parti, le plus ancien membre actif le
-// devient, ce que le salon voit (`channel:members`, et avec `announce` un
-// message de service à son nom). Sans effet partout ailleurs.
+// Invariant des salons gérés : tant qu'il y reste un membre actif (hors bot), il
+// y a au moins un admin du salon actif. Appelé après chaque départ (quitter,
+// être retiré, compte purgé) et chaque changement de statut d'un compte : si le
+// dernier admin actif est parti, le plus ancien membre actif le devient, ce que
+// le salon voit (`channel:members`, et avec `announce` un message de service à
+// son nom). Sans effet partout ailleurs.
 export async function ensureSalonAdmin(
   io: Server | null | undefined,
   channelId: string,
@@ -294,13 +314,14 @@ export async function ensureSalonAdmin(
   return heir;
 }
 
-// Rattrapage au démarrage, pour les salons antérieurs aux admins du salon (et
-// tout salon resté sans admin) : chacun reçoit le sien — son créateur s'il en
-// est encore membre, sinon le plus ancien membre actif. En silence : aucun
-// membre n'a rien fait, il n'y a pas de message de service. Mais le serveur
-// écoute déjà : un client reconnecté avant la fin du rattrapage a reçu des
-// `adminIds` vides, `channel:members` les lui met à jour. Idempotent, sans effet
-// une fois fait. Renvoie le nombre de salons pourvus.
+// Rattrapage au démarrage, pour les salons antérieurs aux admins du salon et
+// tout salon resté sans admin actif (dont ceux qu'une 1.6.1 laissait à un
+// compte désactivé) : chacun reçoit le sien — son créateur s'il en est encore
+// membre actif, sinon le plus ancien membre actif. En silence : aucun membre
+// n'a rien fait, il n'y a pas de message de service. Mais le serveur écoute
+// déjà : un client reconnecté avant la fin du rattrapage a reçu des `adminIds`
+// vides, `channel:members` les lui met à jour. Idempotent, sans effet une fois
+// fait. Renvoie le nombre de salons pourvus.
 export async function ensureSalonAdmins(io?: Server | null) {
   const salons = await prisma.channel.findMany({
     where: {
@@ -308,8 +329,8 @@ export async function ensureSalonAdmins(io?: Server | null) {
       kind: "standard",
       isDefault: false,
       memberships: {
-        none: { role: "admin" },
-        some: { user: { username: { not: BOT_USERNAME } } },
+        none: ACTIVE_ADMIN,
+        some: { user: ACTIVE_PERSON },
       },
     },
     select: { id: true, name: true, isDirect: true, kind: true, isDefault: true, createdById: true },
@@ -323,6 +344,30 @@ export async function ensureSalonAdmins(io?: Server | null) {
     await broadcastMembers(io, salon.id);
   }
   return promoted;
+}
+
+// Un compte désactivé ou réactivé (panneau d'admin) change les admins qui
+// comptent dans ses salons gérés. Désactivé, il n'y a plus la main : là où il
+// était le dernier admin actif, le plus ancien membre actif prend le relais,
+// annoncé comme au départ d'un admin. Réactivé, il retrouve son rôle — ou
+// reprend un salon resté sans admin actif faute d'autre membre actif. Là où il
+// est admin, ses `adminIds` changent avec lui : le salon les reçoit à jour.
+// Rien ne remonte à l'admin du chat : il ne voit toujours pas les salons privés.
+export async function syncSalonAdminsOf(io: Server | null | undefined, userId: string) {
+  const memberships = await prisma.membership.findMany({
+    where: { userId },
+    select: {
+      role: true,
+      channel: { select: { id: true, name: true, isDirect: true, kind: true, isDefault: true } },
+    },
+  });
+  // Un salon après l'autre : chaque vérification est une courte transaction qui
+  // verrouille le sien (promoteHeir).
+  for (const { role, channel } of memberships) {
+    if (!isManagedSalon(channel)) continue;
+    const heir = await ensureSalonAdmin(io, channel.id, { announce: true });
+    if (!heir && role === "admin") await broadcastMembers(io, channel.id);
+  }
 }
 
 // Un salon privé sans plus aucun membre (le bot technique ne compte pas : il ne
@@ -1003,7 +1048,10 @@ router.delete("/:id/members/:userId", requireAuth, async (req, res) => {
     include: { user: true },
   });
   if (!target) return res.status(404).json({ error: "not_a_member" });
-  if (isSalonAdmin(channel, target) && !canAdminister(req, channel, membership)) {
+  // Un compte désactivé n'a plus la main : admin ou non, il se retire comme un
+  // simple membre (un admin actif tient le salon à sa place).
+  const targetHolds = isSalonAdmin(channel, target) && target.user.status === "active";
+  if (targetHolds && !canAdminister(req, channel, membership)) {
     return res.status(403).json({ error: "admin_only" });
   }
   await removeMember(req.io, id, userId, {
@@ -1075,13 +1123,19 @@ router.patch("/:id/members/:userId", requireAuth, async (req, res) => {
       include: { user: true },
     });
     if (!target) return { status: 404, error: "not_a_member" };
-    // Le bot technique ne lit rien : il ne peut pas tenir un salon.
+    // Le bot technique ne lit rien : il ne peut pas tenir un salon. Un compte
+    // désactivé non plus : il ne compterait pas comme admin.
     if (role === "admin" && target.user.username === BOT_USERNAME) {
       return { status: 403, error: "bot_protected" };
     }
-    if (role === "member" && target.role === "admin") {
+    if (role === "admin" && target.user.status !== "active") {
+      return { status: 403, error: "target_disabled" };
+    }
+    // Seul le dernier admin ACTIF garde son rôle de force : celui d'un compte
+    // désactivé, qui ne compte plus, se retire librement.
+    if (role === "member" && target.role === "admin" && target.user.status === "active") {
       const others = await tx.membership.count({
-        where: { channelId: id, role: "admin", id: { not: target.id } },
+        where: { channelId: id, ...ACTIVE_ADMIN, id: { not: target.id } },
       });
       if (others === 0) return { status: 409, error: "last_admin" };
     }

@@ -26,6 +26,7 @@ export type DetailsTab = "about" | "members";
 const ERROR_TEXT = new Map([
   ["admin_only", "Seul un admin du salon peut faire cela."],
   ["last_admin", "Le salon doit garder au moins un admin : nommez-en un autre d'abord."],
+  ["target_disabled", "Ce compte est désactivé : il ne peut pas être admin du salon."],
   [
     "reserved_name",
     "Le salon du pipeline de support garde son nom : aucun autre salon ne peut le prendre.",
@@ -313,11 +314,14 @@ export default function ChannelDetailsModal({
               )}
               {channel.members.map((u) => {
                 const admin = isSalonAdmin(channel, u);
+                const disabled = u.status === "disabled";
                 // Le seul admin garde son rôle : le salon en aurait sinon zéro
-                // (le serveur refuserait, 409 last_admin) ; le bot ne peut pas
-                // être nommé (403 bot_protected).
+                // (le serveur refuserait, 409 last_admin) ; ni le bot ni un compte
+                // désactivé ne peuvent être nommés (403 bot_protected,
+                // target_disabled).
                 const roleButton =
-                  rolesEditable && (admin ? !isOnlySalonAdmin(channel, u) : !isBot(u));
+                  rolesEditable &&
+                  (admin ? !isOnlySalonAdmin(channel, u) : !isBot(u) && !disabled);
                 const removable = canRemoveMember(channel, currentUser, u);
                 return (
                   <div key={u.id} className="flex items-center gap-3 px-3 py-2 hover:bg-slate-50 rounded-md">
@@ -334,6 +338,14 @@ export default function ChannelDetailsModal({
                             className="shrink-0 text-[11px] font-semibold text-blue-700 bg-blue-100 rounded-sm px-1.5 py-0.5"
                           >
                             Admin
+                          </span>
+                        )}
+                        {disabled && (
+                          <span
+                            title="Compte désactivé"
+                            className="shrink-0 text-[11px] font-semibold text-slate-600 bg-slate-200 rounded-sm px-1.5 py-0.5"
+                          >
+                            Désactivé
                           </span>
                         )}
                       </div>

@@ -11,7 +11,8 @@ import { test, expect } from "@playwright/test";
 //     d'autres ; eux seuls (avec les admins du chat) changent la visibilité et
 //     suppriment, et un simple membre ne retire pas un admin. Le nommé reçoit
 //     ses droits en direct, et rendre public un salon privé se confirme. La
-//     seule admin qui part en est prévenue : le plus ancien membre la remplace ;
+//     seule admin qui part en est prévenue : le plus ancien membre la remplace,
+//     comme quand son compte est désactivé (elle apparaît alors « Désactivé ») ;
 //   - quitter un salon, masquer une conversation directe (elle revient au
 //     prochain message) ;
 //   - chaque changement laisse une trace dans le salon (message de service).
@@ -451,4 +452,41 @@ test("la seule admin quitte le salon : elle en est prévenue, le plus ancien mem
   await expect(adminPill(memberRow(bobDetails, bob))).toBeVisible();
   await expect(adminPill(memberRow(bobDetails, carol))).toHaveCount(0);
   await expect(memberRow(bobDetails, carol).getByRole("button", { name: "Nommer admin" })).toBeVisible();
+});
+
+test("la seule admin désactivée : le plus ancien membre prend le relais en direct, elle apparaît « Désactivé »", async ({
+  browser,
+  request,
+}) => {
+  const { admin, alice, bob, carol } = await setup(request);
+  const { channel } = await call(request, alice.token, "POST", "/channels", {
+    name: `relais-${tag()}`,
+    memberIds: [bob.user.id],
+  });
+  // Carol arrive après Bob : c'est lui le plus ancien membre actif.
+  await call(request, alice.token, "POST", `/channels/${channel.id}/members`, {
+    userIds: [carol.user.id],
+  });
+  const bobPage = await openAs(browser, bob);
+  await openSalon(bobPage, channel.name);
+
+  // L'admin du chat désactive Alice (panneau d'admin).
+  await call(request, admin.token, "PATCH", `/auth/users/${alice.user.id}`, { status: "disabled" });
+
+  // Chez Bob, sans recharger : le relais, signé par lui, et ses droits.
+  await expect(
+    systemLine(bobPage, `${bob.user.displayName} est maintenant admin du salon`)
+  ).toBeVisible();
+  await bobPage.getByRole("button", { name: "Détails du salon" }).click();
+  const details = bobPage.getByRole("dialog", { name: /^Détails de/ });
+  await expect(details.getByRole("button", { name: "Supprimer le salon" })).toBeVisible();
+  await details.getByRole("tab", { name: /Membres/ }).click();
+  await expect(adminPill(memberRow(details, bob))).toBeVisible();
+  // Alice reste membre, signalée « Désactivé » : plus de pastille « Admin », et
+  // personne ne la nomme (le serveur refuserait, 403 target_disabled).
+  const aliceRow = memberRow(details, alice);
+  await expect(aliceRow.getByText("Désactivé", { exact: true })).toBeVisible();
+  await expect(adminPill(aliceRow)).toHaveCount(0);
+  await expect(aliceRow.getByRole("button", { name: "Nommer admin" })).toHaveCount(0);
+  await expect(memberRow(details, carol).getByRole("button", { name: "Nommer admin" })).toBeVisible();
 });
