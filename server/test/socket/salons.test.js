@@ -161,6 +161,36 @@ describe("salons gérés par leurs membres — temps réel", () => {
     expect((await trace).author.id).toBe(bob.user.id);
   });
 
+  it("le dernier admin désactivé, les membres apprennent qui le remplace ; l'admin du chat n'en voit rien", async () => {
+    const owner = await registerUser(srv.app);
+    const alice = await registerUser(srv.app);
+    const bob = await registerUser(srv.app);
+    const ch = (
+      await authed(srv.app, alice.token)
+        .post("/channels")
+        .send({ name: "discret", isPrivate: true, memberIds: [bob.user.id] })
+    ).body.channel;
+    const bobSock = await ready(bob.token, ch.id);
+    const ownerSock = await ready(owner.token);
+
+    const promoted = waitForEvent(bobSock, "channel:members", (e) => e.channelId === ch.id);
+    const trace = waitForEvent(
+      bobSock,
+      "message:system",
+      (m) => m.body === "est maintenant admin du salon"
+    );
+    const ownerSilent = Promise.all([
+      expectNoEvent(ownerSock, "channel:members", 800),
+      expectNoEvent(ownerSock, "message:system", 800),
+    ]);
+    await authed(srv.app, owner.token)
+      .patch(`/auth/users/${alice.user.id}`)
+      .send({ status: "disabled" });
+    expect((await promoted).adminIds).toEqual([bob.user.id]);
+    expect((await trace).author.id).toBe(bob.user.id);
+    await ownerSilent;
+  });
+
   it("le rattrapage du démarrage met à jour les clients déjà connectés, sans message de service", async () => {
     await registerUser(srv.app);
     const alice = await registerUser(srv.app);

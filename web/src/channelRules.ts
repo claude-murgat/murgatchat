@@ -11,6 +11,9 @@
 //     nomment ou retirent des admins, et retirent un admin du salon ;
 //   - un salon qui a des membres garde au moins un admin : quand le dernier
 //     part, le serveur nomme le membre le plus ancien ;
+//   - un compte désactivé n'est plus admin de rien (1.6.2) : le serveur le
+//     retire d'`adminIds` et nomme un autre membre à sa place s'il le faut ;
+//     on ne le nomme pas admin (403 target_disabled) ;
 //   - le salon par défaut (« Général ») n'a pas d'admins de salon : il ne se
 //     modifie que par un admin du chat, et ne se quitte ni ne se supprime ;
 //   - une conversation directe ne se quitte pas : elle se masque.
@@ -69,6 +72,15 @@ export function isOnlySalonAdmin(c: Channel, user: Pick<User, "id">) {
   // précéder l'évènement channel:members qui met `adminIds` à jour.
   const admins = c.members.filter((m) => isSalonAdmin(c, m));
   return admins.length === 1 && admins[0].id === user.id;
+}
+
+/**
+ * Quelqu'un pour reprendre le salon si `user` le quitte : un autre membre au
+ * compte actif. Le serveur ne nomme jamais un compte désactivé (1.6.2) : sans
+ * lui, le seul admin qui part laisse le salon sans admin.
+ */
+export function hasSalonHeir(c: Channel, user: Pick<User, "id">) {
+  return salonPeople(c).some((m) => m.id !== user.id && m.status !== "disabled");
 }
 
 /**

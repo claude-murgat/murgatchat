@@ -285,7 +285,8 @@ export const api = {
     request(`/channels/${id}/members/${userId}`, { method: "DELETE" }),
   // Nommer un membre admin du salon, ou lui retirer ce rôle (admins du salon et
   // admins du chat). Refus : 403 admin_only / not_a_member, 403 no_roles hors
-  // des salons gérés, 409 last_admin pour qui retirerait le dernier admin.
+  // des salons gérés, 403 target_disabled pour un compte désactivé, 409
+  // last_admin pour qui retirerait le dernier admin.
   // Le salon renvoyé porte les adminIds à jour.
   setMemberRole: (
     channelId: string,
