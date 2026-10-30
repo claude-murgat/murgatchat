@@ -11,7 +11,9 @@ import { test, expect } from "@playwright/test";
 //     d'autres ; eux seuls (avec les admins du chat) changent la visibilité et
 //     suppriment, et un simple membre ne retire pas un admin. Le nommé reçoit
 //     ses droits en direct, et rendre public un salon privé se confirme. La
-//     seule admin qui part en est prévenue : le plus ancien membre la remplace ;
+//     seule admin qui part en est prévenue : le plus ancien membre la remplace,
+//     comme quand son compte est désactivé (elle apparaît alors « Désactivé »,
+//     sauf dans « Général ») ;
 //   - quitter un salon, masquer une conversation directe (elle revient au
 //     prochain message) ;
 //   - chaque changement laisse une trace dans le salon (message de service).
@@ -451,4 +453,101 @@ test("la seule admin quitte le salon : elle en est prévenue, le plus ancien mem
   await expect(adminPill(memberRow(bobDetails, bob))).toBeVisible();
   await expect(adminPill(memberRow(bobDetails, carol))).toHaveCount(0);
   await expect(memberRow(bobDetails, carol).getByRole("button", { name: "Nommer admin" })).toBeVisible();
+});
+
+test("la seule admin désactivée : le plus ancien membre prend le relais en direct, elle apparaît « Désactivé »", async ({
+  browser,
+  request,
+}) => {
+  const { admin, alice, bob, carol } = await setup(request);
+  const { channel } = await call(request, alice.token, "POST", "/channels", {
+    name: `relais-${tag()}`,
+    memberIds: [bob.user.id],
+  });
+  // Carol arrive après Bob : c'est lui le plus ancien membre actif.
+  await call(request, alice.token, "POST", `/channels/${channel.id}/members`, {
+    userIds: [carol.user.id],
+  });
+  const bobPage = await openAs(browser, bob);
+  await openSalon(bobPage, channel.name);
+
+  // L'admin du chat désactive Alice (panneau d'admin).
+  await call(request, admin.token, "PATCH", `/auth/users/${alice.user.id}`, { status: "disabled" });
+
+  // Chez Bob, sans recharger : le relais, signé par lui, et ses droits.
+  await expect(
+    systemLine(bobPage, `${bob.user.displayName} est maintenant admin du salon`)
+  ).toBeVisible();
+  await bobPage.getByRole("button", { name: "Détails du salon" }).click();
+  const details = bobPage.getByRole("dialog", { name: /^Détails de/ });
+  await expect(details.getByRole("button", { name: "Supprimer le salon" })).toBeVisible();
+  await details.getByRole("tab", { name: /Membres/ }).click();
+  await expect(adminPill(memberRow(details, bob))).toBeVisible();
+  // Alice reste membre, signalée « Désactivé » : plus de pastille « Admin », et
+  // personne ne la nomme (le serveur refuserait, 403 target_disabled).
+  const aliceRow = memberRow(details, alice);
+  await expect(aliceRow.getByText("Désactivé", { exact: true })).toBeVisible();
+  await expect(adminPill(aliceRow)).toHaveCount(0);
+  await expect(aliceRow.getByRole("button", { name: "Nommer admin" })).toHaveCount(0);
+  await expect(memberRow(details, carol).getByRole("button", { name: "Nommer admin" })).toBeVisible();
+});
+
+test("la seule admin quitte un salon dont les autres membres sont désactivés : elle sait que personne ne prend le relais", async ({
+  browser,
+  request,
+}) => {
+  const { admin, alice, bob } = await setup(request);
+  const { channel } = await call(request, alice.token, "POST", "/channels", {
+    name: `isole-${tag()}`,
+    memberIds: [bob.user.id],
+  });
+  await call(request, admin.token, "PATCH", `/auth/users/${bob.user.id}`, { status: "disabled" });
+  const page = await openAs(browser, alice);
+  await openSalon(page, channel.name);
+
+  await page.getByRole("button", { name: "Détails du salon" }).click();
+  const details = page.getByRole("dialog", { name: /^Détails de/ });
+  await details.getByRole("button", { name: "Quitter le salon" }).click();
+  await expect(
+    details.getByText(
+      "Vous êtes le seul admin et les autres membres sont désactivés : le salon restera sans admin."
+    )
+  ).toBeVisible();
+  await expect(details.getByText("le membre le plus ancien le deviendra")).toHaveCount(0);
+
+  // Même avertissement depuis le menu contextuel (boîte de confirmation).
+  await details.getByRole("button", { name: "Fermer" }).click();
+  const question = new Promise((resolve) =>
+    page.once("dialog", (d) => resolve(d.message()))
+  );
+  await sidebarItem(page, channel.name).click({ button: "right" });
+  await page.getByRole("button", { name: "Quitter le salon" }).click();
+  expect(await question).toContain("les autres membres sont désactivés, le salon restera sans admin");
+});
+
+test("« Désactivé » dans les membres d'un salon, pas dans « Général »", async ({ browser, request }) => {
+  const { admin, alice, bob } = await setup(request);
+  const { channel } = await call(request, alice.token, "POST", "/channels", {
+    name: `badge-${tag()}`,
+    memberIds: [bob.user.id],
+  });
+  await call(request, admin.token, "PATCH", `/auth/users/${bob.user.id}`, { status: "disabled" });
+  // Ouverte après la désactivation : les listes de membres portent déjà le statut
+  // de Bob — le salon le montre, ce qui rend la vérification sur « Général » parlante.
+  const page = await openAs(browser, alice);
+  await openSalon(page, channel.name);
+  await page.getByRole("button", { name: "Détails du salon" }).click();
+  let details = page.getByRole("dialog", { name: /^Détails de/ });
+  await details.getByRole("tab", { name: /Membres/ }).click();
+  await expect(memberRow(details, bob).getByText("Désactivé", { exact: true })).toBeVisible();
+  await details.getByRole("button", { name: "Fermer" }).click();
+  await expect(details).toBeHidden();
+
+  // Tout le chat est membre de « Général » : le badge n'y est pas affiché.
+  await openSalon(page, "Général");
+  await page.getByRole("button", { name: "Détails du salon" }).click();
+  details = page.getByRole("dialog", { name: /^Détails de .*Général/ });
+  await details.getByRole("tab", { name: /Membres/ }).click();
+  await expect(memberRow(details, bob)).toBeVisible();
+  await expect(memberRow(details, bob).getByText("Désactivé", { exact: true })).toHaveCount(0);
 });
