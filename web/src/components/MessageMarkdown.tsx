@@ -104,7 +104,13 @@ const COMPONENTS: Components = {
     />
   ),
   p: ({ node, ...props }) => <p {...props} className="whitespace-pre-wrap wrap-break-word" />,
-  ul: ({ node, ...props }) => <ul {...props} className="list-disc ml-5 my-1" />,
+  // Puces pleines, puis creuses et carrées pour les sous-niveaux.
+  ul: ({ node, ...props }) => (
+    <ul
+      {...props}
+      className="list-disc ml-5 my-1 [&_ul]:list-[circle] [&_ul_ul]:list-[square]"
+    />
+  ),
   ol: ({ node, ...props }) => <ol {...props} className="list-decimal ml-5 my-1" />,
   li: ({ node, ...props }) => <li {...props} className="my-0.5" />,
   blockquote: ({ node, ...props }) => (

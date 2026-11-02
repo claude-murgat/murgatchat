@@ -12,6 +12,7 @@ import Avatar from "./Avatar.tsx";
 import { uploadFile, api } from "../api.ts";
 import { compressImage } from "../imageCompress.ts";
 import { emojiTokenAt, queryEmojiShortcodes } from "../emojiShortcodes.ts";
+import { pasteAsMarkdown } from "../pasteMarkdown.ts";
 import type { Attachment, User } from "../types.ts";
 
 /** Jeton de mention « @… » en cours de saisie, repéré autour du curseur. */
@@ -307,7 +308,12 @@ function Composer(
       .filter((it) => it.kind === "file")
       .map((it) => it.getAsFile())
       .filter(Boolean) as File[];
-    if (files.length === 0) return;
+    if (files.length === 0) {
+      // Texte : une liste, du gras ou du code copiés depuis une page arrivent
+      // aussi en HTML, traduit ici en Markdown pour garder la mise en forme.
+      pasteAsMarkdown(e);
+      return;
+    }
     e.preventDefault();
     await ingestFiles(files);
   }

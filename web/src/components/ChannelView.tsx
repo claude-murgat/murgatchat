@@ -13,6 +13,7 @@ import { canManageMembers, isSalon, salonLabel } from "../channelRules.ts";
 import { api, attachmentUrl, downloadAttachment } from "../api.ts";
 import { extOf, fileIcon } from "../fileIcon.ts";
 import { isWindowFocused } from "../desktop.ts";
+import { pasteAsMarkdown } from "../pasteMarkdown.ts";
 import type {
   Attachment,
   Channel,
@@ -1494,6 +1495,7 @@ function ScheduledRow({ message, onCancel, onSave }: ScheduledRowProps) {
         <textarea
           value={body}
           onChange={(e) => setBody(e.target.value)}
+          onPaste={pasteAsMarkdown}
           rows={2}
           className="w-full border border-amber-300 rounded-sm px-2 py-1 text-slate-900 resize-none"
         />
@@ -1671,6 +1673,7 @@ function MessageRow({
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={onKeyDown}
+        onPaste={pasteAsMarkdown}
         rows={2}
         className="w-full border border-slate-300 rounded-sm px-2 py-1 text-slate-900 resize-none outline-hidden focus:border-aubergine-700"
       />

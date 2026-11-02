@@ -1650,6 +1650,71 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      du brouillon correspond au tag, puis que `/releases/latest` pointe sur la release —
      jamais sur une pré-release. Relancer le job est sans risque. Éprouvé au prochain tag.
 
+## Itération 2026-11-02 — coller une liste à puces
+
+146. **Une liste collée garde sa mise en forme** — une liste à puces copiée depuis une réponse
+     de Claude, un Google Docs, Word ou un mail arrivait à plat dans le composer, sans puces ni
+     retraits, et perdait son gras et son code : Chromium (donc aussi WebView2, l'appli de
+     bureau) ne met pas les puces dans le texte brut du presse-papier, c'est le CSS qui les
+     dessine. Au collage, le composer relit la version HTML et la traduit en Markdown
+     (`web/src/pasteMarkdown.ts`) : listes imbriquées et numérotées — y compris les fausses
+     listes de Word et d'Outlook (paragraphes `mso-list`, libellés « c) » ou « Article 2 - »
+     gardés) et les sous-listes de Google Docs rangées à côté des `<li>` —, gras, italique,
+     barré, code, liens, titres, citations, blocs de code et tableaux (au moins 2×2 ; un tableau
+     de mise en page, comme une signature de mail, ne garde que son texte). La mise en forme
+     est portée par chaque morceau de texte, puis écrite au rendu : un mot que Google Docs
+     coupe en deux reste d'un seul tenant, et un marqueur collé à une lettre laisse sortir la
+     ponctuation pour rester valide. Le `display` du style copié est respecté (blocs, lignes
+     flex), le texte des boutons et des images (alt) est gardé comme dans le texte brut. Collé
+     en milieu de ligne, un bloc reçoit les lignes vides qu'il lui faut. Le collage reste
+     natif quand le HTML n'apporte aucune mise en forme, quand le résultat tient sur une ligne
+     (quelques mots copiés dans un titre ou un élément de liste), quand on ne colle que du code
+     (VS Code, `<pre>` nu, diff GitHub : il arrive tel quel), quand le texte brut est déjà du
+     Markdown (bouton « Copier » d'une IA), dans un bloc ``` en cours de saisie et au
+     Ctrl+Maj+V (Firefox compris). L'insertion passe par `execCommand("insertText")` : Ctrl+Z
+     annule le collage d'un coup ; au-delà de ~140 lignes, insertion directe (sans annulation
+     native), `execCommand` gelant l'onglet (2,6 s pour 1 500 lignes). Même traitement dans la
+     modification d'un message et d'un message planifié ; les sous-listes s'affichent en puces
+     creuses, puis carrées.
+147. **Relecture indépendante** (une passe, 18 points reproduits, dont deux sérieux : gros
+     collage qui gelait l'onglet, code de VS Code abîmé — retrait perdu, `*` ajoutés) : tous
+     corrigés par la refonte ci-dessus. Tests : e2e `paste-markdown` (5 parcours : vrai
+     Ctrl+C / Ctrl+V d'une réponse rendue puis envoi, sources Word, Google Docs, Gmail, tableaux
+     et code, modification d'un message, 25 cas limites dont 12 issus de la relecture qui
+     échouaient avant, collage en milieu de texte, blocs de code ouverts, Markdown déjà écrit,
+     3 000 éléments collés en moins d'une seconde) ; le premier parcours échoue sans le
+     correctif.
+148. **Seconde relecture** (vérification des 18 correctifs et recherche de nouveaux défauts
+     sous trois angles — rendu Markdown, copies réelles, intégration —, arrêtée avant ses
+     derniers contre-examens et triée à la main) : les défauts confirmés sont corrigés.
+     - Un bloc de code contenant `# commentaire`, des accents graves ou `**` faisait coller
+       toute la réponse en brut (le titre `#` devenait un H1) : le texte brut n'est plus pris
+       pour du Markdown source que si ses marqueurs sont absents du texte de la page.
+     - Gras, italique et barré s'écrivent en pile, le plus durable à l'extérieur
+       (`*Voir **(annexe)**, page 3*`, et non `*Voir* ***(annexe)****…` que le rendu
+       appariait mal) ; le code garde son gras ; les bords sont jugés comme le rendu
+       (micromark : un emoji compte comme une lettre) ; barré et gras collés à une lettre
+       gardent le barré ; un `\`, `*` ou `` ` `` du texte collé à un marqueur est échappé.
+     - Paragraphe tronqué en CSS (`-webkit-box`) plus découpé ; pastilles de source d'une IA
+       (`inline-flex`) gardées dans la phrase ; `<code>` d'une ligne flex en ligne.
+     - Tableaux : un drapeau ou un badge (sous des en-têtes `<th>`) n'en fait plus une mise en
+       page, des paragraphes dans une cellule non plus ; une seule ligne copiée reste une ligne.
+     - Bloc de code GitHub ou Sphinx copié seul (`<pre>` sans `<code>`, langue sur le parent) :
+       de nouveau entouré de ```, avec sa langue ; SyntaxHighlighter (Confluence) : un seul bloc,
+       sans numéros ni barre ; l'étiquette « python » et le bouton « Copier » posés dans le
+       même `<pre>` ne sont plus dans le code.
+     - Les boutons ne sont écartés que par leur libellé d'outil (« Copier », « Copy code »…) :
+       les questions d'une FAQ près d'un bloc de code restent.
+     - Liens : affiché sans `https://` (« exemple.fr »), il reste un lien ; `!` juste avant un
+       lien est échappé (sinon c'est une image). Deux listes du même type à la suite gardent
+       leur numérotation (`1)`, `*`). Formules KaTeX et MathML : source TeX (`$E = mc^2$`) ou,
+       dans une vraie copie Chromium qui ne la garde pas, texte linéaire (`a/b`, `c^2`), en
+       code. Un `<details>` fermé ne donne que son titre ; la description d'image générée par
+       Office est ignorée ; une ligne commençant par du code à accents graves n'est plus
+       échappée à tort.
+     Tests : 20 cas limites et une vraie copie d'une réponse au bloc de code commenté ajoutés
+     à `paste-markdown` (tous échouent sur la version précédente).
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
