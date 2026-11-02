@@ -150,8 +150,12 @@ rajouter ; le salon survit et son membre réactivé le reprend.
 `paste-markdown.spec.js` : une liste copiée (vrai Ctrl+C dans Chromium, dont le texte brut
 n'a ni puces ni retraits) puis collée (Ctrl+V) arrive en Markdown dans le composer, Ctrl+Z
 l'annule d'un coup, et le message envoyé s'affiche en liste imbriquée ; listes Word / Outlook
-(`mso-list`) et Google Docs, mails Gmail, tableaux, blocs de code, modification d'un message ;
-collage natif quand rien n'est à traduire, sur une seule ligne ou dans un bloc ```.
+(`mso-list`, libellés gardés) et Google Docs, mails Gmail, tableaux, blocs de code,
+modification d'un message, cas limites (mots coupés par Google Docs, ponctuation collée au
+gras, mise en page CSS, signatures, texte des boutons et des images) ; une liste collée en
+milieu de ligne reste une liste ; collage natif quand rien n'est à traduire, sur une seule
+ligne, pour du code seul (VS Code), un texte déjà en Markdown ou dans un bloc ``` ouvert ;
+3 000 éléments collés sans geler l'onglet.
 `delete-for-me.spec.js` : « Supprimer pour moi » sur le message d'un autre — masqué de
 son côté (même après rechargement), toujours visible de l'auteur.
 `push-read-state.spec.js` : injecte de vrais évènements `push` dans le service worker

@@ -189,8 +189,11 @@ test("Word, Google Docs, Gmail, tableaux et code ; collage natif sinon", async (
     `<h2 style="font-weight: 700;">titre de sect</h2>`,
     // Un seul élément de liste copié en entier.
     `<ul><li><strong>Un</strong> seul élément</li></ul>`,
-    // VS Code : du texte coloré en white-space: pre, sans mise en forme.
-    `<div style="font-family: Consolas, monospace; white-space: pre;"><div><span style="color: #569cd6;">const</span> a = 1;</div><div>a++;</div></div>`,
+    // VS Code : du code coloré en white-space: pre, ici avec un thème qui met
+    // les commentaires en italique (ni « * » ajouté, ni retrait perdu).
+    `<div style="font-family: Consolas, monospace; white-space: pre;"><div><span style="color:#6a9955;font-style: italic;">// Calcule</span></div><div>    <span style="color: #569cd6;">return</span> a * b;</div></div>`,
+    // Un document texte ouvert dans le navigateur : un <pre> nu.
+    `<pre style="word-wrap: break-word; white-space: pre-wrap;">Bonjour à tous,\n\nLa réunion est <b>déplacée</b>.</pre>`,
   ];
   for (const html of nativeCases) {
     await composer.fill("");
@@ -231,12 +234,15 @@ const EDGE_CASES = [
   ["Excel 2×2",
     `<table border=0><col width=64 span=2><tr height=20><td class=xl65>Ville</td><td class=xl65>Pop</td></tr><tr><td>Paris</td><td align=right>2100000</td></tr></table>`,
     "| Ville | Pop |\n| --- | --- |\n| Paris | 2100000 |"],
-  ["tableau de mise en page (signature de mail) : son texte seulement",
-    `<table><tr><td><img src="logo.png" alt="Logo"></td><td>Jean Dupont<br>Directeur</td></tr></table><p><b>Important</b></p>`,
-    "Jean Dupont\nDirecteur\n**Important**"],
-  ["liste numérotée qui commence à 3, imbriquée dans une liste à puces",
+  ["tableau de mise en page (signature de mail, cellule fusionnée, logo) : son texte seulement",
+    `<p>Voir <b>pièce jointe</b>.</p><table><tr><td rowspan=2><img src="logo.png" alt="Logo"></td><td><b>Jean Dupont</b></td></tr><tr><td>Directeur</td></tr></table>`,
+    "Voir **pièce jointe**.\nLogo\n**Jean Dupont**\nDirecteur"],
+  ["tableau avec légende et ligne masquée (Excel)",
+    `<table><caption>Notes</caption><tr><td>Nom</td><td>Note</td></tr><tr style="display:none"><td>Caché</td><td>0</td></tr><tr><td>Alice</td><td>18</td></tr></table>`,
+    "Notes\n\n| Nom | Note |\n| --- | --- |\n| Alice | 18 |"],
+  ["liste numérotée qui commence à 3, imbriquée : séparée de son texte",
     `<ul><li>A<ol start="3"><li>trois</li><li>quatre</li></ol></li><li>B</li></ul>`,
-    "- A\n  3. trois\n  4. quatre\n- B"],
+    "- A\n\n  3. trois\n  4. quatre\n- B"],
   ["<br> dans un élément : saut forcé",
     `<ul><li>ligne 1<br>ligne 2</li><li>autre</li></ul>`,
     "- ligne 1  \n  ligne 2\n- autre"],
@@ -249,9 +255,35 @@ const EDGE_CASES = [
   ["message MurgaChat recopié (paragraphe pre-wrap)",
     `<div class="md-body"><p style="white-space: pre-wrap;">Ligne 1\nLigne <strong>2</strong></p><ul>\n<li>a</li>\n<li>b</li>\n</ul></div>`,
     "Ligne 1\nLigne **2**\n\n- a\n- b"],
-  ["emoji en image gardé, logo écarté",
-    `<p>Bravo <img alt="🎉" src="x.png"> <img alt="logo" src="l.png"></p><ul><li>a</li><li>b</li></ul>`,
-    "Bravo 🎉\n\n- a\n- b"],
+  ["texte des images (alt), comme le texte brut ; image décorative ignorée",
+    `<p>Bravo <img alt="🎉" src="x.png"> <img alt=":partyparrot:"> <img src="s.gif" alt=""></p><ul><li>a</li><li>b</li></ul>`,
+    "Bravo 🎉 :partyparrot:\n\n- a\n- b"],
+  ["texte d'un bouton (question de FAQ, mention)",
+    `<h2><button>Comment faire ?</button></h2><div><p><button>@Alice</button> clique sur <b>Oublié</b>.</p></div>`,
+    "## Comment faire ?\n\n@Alice clique sur **Oublié**."],
+  ["Word : libellés « c) » gardés, titre numéroté",
+    `<h1 style='mso-list:l0 level1 lfo1'><![if !supportLists]><span style='mso-list:Ignore'>1<span>&nbsp;&nbsp; </span></span><![endif]>Introduction</h1>` +
+      `<p class=MsoListParagraph style='mso-list:l3 level1 lfo4'><![if !supportLists]><span style='mso-list:Ignore'>c)<span>&nbsp; </span></span><![endif]>trois</p>` +
+      `<p class=MsoListParagraph style='mso-list:l3 level1 lfo4'><![if !supportLists]><span style='mso-list:Ignore'>d)<span>&nbsp; </span></span><![endif]>quatre</p>`,
+    "# 1 Introduction\n\n- c) trois\n- d) quatre"],
+  ["mise en page CSS : blocs en span display:block, ligne flex",
+    `<span style="display: block;">Alice — 01</span><span style="display: block;">Bob — 03</span><div style="display: flex; gap: 8px;"><span><b>Bob</b></span><span>10:45</span></div>`,
+    "Alice — 01\nBob — 03\n**Bob**\n10:45"],
+  ["Google Docs : un mot gras coupé en deux morceaux",
+    `<p><span style="font-weight:700">Murga</span><span style="font-weight:700;color:#6b2c91">Chat</span> est prêt</p><p><code>a</code><code>b</code> collés</p>`,
+    "**MurgaChat** est prêt\n`ab` collés"],
+  ["gras collé à du texte : la ponctuation sort, le lien garde son gras",
+    `<p><strong>Étape 1 :</strong>Installer</p><p><b><a href="https://a.b/x">lien</a></b>s</p>`,
+    "**Étape 1** :Installer\n[**lien**](https://a.b/x)s"],
+  ["signature « -- » : pas de titre souligné",
+    `<p>Merci <b>beaucoup</b></p><p>Cordialement,</p><div>-- <br>Jean</div>`,
+    "Merci **beaucoup**\nCordialement,\n\\--\nJean"],
+  ["citation sans texte écartée",
+    `<p>Voir <b>ci-dessous</b></p><blockquote><img src="x.png"></blockquote><p>Fin</p>`,
+    "Voir **ci-dessous**\nFin"],
+  ["<code> affiché en bloc",
+    `<p>Config <b>prod</b> :</p><code style="display:block;white-space:pre">server {\n  listen 80;\n}</code>`,
+    "Config **prod** :\n\n```\nserver {\n  listen 80;\n}\n```"],
   ["cases à cocher",
     `<ul><li><input type="checkbox" checked disabled> fait</li><li><input type="checkbox" disabled> à faire</li></ul>`,
     "- [x] fait\n- [ ] à faire"],
@@ -289,4 +321,54 @@ test("cas limites de la traduction en Markdown", async ({ page }) => {
     await composer.fill("");
     expect(await paste(composer, html), html).toBe(true);
   }
+});
+
+test("collage au milieu d'un texte, dans un bloc de code, Markdown déjà écrit, gros collage", async ({
+  page,
+}) => {
+  const composer = await bootstrapAdmin(page);
+  const LIST = `<ul><li>un</li><li>deux</li></ul>`;
+
+  // Collée en fin de ligne ou devant du texte, une liste reste une liste.
+  await composer.fill("Regarde : ");
+  expect(await paste(composer, LIST)).toBe(false);
+  await expect(composer).toHaveValue("Regarde : \n\n- un\n- deux");
+  await composer.fill("fin du message");
+  await composer.evaluate((el) => el.setSelectionRange(0, 0));
+  expect(await paste(composer, LIST)).toBe(false);
+  await expect(composer).toHaveValue("- un\n- deux\n\nfin du message");
+
+  // Dans un bloc de code ouvert (même cité, ou en ~~~), on colle tel quel ;
+  // « ```npm ci``` » sur une ligne n'est que du code en ligne.
+  for (const before of ["```\n", "> ```\n> ", "~~~\n", "1. étape\n\n    ```\n    "]) {
+    await composer.fill(before);
+    expect(await paste(composer, LIST), before).toBe(true);
+  }
+  await composer.fill("```npm ci``` puis :\n");
+  expect(await paste(composer, LIST)).toBe(false);
+  await expect(composer).toHaveValue("```npm ci``` puis :\n\n- un\n- deux");
+
+  // Texte brut déjà en Markdown (bouton « Copier » d'une IA) : on le garde.
+  await composer.fill("");
+  expect(await paste(composer, `<ul><li><b>a</b></li><li>b</li></ul>`, "- **a**\n- b")).toBe(true);
+
+  // 3 000 éléments : le collage ne gèle pas l'onglet (2,6 s pour 1 500 avant).
+  await composer.fill("");
+  const big = await composer.evaluate((el) => {
+    let html = "<p>Intro</p><ul>";
+    for (let i = 0; i < 3000; i++) html += `<li><strong>Point ${i}</strong> : <code>x${i}</code></li>`;
+    html += "</ul>";
+    const dt = new DataTransfer();
+    dt.setData("text/plain", "brut");
+    dt.setData("text/html", html);
+    el.focus();
+    const t0 = performance.now();
+    const native = el.dispatchEvent(
+      new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true })
+    );
+    return { native, ms: performance.now() - t0, lines: el.value.split("\n").length };
+  });
+  expect(big.native).toBe(false);
+  expect(big.lines).toBe(3002);
+  expect(big.ms).toBeLessThan(1000);
 });

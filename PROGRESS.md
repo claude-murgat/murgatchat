@@ -1658,18 +1658,32 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      bureau) ne met pas les puces dans le texte brut du presse-papier, c'est le CSS qui les
      dessine. Au collage, le composer relit la version HTML et la traduit en Markdown
      (`web/src/pasteMarkdown.ts`) : listes imbriquées et numérotées — y compris les fausses
-     listes de Word et d'Outlook (paragraphes `mso-list`) et les sous-listes de Google Docs
-     rangées à côté des `<li>` —, gras, italique, barré, code, liens, titres, citations, blocs
-     de code et tableaux (au moins 2×2 ; un tableau de mise en page, comme une signature de
-     mail, ne garde que son texte). Le collage reste natif quand le HTML n'apporte aucune mise
-     en forme (texte simple, VS Code), quand le résultat tient sur une ligne (quelques mots
-     copiés dans un titre ou dans un élément de liste) et dans un bloc ``` en cours de
-     saisie ; Ctrl+Maj+V colle toujours le texte brut. L'insertion passe par
-     `execCommand("insertText")`, si bien que Ctrl+Z annule le collage d'un coup. Même
-     traitement dans la modification d'un message et d'un message planifié ; les sous-listes
-     s'affichent en puces creuses, puis carrées. Tests : e2e `paste-markdown` (4 parcours :
-     vrai Ctrl+C / Ctrl+V d'une réponse rendue puis envoi, sources Word, Google Docs, Gmail,
-     tableaux et code, modification d'un message, cas limites), qui échoue sans le correctif.
+     listes de Word et d'Outlook (paragraphes `mso-list`, libellés « c) » ou « Article 2 - »
+     gardés) et les sous-listes de Google Docs rangées à côté des `<li>` —, gras, italique,
+     barré, code, liens, titres, citations, blocs de code et tableaux (au moins 2×2 ; un tableau
+     de mise en page, comme une signature de mail, ne garde que son texte). La mise en forme
+     est portée par chaque morceau de texte, puis écrite au rendu : un mot que Google Docs
+     coupe en deux reste d'un seul tenant, et un marqueur collé à une lettre laisse sortir la
+     ponctuation pour rester valide. Le `display` du style copié est respecté (blocs, lignes
+     flex), le texte des boutons et des images (alt) est gardé comme dans le texte brut. Collé
+     en milieu de ligne, un bloc reçoit les lignes vides qu'il lui faut. Le collage reste
+     natif quand le HTML n'apporte aucune mise en forme, quand le résultat tient sur une ligne
+     (quelques mots copiés dans un titre ou un élément de liste), quand on ne colle que du code
+     (VS Code, `<pre>` nu, diff GitHub : il arrive tel quel), quand le texte brut est déjà du
+     Markdown (bouton « Copier » d'une IA), dans un bloc ``` en cours de saisie et au
+     Ctrl+Maj+V (Firefox compris). L'insertion passe par `execCommand("insertText")` : Ctrl+Z
+     annule le collage d'un coup ; au-delà de ~140 lignes, insertion directe (sans annulation
+     native), `execCommand` gelant l'onglet (2,6 s pour 1 500 lignes). Même traitement dans la
+     modification d'un message et d'un message planifié ; les sous-listes s'affichent en puces
+     creuses, puis carrées.
+147. **Relecture indépendante** (une passe, 18 points reproduits, dont deux sérieux : gros
+     collage qui gelait l'onglet, code de VS Code abîmé — retrait perdu, `*` ajoutés) : tous
+     corrigés par la refonte ci-dessus. Tests : e2e `paste-markdown` (5 parcours : vrai
+     Ctrl+C / Ctrl+V d'une réponse rendue puis envoi, sources Word, Google Docs, Gmail, tableaux
+     et code, modification d'un message, 25 cas limites dont 12 issus de la relecture qui
+     échouaient avant, collage en milieu de texte, blocs de code ouverts, Markdown déjà écrit,
+     3 000 éléments collés en moins d'une seconde) ; le premier parcours échoue sans le
+     correctif.
 
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
