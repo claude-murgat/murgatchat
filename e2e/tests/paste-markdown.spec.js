@@ -132,6 +132,32 @@ test("liste copiée depuis une réponse rendue : puces, retraits, gras et code g
   await expect(nested).toHaveCSS("list-style-type", "circle");
 });
 
+test("vraie copie d'une réponse avec un bloc de code commenté : traduite", async ({ page }) => {
+  const composer = await bootstrapAdmin(page);
+  // Le texte brut de Chromium contient alors « # installer » et des accents
+  // graves, qui sont aussi dans la page : ce n'est pas du Markdown source.
+  await page.evaluate(() => {
+    const div = document.createElement("div");
+    div.id = "copy-source";
+    div.innerHTML =
+      "<p>Pour installer :</p><ul><li><strong>Cloner</strong> le dépôt</li><li>Lancer :</li></ul>" +
+      '<pre><code class="language-bash"># installer les dépendances\nnpm ci\necho `date`</code></pre>';
+    document.body.appendChild(div);
+    const range = document.createRange();
+    range.selectNodeContents(div);
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+  });
+  await page.keyboard.press("Control+C");
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("\n# installer");
+  await page.evaluate(() => document.getElementById("copy-source").remove());
+  await composer.click();
+  await page.keyboard.press("Control+V");
+  await expect(composer).toHaveValue(
+    "Pour installer :\n\n- **Cloner** le dépôt\n- Lancer :\n\n```bash\n# installer les dépendances\nnpm ci\necho `date`\n```"
+  );
+});
+
 test("Word, Google Docs, Gmail, tableaux et code ; collage natif sinon", async ({ page }) => {
   const composer = await bootstrapAdmin(page);
 
@@ -302,6 +328,64 @@ const EDGE_CASES = [
   ["Outlook : vrais <li> au style mso-list",
     `<ul type=disc><li class=MsoListParagraph style='mso-list:l0 level1 lfo1'>Un<o:p></o:p></li><li class=MsoListParagraph style='mso-list:l0 level1 lfo1'>Deux<o:p></o:p></li></ul>`,
     "- Un\n- Deux"],
+  // Seconde relecture.
+  ["gras dans de l'italique, ponctuation au bord",
+    `<p><i>Voir <b>(annexe)</b>, page 3</i></p><p>Merci</p>`,
+    "*Voir **(annexe)**, page 3*\nMerci"],
+  ["gras dans du barré (Google Docs)",
+    `<p><s><b>a</b>b</s> fin</p><p>Google Docs : <span style="text-decoration:line-through">dix</span><span style="text-decoration:line-through;font-weight:700">huit</span> euros</p>`,
+    "~~**a**b~~ fin\nGoogle Docs : ~~dix**huit**~~ euros"],
+  ["barré et gras collés à un emoji : le barré reste",
+    `<p><del><b>Ancien tarif</b></del>🎉 nouveau</p><p>x</p>`,
+    "~~Ancien tarif~~🎉 nouveau\nx"],
+  ["code en gras",
+    `<ul><li>Lancez <b><code>npm ci</code></b> avant</li><li>puis</li></ul>`,
+    "- Lancez **`npm ci`** avant\n- puis"],
+  ["« \\ » en fin de texte devant un marqueur ou du code",
+    `<p>Dans <b>C:\\Temp\\</b> ou C:\\<code>Users</code></p><p>x</p>`,
+    "Dans **C:\\Temp\\\\** ou C:\\\\`Users`\nx"],
+  ["lien affiché sans https, « ! » devant un lien",
+    `<p>Site : <a href="https://murgachat.fr">murgachat.fr</a></p><p>Nouveau !<a href="https://example.com/n"> Notes</a> et go!<a href="https://example.com/i">ici</a></p>`,
+    "Site : [murgachat.fr](https://murgachat.fr)\nNouveau ! [Notes](https://example.com/n) et go\\![ici](https://example.com/i)"],
+  ["listes du même type à la suite : restent distinctes",
+    `<ol><li>a</li><li>b</li></ol><div><br></div><ol><li>c</li></ol><ul><li>d</li></ul><ul><li>e</li></ul>`,
+    "1. a\n2. b\n\n1) c\n\n- d\n\n* e"],
+  ["paragraphe tronqué en CSS (line-clamp) : pas découpé",
+    `<h3>Titre</h3><p style="display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical">Bonjour<span>&nbsp;</span><b>Alice</b>, voici le<span>&nbsp;</span><a href="https://x.y/doc">lien</a>.</p>`,
+    "### Titre\n\nBonjour **Alice**, voici le [lien](https://x.y/doc)."],
+  ["tableau de données avec drapeaux et badges",
+    `<table><tr><th>Pays</th><th>CI</th></tr><tr><td><img alt="" src="fr.png"> France</td><td><a href="https://ci.example/fr"><img alt="build ok" src="b.svg"></a></td></tr><tr><td><img alt="" src="de.png"> Allemagne</td><td>✅</td></tr></table>`,
+    "| Pays | CI |\n| --- | --- |\n| France | [build ok](https://ci.example/fr) |\n| Allemagne | ✅ |"],
+  ["bloc de code GitHub copié seul (<pre> sans <code>)",
+    `<div class="highlight highlight-source-python"><pre>def f(x):\n    return x * 2</pre></div>`,
+    "```python\ndef f(x):\n    return x * 2\n```"],
+  ["question de FAQ en bouton près d'un bloc de code ; « Copier » ignoré",
+    `<div><h3><button>Comment installer ?</button></h3><div><p>Lancez :</p><div><button>Copier</button></div><pre><code class="language-bash">npm ci\nnpm test</code></pre></div></div>`,
+    "### Comment installer ?\n\nLancez :\n\n```bash\nnpm ci\nnpm test\n```"],
+  ["étiquette de langage : en gras gardée, brute retirée",
+    `<p><b>Python</b></p><pre><code class="language-python">print(1)\nprint(2)</code></pre><p>bash</p><pre><code class="language-bash">ls\npwd</code></pre>`,
+    "**Python**\n\n```python\nprint(1)\nprint(2)\n```\n\n```bash\nls\npwd\n```"],
+  ["formules KaTeX : TeX copié, ou MathML seul (vraie copie Chromium)",
+    `<p>Einstein : <span class="katex"><span class="katex-mathml"><math><semantics><mrow><mi>E</mi></mrow><annotation encoding="application/x-tex">E = mc^2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true">E=mc2</span></span> et <span class="katex"><span class="katex-mathml"><math><semantics><mrow><mfrac><mi>a</mi><mi>b</mi></mfrac></mrow></semantics></math></span><span class="katex-html" aria-hidden="true">ba</span></span>.</p><p>x</p>`,
+    "Einstein : `$E = mc^2$` et `a/b`.\nx"],
+  ["description d'image générée par Office ignorée",
+    `<p>Cordialement,</p><p><img alt="Une image contenant texte&#10;&#10;Description générée automatiquement" src="cid:x"></p><p><b>Jean Dupont</b></p>`,
+    "Cordialement,\n**Jean Dupont**"],
+  ["ligne commençant par du code qui contient ```",
+    "<p><code>x ``` y</code> est un test</p><p>Suite <b>gras</b></p>",
+    "````x ``` y```` est un test\nSuite **gras**"],
+  ["code dans une ligne flex : reste en ligne",
+    `<div style="display:flex"><span>Commit</span><code>a1b2c3d</code></div><p><b>ok</b></p>`,
+    "Commit\n`a1b2c3d`\n**ok**"],
+  ["pastille de source d'une IA (inline-flex) : la phrase reste entière",
+    `<p>Paris est la capitale <span style="display:inline-flex"><a href="https://fr.wikipedia.org/wiki/Paris" style="display:flex"><span>Wikipédia</span></a></span> de la <b>France</b>.</p><p>x</p>`,
+    "Paris est la capitale [Wikipédia](https://fr.wikipedia.org/wiki/Paris) de la **France**.\nx"],
+  ["<details> fermé : seulement son titre",
+    `<p>Le build <b>échoue</b>.</p><details><summary>Logs</summary><pre><code>Error\nat x</code></pre></details><p>Une idée ?</p>`,
+    "Le build **échoue**.\nLogs\nUne idée ?"],
+  ["SyntaxHighlighter (Confluence) : un seul bloc, sans numéros ni barre",
+    `<p>Lancer :</p><div class="syntaxhighlighter"><div class="toolbar"><a href="#">?</a></div><table><tr><td class="gutter"><div class="line">1</div><div class="line">2</div></td><td class="code"><div class="container"><div class="line" style="white-space:pre;font-family:monospace"><code class="bash plain">cd /opt/app</code></div><div class="line" style="white-space:pre;font-family:monospace"><code class="bash plain">  make</code></div></div></td></tr></table></div>`,
+    "Lancer :\n\n```\ncd /opt/app\n  make\n```"],
 ];
 
 test("cas limites de la traduction en Markdown", async ({ page }) => {
@@ -311,9 +395,11 @@ test("cas limites de la traduction en Markdown", async ({ page }) => {
     expect(await paste(composer, html), name).toBe(false);
     await expect(composer, name).toHaveValue(expected);
   }
-  // Collage natif : une cellule Excel, une ligne de gras, des blancs, une liste vide.
+  // Collage natif : une cellule ou une ligne d'Excel, une ligne de gras, des
+  // blancs, une liste vide.
   for (const html of [
     `<table><tr><td>42</td></tr></table>`,
+    `<table><tr><td><b>Total</b></td><td>42</td></tr></table>`,
     `<p>du <b>gras</b> ici</p>`,
     `<p>&nbsp;</p><div><br></div>`,
     `<ul><li></li></ul>`,
@@ -344,6 +430,10 @@ test("collage au milieu d'un texte, dans un bloc de code, Markdown déjà écrit
     await composer.fill(before);
     expect(await paste(composer, LIST), before).toBe(true);
   }
+  // Un bloc ouvert dans une citation se ferme avec elle.
+  await composer.fill("> ```\n> x\n\nVoici :\n");
+  expect(await paste(composer, LIST)).toBe(false);
+  await expect(composer).toHaveValue("> ```\n> x\n\nVoici :\n\n- un\n- deux");
   await composer.fill("```npm ci``` puis :\n");
   expect(await paste(composer, LIST)).toBe(false);
   await expect(composer).toHaveValue("```npm ci``` puis :\n\n- un\n- deux");
@@ -351,6 +441,9 @@ test("collage au milieu d'un texte, dans un bloc de code, Markdown déjà écrit
   // Texte brut déjà en Markdown (bouton « Copier » d'une IA) : on le garde.
   await composer.fill("");
   expect(await paste(composer, `<ul><li><b>a</b></li><li>b</li></ul>`, "- **a**\n- b")).toBe(true);
+  expect(
+    await paste(composer, `<p>Formule <span class="katex">E=mc2</span></p><ol><li>a</li></ol>`, "Formule $E = mc^2$\n\n1. a")
+  ).toBe(true);
 
   // 3 000 éléments : le collage ne gèle pas l'onglet (2,6 s pour 1 500 avant).
   await composer.fill("");

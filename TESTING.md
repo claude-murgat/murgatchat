@@ -152,10 +152,12 @@ n'a ni puces ni retraits) puis collée (Ctrl+V) arrive en Markdown dans le compo
 l'annule d'un coup, et le message envoyé s'affiche en liste imbriquée ; listes Word / Outlook
 (`mso-list`, libellés gardés) et Google Docs, mails Gmail, tableaux, blocs de code,
 modification d'un message, cas limites (mots coupés par Google Docs, ponctuation collée au
-gras, mise en page CSS, signatures, texte des boutons et des images) ; une liste collée en
-milieu de ligne reste une liste ; collage natif quand rien n'est à traduire, sur une seule
-ligne, pour du code seul (VS Code), un texte déjà en Markdown ou dans un bloc ``` ouvert ;
-3 000 éléments collés sans geler l'onglet.
+gras, gras dans l'italique ou le barré, mise en page CSS, signatures, tableaux à drapeaux,
+blocs de code GitHub et Confluence, formules, texte des boutons et des images) ; une vraie
+copie d'une réponse dont le bloc de code contient `# commentaire` est bien traduite ; une
+liste collée en milieu de ligne reste une liste ; collage natif quand rien n'est à traduire,
+sur une seule ligne, pour du code seul (VS Code), un texte déjà en Markdown ou dans un bloc
+``` ouvert ; 3 000 éléments collés sans geler l'onglet.
 `delete-for-me.spec.js` : « Supprimer pour moi » sur le message d'un autre — masqué de
 son côté (même après rechargement), toujours visible de l'auteur.
 `push-read-state.spec.js` : injecte de vrais évènements `push` dans le service worker
