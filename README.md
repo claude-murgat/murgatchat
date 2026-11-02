@@ -145,7 +145,7 @@ En MSVC (toolchain standard, ce que fait la CI), `WebView2Loader.dll` est liée 
 
 Le workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) se déclenche au **push d'un tag `v*`** et publie une GitHub Release avec l'**installeur Windows signé**. La distribution mobile passe désormais par la **PWA** (« Ajouter à l'écran d'accueil ») — **plus d'APK ni de build iOS dans la CI** (voir le *pivot PWA* dans [PROGRESS.md](PROGRESS.md)).
 
-Pipeline : `test` (réutilise [`tests.yml`](.github/workflows/tests.yml)) → `release` (crée une release *draft* + valide que les **3 fichiers de version == tag**) → `desktop` (`windows-latest`, MSVC, `tauri-action` : build, **signature** de l'installeur NSIS et génération de `latest.json` pour l'auto-updater) → `publish` (passe la release en *live*).
+Pipeline : `test` (réutilise [`tests.yml`](.github/workflows/tests.yml)) → `release` (crée une release *draft* + valide que les **3 fichiers de version == tag**) → `desktop` (`windows-latest`, MSVC, `tauri-action` : build, **signature** de l'installeur NSIS et génération de `latest.json` pour l'auto-updater) → `publish` (passe la release en *live* par un simple `PATCH draft=false`, puis vérifie que `/releases/latest` pointe sur elle — jamais sur une pré-release ; relançable sans risque).
 
 **Versionnage — SemVer strict depuis la 1.0.0.** Le tag doit respecter
 `vMAJEUR.MINEUR.CORRECTIF` ; la CI **rejette tout tag mal formé** (`v1.0`, `v2`,

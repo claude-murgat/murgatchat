@@ -1639,6 +1639,16 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      2.5, nodemailer 10.2.1, emoji-picker-react 5.1, Vite 8.3.5 (serveur), ESLint
      (typescript-eslint 8.72, plugin React), CLI Tauri 2.12.4, et trois actions de CI
      (claude-code-action, setup-python, rust-cache). Aucun changement fonctionnel attendu.
+145. **Release 1.6.2 restée en brouillon, job `publish` fiabilisé** (PR #435) — le job `publish`
+     de `release.yml` (softprops/action-gh-release v3.0.3) a échoué deux fois sur « Unexpected
+     error fetching GitHub release … HttpError » : face à un brouillon, l'action réécrit d'abord
+     toute la release (tag_name, name, body, prerelease…) avant de la publier, et GitHub a
+     répondu 500 à cette réécriture, comme à `gh release edit --draft=false --prerelease=false
+     --latest` ; un PATCH `draft=false` seul est passé (publication manuelle, installeur et
+     `latest.json` vérifiés avant). Le job envoie désormais ce PATCH minimal lui-même (trois
+     essais contre les 5xx passagers), vérifie avant publication que le drapeau `prerelease`
+     du brouillon correspond au tag, puis que `/releases/latest` pointe sur la release —
+     jamais sur une pré-release. Relancer le job est sans risque. Éprouvé au prochain tag.
 
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
