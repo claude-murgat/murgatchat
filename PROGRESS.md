@@ -1650,6 +1650,27 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      du brouillon correspond au tag, puis que `/releases/latest` pointe sur la release —
      jamais sur une pré-release. Relancer le job est sans risque. Éprouvé au prochain tag.
 
+## Itération 2026-11-02 — coller une liste à puces
+
+146. **Une liste collée garde sa mise en forme** — une liste à puces copiée depuis une réponse
+     de Claude, un Google Docs, Word ou un mail arrivait à plat dans le composer, sans puces ni
+     retraits, et perdait son gras et son code : Chromium (donc aussi WebView2, l'appli de
+     bureau) ne met pas les puces dans le texte brut du presse-papier, c'est le CSS qui les
+     dessine. Au collage, le composer relit la version HTML et la traduit en Markdown
+     (`web/src/pasteMarkdown.ts`) : listes imbriquées et numérotées — y compris les fausses
+     listes de Word et d'Outlook (paragraphes `mso-list`) et les sous-listes de Google Docs
+     rangées à côté des `<li>` —, gras, italique, barré, code, liens, titres, citations, blocs
+     de code et tableaux (au moins 2×2 ; un tableau de mise en page, comme une signature de
+     mail, ne garde que son texte). Le collage reste natif quand le HTML n'apporte aucune mise
+     en forme (texte simple, VS Code), quand le résultat tient sur une ligne (quelques mots
+     copiés dans un titre ou dans un élément de liste) et dans un bloc ``` en cours de
+     saisie ; Ctrl+Maj+V colle toujours le texte brut. L'insertion passe par
+     `execCommand("insertText")`, si bien que Ctrl+Z annule le collage d'un coup. Même
+     traitement dans la modification d'un message et d'un message planifié ; les sous-listes
+     s'affichent en puces creuses, puis carrées. Tests : e2e `paste-markdown` (4 parcours :
+     vrai Ctrl+C / Ctrl+V d'une réponse rendue puis envoi, sources Word, Google Docs, Gmail,
+     tableaux et code, modification d'un message, cas limites), qui échoue sans le correctif.
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
