@@ -1739,6 +1739,8 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      PowerShell 5.1 (TLS 1.2, UTF-8 avec BOM). Installation dans `ops/README.md` : dossier
      `ProgramData\MurgaChat` fermé aux utilisateurs du TSE (il porte le jeton). Contrôle du
      secret et diffusion factorisés avec `/support/notify`. 3 tests backend (353).
+     Paliers relevés à 100, 70 puis 50 Go libres à l'installation sur le TSE (le premier
+     prévient plus tôt).
 
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
