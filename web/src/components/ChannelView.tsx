@@ -1632,6 +1632,9 @@ function MessageRow({
   // Appui long (mobile/PWA) / clic droit : rend visible la barre d'actions, qui
   // n'apparaît sinon qu'au survol — inaccessible au tactile faute de `:hover` (#439).
   const [menuOpen, setMenuOpen] = useState(false);
+  // Pas d'`onClickCapture` sur la ligne : la barre d'actions y est rendue, et le
+  // garde-fou avalerait le premier clic sur Modifier/Transférer après un clic
+  // droit. Le clic de relâchement d'un appui long est déjà annulé au touchend.
   const longPress = useLongPress(() => {
     if (!editing) setMenuOpen(true);
   });
@@ -1853,7 +1856,6 @@ function MessageRow({
       <div
         ref={rowRef}
         {...longPress.handlers}
-        onClickCapture={longPress.onClickCapture}
         className="relative pl-12 pr-4 py-0.5 hover:bg-slate-50 group rounded-sm pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]"
       >
         {actions}
@@ -1875,7 +1877,6 @@ function MessageRow({
     <div
       ref={rowRef}
       {...longPress.handlers}
-      onClickCapture={longPress.onClickCapture}
       className="relative px-2 py-1.5 hover:bg-slate-50 rounded-sm group pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]"
     >
       {actions}

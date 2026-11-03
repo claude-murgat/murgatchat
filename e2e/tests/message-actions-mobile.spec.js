@@ -70,8 +70,17 @@ const chat = (page) =>
 
 const messageRow = (page, text) => page.locator("div.group").filter({ hasText: text }).last();
 
+// Sur mobile, l'app rouvre d'emblée #Général en plein écran : la liste des
+// salons est masquée, il faut d'abord revenir à la liste.
 async function openChannel(page, name) {
-  await page.getByRole("button", { name: new RegExp(name) }).first().click();
+  const back = page.getByRole("button", { name: "Retour à la liste des conversations" });
+  const entry = page.getByRole("button", { name: new RegExp(name) }).first();
+  await expect(back.or(entry).first()).toBeVisible();
+  if (await back.isVisible()) await back.click();
+  // Bandeau d'installation PWA : on le masque pour dégager le fil.
+  const hideBanner = page.getByRole("button", { name: "Masquer", exact: true });
+  if (await hideBanner.count()) await hideBanner.first().click();
+  await entry.click();
   await expect(page.getByPlaceholder(`Message dans #${name}`)).toBeVisible();
 }
 
@@ -106,7 +115,8 @@ test("long-press reveals message actions on touch devices", async ({ browser, re
   await expect(row.getByRole("button", { name: "Modifier" })).toBeVisible();
   await expect(row.getByRole("button", { name: "Transférer" })).toBeVisible();
 
-  // Modifier bascule bien le message en édition (champ + bouton Enregistrer).
-  await row.getByRole("button", { name: "Modifier" }).click();
+  // Modifier bascule bien le message en édition (champ + bouton Enregistrer) —
+  // au doigt, comme sur téléphone : le tap suivant l'appui long n'est pas avalé.
+  await row.getByRole("button", { name: "Modifier" }).tap();
   await expect(me.getByRole("button", { name: "Enregistrer" })).toBeVisible();
 });
