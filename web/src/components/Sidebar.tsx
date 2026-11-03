@@ -217,7 +217,7 @@ export default function Sidebar({
   const dnd = dndLabel(user);
 
   return (
-    <aside className="bg-aubergine-700 text-white w-full md:w-72 md:shrink-0 flex flex-col h-full">
+    <aside className="bg-aubergine-700 text-white w-full min-w-0 md:w-72 md:shrink-0 flex flex-col h-full">
       <div
         className="px-4 py-3 border-b border-aubergine-600 flex items-center justify-between relative"
         style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}

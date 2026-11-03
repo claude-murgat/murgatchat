@@ -1139,10 +1139,13 @@ export default function App() {
         Tailwind hidden/md:flex fait tout le travail.
       */}
       <div className="flex-1 flex min-h-0">
+        {/* `min-w-0` : sans lui, un élément flex ne descend pas sous la largeur de
+            son contenu — un nom de salon très long (tronqué à l'affichage)
+            élargissait alors la page sur mobile, avec scroll horizontal (#438). */}
         <div
           className={`${
             activeChannelId ? "hidden md:flex" : "flex"
-          } flex-1 md:flex-none min-h-0`}
+          } flex-1 md:flex-none min-w-0 min-h-0`}
         >
           <Sidebar
             user={user}
