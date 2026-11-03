@@ -14,6 +14,7 @@ import { api, attachmentUrl, downloadAttachment } from "../api.ts";
 import { extOf, fileIcon } from "../fileIcon.ts";
 import { isWindowFocused } from "../desktop.ts";
 import { pasteAsMarkdown } from "../pasteMarkdown.ts";
+import { useLongPress } from "../hooks/useLongPress.ts";
 import type {
   Attachment,
   Channel,
@@ -1628,6 +1629,15 @@ function MessageRow({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.body || "");
   const [showPicker, setShowPicker] = useState(false);
+  // Appui long (mobile/PWA) / clic droit : rend visible la barre d'actions, qui
+  // n'apparaît sinon qu'au survol — inaccessible au tactile faute de `:hover` (#439).
+  const [menuOpen, setMenuOpen] = useState(false);
+  // Pas d'`onClickCapture` sur la ligne : la barre d'actions y est rendue, et le
+  // garde-fou avalerait le premier clic sur Modifier/Transférer après un clic
+  // droit. Le clic de relâchement d'un appui long est déjà annulé au touchend.
+  const longPress = useLongPress(() => {
+    if (!editing) setMenuOpen(true);
+  });
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const reactBtnRef = useRef<HTMLButtonElement | null>(null);
 
@@ -1712,62 +1722,92 @@ function MessageRow({
   const canForward = onForward && !!message.body;
   // Toujours au moins une action : supprimer (son message) ou supprimer pour soi.
   const actions = !editing && (
-    <div className="absolute right-2 top-1 hidden group-hover:flex items-center gap-1 bg-white border border-slate-200 rounded-sm shadow-xs">
-      {onReact && (
-        <button
-          ref={reactBtnRef}
-          onClick={() => setShowPicker((v) => !v)}
-          className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
-          title="Réagir"
-        >
-          😀
-        </button>
+    <>
+      {/* Backdrop invisible : referme le menu d'appui long au tap extérieur, comme
+          le menu contextuel de la Sidebar. Absent au survol desktop. */}
+      {menuOpen && (
+        <div
+          className="fixed inset-0 z-40"
+          onClick={() => setMenuOpen(false)}
+          aria-hidden="true"
+        />
       )}
-      {onReply && (
-        <button
-          onClick={() => onReply(message)}
-          className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
-          title="Répondre"
-        >
-          Répondre
-        </button>
-      )}
-      {canForward && (
-        <button
-          onClick={onForward}
-          className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
-          title="Transférer vers une autre conversation"
-        >
-          Transférer
-        </button>
-      )}
-      {isOwn && (
-        <button
-          onClick={startEdit}
-          className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
-          title="Modifier"
-        >
-          Modifier
-        </button>
-      )}
-      {isOwn ? (
-        <button
-          onClick={() => onDelete(message)}
-          className="text-xs text-slate-600 hover:text-red-600 px-2 py-1"
-          title="Supprimer"
-        >
-          Supprimer
-        </button>
-      ) : (
-        <button
-          onClick={() => onHide(message)}
-          className="text-xs text-slate-600 hover:text-red-600 px-2 py-1"
-          title="Supprimer ce message de votre côté seulement"
-        >
-          Supprimer pour moi
-        </button>
-      )}
-    </div>
+      <div
+        className={`absolute right-2 top-1 items-center gap-1 bg-white border border-slate-200 rounded-sm shadow-xs ${
+          menuOpen ? "flex z-50" : "hidden group-hover:flex"
+        }`}
+      >
+        {onReact && (
+          <button
+            ref={reactBtnRef}
+            onClick={() => setShowPicker((v) => !v)}
+            className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
+            title="Réagir"
+          >
+            😀
+          </button>
+        )}
+        {onReply && (
+          <button
+            onClick={() => {
+              setMenuOpen(false);
+              onReply(message);
+            }}
+            className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
+            title="Répondre"
+          >
+            Répondre
+          </button>
+        )}
+        {canForward && (
+          <button
+            onClick={() => {
+              setMenuOpen(false);
+              onForward?.();
+            }}
+            className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
+            title="Transférer vers une autre conversation"
+          >
+            Transférer
+          </button>
+        )}
+        {isOwn && (
+          <button
+            onClick={() => {
+              setMenuOpen(false);
+              startEdit();
+            }}
+            className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
+            title="Modifier"
+          >
+            Modifier
+          </button>
+        )}
+        {isOwn ? (
+          <button
+            onClick={() => {
+              setMenuOpen(false);
+              onDelete(message);
+            }}
+            className="text-xs text-slate-600 hover:text-red-600 px-2 py-1"
+            title="Supprimer"
+          >
+            Supprimer
+          </button>
+        ) : (
+          <button
+            onClick={() => {
+              setMenuOpen(false);
+              onHide(message);
+            }}
+            className="text-xs text-slate-600 hover:text-red-600 px-2 py-1"
+            title="Supprimer ce message de votre côté seulement"
+          >
+            Supprimer pour moi
+          </button>
+        )}
+      </div>
+    </>
   );
 
   const picker = showPicker && onReact && (
@@ -1813,7 +1853,11 @@ function MessageRow({
 
   if (grouped) {
     return (
-      <div ref={rowRef} className="relative pl-12 pr-4 py-0.5 hover:bg-slate-50 group rounded-sm">
+      <div
+        ref={rowRef}
+        {...longPress.handlers}
+        className="relative pl-12 pr-4 py-0.5 hover:bg-slate-50 group rounded-sm pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]"
+      >
         {actions}
         {picker}
         <div className="flex items-start gap-2">
@@ -1830,7 +1874,11 @@ function MessageRow({
     );
   }
   return (
-    <div ref={rowRef} className="relative px-2 py-1.5 hover:bg-slate-50 rounded-sm group">
+    <div
+      ref={rowRef}
+      {...longPress.handlers}
+      className="relative px-2 py-1.5 hover:bg-slate-50 rounded-sm group pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]"
+    >
       {actions}
       {picker}
       <div className="flex items-start gap-2">
