@@ -299,3 +299,65 @@ describe("POST /support/notify", () => {
     expect(memberIds).not.toContain(member.user.id); // le non-admin est purgé
   });
 });
+
+describe("POST /support/disk-alert", () => {
+  const GB = 2 ** 30;
+  const alert = { host: "TSE01", drive: "C:", free: Math.round(42.3 * GB), total: 500 * GB };
+
+  afterEach(() => {
+    delete process.env.SUPPORT_NOTIFY_TOKEN;
+  });
+
+  it("503 sans secret configuré, 401 sur un mauvais secret", async () => {
+    let res = await request(app).post("/support/disk-alert").send(alert);
+    expect(res.status).toBe(503);
+
+    process.env.SUPPORT_NOTIFY_TOKEN = "s3cret";
+    res = await request(app)
+      .post("/support/disk-alert")
+      .set("Authorization", "Bearer nope")
+      .send(alert);
+    expect(res.status).toBe(401);
+  });
+
+  it("400 sur des chiffres ou des noms invalides", async () => {
+    process.env.SUPPORT_NOTIFY_TOKEN = "s3cret";
+    for (const bad of [
+      { ...alert, free: alert.total + 1 },
+      { ...alert, drive: "C:\\" },
+      { ...alert, host: "TSE01 <b>" },
+      { ...alert, total: undefined },
+    ]) {
+      const res = await request(app)
+        .post("/support/disk-alert")
+        .set("Authorization", "Bearer s3cret")
+        .send(bad);
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it("poste l'alerte composée par le serveur dans support-dev", async () => {
+    process.env.SUPPORT_NOTIFY_TOKEN = "s3cret";
+    let res = await request(app)
+      .post("/support/disk-alert")
+      .set("Authorization", "Bearer s3cret")
+      .send(alert);
+    expect(res.status).toBe(200);
+    res = await request(app)
+      .post("/support/disk-alert")
+      .set("Authorization", "Bearer s3cret")
+      .send({ ...alert, test: true });
+    expect(res.status).toBe(200);
+
+    const msgs = await prisma.message.findMany({
+      where: { channel: { name: "support-dev", isPrivate: true } },
+      orderBy: { createdAt: "asc" },
+      select: { searchableBody: true, author: { select: { username: true } } },
+    });
+    expect(msgs.map((m) => m.author.username)).toEqual(["claude", "claude"]);
+    expect(msgs[0].searchableBody).toBe(
+      "⚠️ Disque C: du serveur TSE01 occupé à 91 % : il reste 42,3 Go sur 500,0 Go."
+    );
+    expect(msgs[1].searchableBody).toMatch(/^🧪 Test de l'alerte disque — Disque C: du serveur TSE01/);
+  });
+});

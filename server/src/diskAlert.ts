@@ -34,3 +34,22 @@ export async function checkDiskSpace(io?: Server) {
   if (level > warnedLevel || usedPct < warnedLevel - 2) warnedLevel = level;
   return level;
 }
+
+// Alerte d'une autre machine (le serveur TSE, par ops/alerte-disque.ps1, via
+// POST /support/disk-alert). Le texte est composé ici et non par le script :
+// Windows PowerShell 5.1 lit un .ps1 sans BOM en ANSI, ses accents et emoji
+// arriveraient abîmés. Les paliers et leur réarmement vivent dans le script.
+export function remoteDiskAlertText(a: {
+  host: string;
+  drive: string;
+  free: number;
+  total: number;
+  test?: boolean;
+}) {
+  const usedPct = a.total > 0 ? Math.floor(100 * (1 - a.free / a.total)) : 0;
+  const head = a.test ? "🧪 Test de l'alerte disque —" : "⚠️";
+  return (
+    `${head} Disque ${a.drive} du serveur ${a.host} occupé à ${usedPct} % : ` +
+    `il reste ${gb(a.free)} Go sur ${gb(a.total)} Go.`
+  );
+}
