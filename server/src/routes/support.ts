@@ -1,5 +1,5 @@
 import { Router } from "express";
-import type { Request } from "express";
+import type { Request, RequestHandler, Response } from "express";
 import type { Prisma, SupportConversation } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "../db.ts";
@@ -9,6 +9,7 @@ import { githubEnabled, createIssueFromBugReport } from "../github.ts";
 import { ownedUnlinkedAttachments, MAX_ATTACHMENTS } from "./uploads.ts";
 import { notifyEnabled, tokenMatches, postPipelineMessage } from "../notify.ts";
 import { notifyMembers } from "../socket.ts";
+import { remoteDiskAlertText } from "../diskAlert.ts";
 
 const router = Router();
 
@@ -282,21 +283,16 @@ const notifySchema = z.object({
   title: z.string().max(300).optional(),
 });
 
-router.post("/notify", async (req, res) => {
+// Same shared secret for every machine-to-machine route posting into the team channel.
+const requireNotifyToken: RequestHandler = (req, res, next) => {
   if (!notifyEnabled()) return res.status(503).json({ error: "notify_disabled" });
   const auth = req.headers.authorization || "";
   const provided = auth.startsWith("Bearer ") ? auth.slice(7) : "";
   if (!tokenMatches(provided)) return res.status(401).json({ error: "unauthorized" });
+  next();
+};
 
-  const parsed = notifySchema.safeParse(req.body || {});
-  if (!parsed.success) return res.status(400).json({ error: "invalid_payload" });
-  const { issueNumber, prUrl, title } = parsed.data;
-
-  const head = issueNumber ? `🤖 PR ouverte pour l'issue #${issueNumber}` : "🤖 PR ouverte";
-  const text =
-    `${head}${title ? ` — ${title}` : ""}\n${prUrl}\n\n` +
-    `À relire, puis poser le label « revue-ia » sur la PR pour une revue IA automatique.`;
-
+async function postToTeam(req: Request, res: Response, text: string) {
   try {
     const { channelId, authorId, serialized } = await postPipelineMessage(text, req.io);
     if (req.io) {
@@ -308,6 +304,37 @@ router.post("/notify", async (req, res) => {
     console.error("[notify] failed:", e instanceof Error ? e.message : e);
     res.status(500).json({ error: "notify_failed" });
   }
+}
+
+router.post("/notify", requireNotifyToken, async (req, res) => {
+  const parsed = notifySchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: "invalid_payload" });
+  const { issueNumber, prUrl, title } = parsed.data;
+
+  const head = issueNumber ? `🤖 PR ouverte pour l'issue #${issueNumber}` : "🤖 PR ouverte";
+  const text =
+    `${head}${title ? ` — ${title}` : ""}\n${prUrl}\n\n` +
+    `À relire, puis poser le label « revue-ia » sur la PR pour une revue IA automatique.`;
+
+  await postToTeam(req, res, text);
+});
+
+// Disque presque plein sur une autre machine (ops/alerte-disque.ps1 sur le
+// serveur TSE). Des chiffres et non un texte libre : le message est composé ici.
+const diskAlertSchema = z
+  .object({
+    host: z.string().regex(/^[A-Za-z0-9._-]{1,63}$/),
+    drive: z.string().regex(/^[A-Za-z]:$/),
+    free: z.number().int().nonnegative(),
+    total: z.number().int().positive(),
+    test: z.boolean().optional(),
+  })
+  .refine((d) => d.free <= d.total);
+
+router.post("/disk-alert", requireNotifyToken, async (req, res) => {
+  const parsed = diskAlertSchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: "invalid_payload" });
+  await postToTeam(req, res, remoteDiskAlertText(parsed.data));
 });
 
 export default router;
