@@ -3,7 +3,7 @@
 ## `alerte-disque.ps1` : disque presque plein sur le serveur TSE
 
 Toutes les heures, une tâche planifiée mesure les disques locaux du serveur. Quand
-l'espace libre d'un disque passe sous **50 Go**, puis **20 Go**, puis **10 Go**, elle
+l'espace libre d'un disque passe sous **100 Go**, puis **70 Go**, puis **50 Go**, elle
 poste dans le salon **support-dev** (admins du chat), par exemple :
 
 > ⚠️ Disque C: du serveur TSE01 occupé à 91 % : il reste 42,3 Go sur 500,0 Go.

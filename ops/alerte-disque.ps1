@@ -1,7 +1,7 @@
 ﻿<#
 .SYNOPSIS
     Prévient le salon support-dev de MurgaChat quand un disque de ce serveur
-    passe sous un palier d'espace libre (50 Go, puis 20 Go, puis 10 Go).
+    passe sous un palier d'espace libre (100 Go, puis 70 Go, puis 50 Go).
 
 .DESCRIPTION
     Remplace la fenêtre d'avertissement (MessageBox) du script d'origine : lancé
@@ -21,7 +21,7 @@
 param(
     [string]$ChatUrl = "https://serveur-chat.charlesmurgat.com",
     [string]$Dossier = "$env:ProgramData\MurgaChat",
-    [long[]]$Paliers = @(50GB, 20GB, 10GB),
+    [long[]]$Paliers = @(100GB, 70GB, 50GB),
     [long]$Marge = 5GB,
     [switch]$Test
 )
