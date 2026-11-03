@@ -1,9 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import type { ReactNode } from "react";
 import Avatar from "./Avatar.tsx";
 import QuickSwitcher from "./QuickSwitcher.tsx";
 import { isTauri } from "../desktop.ts";
 import { pwaSupported, requestNotificationPermission, isPwaInstalled } from "../pwa.ts";
+import { useLongPress } from "../hooks/useLongPress.ts";
+import type { LongPressPosition } from "../hooks/useLongPress.ts";
 import type { Channel, User, ClaudeExpert } from "../types.ts";
 import {
   canDeleteSalon,
@@ -14,22 +16,10 @@ import {
   isSelfDm as isSelfDmOf,
 } from "../channelRules.ts";
 
-/** Coordonnées viewport où ouvrir le menu contextuel d'une conversation. */
-interface LongPressPosition {
-  x: number;
-  y: number;
-}
-
 /** État du menu contextuel d'une conversation : la cible + où l'afficher. */
 interface ConvMenuState extends LongPressPosition {
   channelId: string;
   unread: boolean;
-}
-
-/** Ce que le code lit du point de contact (un `Touch`, ou l'évènement en repli). */
-interface ClientPoint {
-  clientX: number;
-  clientY: number;
 }
 
 // `beforeinstallprompt` n'est pas décrit par lib.dom : on ne type que les deux
@@ -43,58 +33,6 @@ interface BeforeInstallPromptEvent extends Event {
 type WindowWithInstallPrompt = Window & {
   __deferredInstallPrompt?: BeforeInstallPromptEvent | null;
 };
-
-// Appui long (mobile/PWA) + clic droit (desktop) sur une conversation pour
-// ouvrir un menu contextuel. Renvoie les gestionnaires à étaler sur l'élément
-// ainsi qu'un `onClickCapture` qui neutralise le clic parasite déclenché après
-// un appui long (sinon la conversation s'ouvrirait au relâchement du doigt).
-function useLongPress(onLongPress: (pos: LongPressPosition) => void) {
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const fired = useRef(false);
-  const clear = () => {
-    if (timer.current) {
-      clearTimeout(timer.current);
-      timer.current = null;
-    }
-  };
-  useEffect(() => clear, []);
-  return {
-    handlers: {
-      onTouchStart: (e: React.TouchEvent) => {
-        fired.current = false;
-        const point = (e.touches?.[0] || e) as ClientPoint;
-        const x = point.clientX;
-        const y = point.clientY;
-        clear();
-        timer.current = setTimeout(() => {
-          fired.current = true;
-          onLongPress({ x, y });
-        }, 500);
-      },
-      onTouchEnd: (e: React.TouchEvent) => {
-        // Après un appui long, on supprime le clic synthétique du navigateur :
-        // sinon il retomberait sur le backdrop du menu et le refermerait aussitôt
-        // (et rouvrirait la conversation). onClickCapture reste un garde-fou desktop.
-        if (fired.current) e.preventDefault();
-        clear();
-      },
-      onTouchMove: clear,
-      onContextMenu: (e: React.MouseEvent) => {
-        // Clic droit desktop (et menu natif de certains appuis longs).
-        e.preventDefault();
-        fired.current = true;
-        onLongPress({ x: e.clientX, y: e.clientY });
-      },
-    },
-    onClickCapture: (e: React.MouseEvent) => {
-      if (fired.current) {
-        e.preventDefault();
-        e.stopPropagation();
-        fired.current = false;
-      }
-    },
-  };
-}
 
 function dndLabel(user: User) {
   if (!user?.dndUntil) return null;
