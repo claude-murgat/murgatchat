@@ -84,10 +84,11 @@ async function openChannel(page, name) {
   await expect(page.getByPlaceholder(`Message dans #${name}`)).toBeVisible();
 }
 
+// Au tactile, Entrée revient à la ligne : l'envoi passe par « Envoyer » (#133).
 async function send(page, name, text) {
   const composer = page.getByPlaceholder(`Message dans #${name}`);
   await composer.fill(text);
-  await composer.press("Enter");
+  await page.getByRole("button", { name: "Envoyer", exact: true }).tap();
   await expect(chat(page).getByText(text)).toBeVisible();
 }
 
