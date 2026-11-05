@@ -4,7 +4,12 @@ import type { Server as HttpServer } from "node:http";
 import type { User } from "@prisma/client";
 import { authenticate } from "./auth.ts";
 import { prisma } from "./db.ts";
-import { serializeMessage, isMember, unhideConversation } from "./routes/channels.ts";
+import {
+  serializeMessage,
+  isMember,
+  unhideConversation,
+  LAST_MESSAGE_WHERE,
+} from "./routes/channels.ts";
 import { safeUnlink } from "./storage.ts";
 import { encryptBody } from "./crypto.ts";
 import { sendExpoPush } from "./push.ts";
@@ -242,6 +247,56 @@ async function recheckRooms(socket: Socket, userId: string, channelIds: string[]
   }
 }
 
+// Lecture jusqu'au message `messageId`, le plus récent que l'utilisateur a eu à
+// l'écran. Seul l'identifiant fait foi : son horodatage est relu en base, dans
+// CE salon, pour qu'un client ne se dise pas à jour sur des messages qu'il n'a
+// pas affichés. `lastReadAt` (non-lus, reprise de lecture) et `seenAt` (accusés
+// de lecture) avancent jusqu'à lui, sans jamais reculer : relire l'historique
+// ne rend rien non lu, et ce qui n'a pas défilé reste « nouveau » à la prochaine
+// ouverture. Null si le message n'est pas de ce salon ou l'utilisateur n'en est
+// pas membre ; sinon, `unreadLeft` dit si le salon reste non lu (même règle que
+// serializeChannel : un dernier message d'un autre, postérieur à lastReadAt).
+async function readUpTo(io: Server, userId: string, channelId: string, messageId: string) {
+  const [msg, member] = await Promise.all([
+    prisma.message.findFirst({
+      where: { id: messageId, channelId, delivered: true },
+      select: { createdAt: true },
+    }),
+    prisma.membership.findUnique({
+      where: { userId_channelId: { userId, channelId } },
+      select: { lastReadAt: true, joinedAt: true },
+    }),
+  ]);
+  if (!msg || !member) return null;
+  const at = msg.createdAt;
+  // La condition du `where` départage deux appareils qui signalent en même
+  // temps : le plus récent l'emporte, jamais de recul.
+  await prisma.membership.updateMany({
+    where: { userId, channelId, lastReadAt: { lt: at } },
+    data: { lastReadAt: at },
+  });
+  const seen = await prisma.membership.updateMany({
+    where: { userId, channelId, OR: [{ seenAt: null }, { seenAt: { lt: at } }] },
+    data: { seenAt: at },
+  });
+  // En direct pour les membres : la room du salon n'a qu'eux (cf. recheckRooms).
+  if (seen.count) {
+    io.to(`channel:${channelId}`).emit("channel:seen", {
+      channelId,
+      userId,
+      seenAt: at,
+      joinedAt: member.joinedAt,
+    });
+  }
+  const last = await prisma.message.findFirst({
+    where: { channelId, ...LAST_MESSAGE_WHERE },
+    orderBy: { createdAt: "desc" },
+    select: { authorId: true, createdAt: true },
+  });
+  const readAt = member.lastReadAt > at ? member.lastReadAt : at;
+  return { unreadLeft: !!last && last.authorId !== userId && last.createdAt > readAt };
+}
+
 export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
   const io = new Server(httpServer, {
     cors: { origin: corsOrigin || "*", credentials: false },
@@ -443,14 +498,27 @@ export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
       }
     });
 
-    socket.on("channel:read", async ({ channelId }) => {
-      if (!channelId) return;
-      await prisma.membership
-        .update({
-          where: { userId_channelId: { userId, channelId } },
-          data: { lastReadAt: new Date() },
-        })
-        .catch(() => {});
+    // Lecture d'une conversation, sous deux formes :
+    //   - `{ channelId, messageId }` (web ≥ 1.7.0) : le message le plus récent
+    //     que l'utilisateur a eu à l'écran, fenêtre active (voir readUpTo) ;
+    //   - `{ channelId }` : tout est lu — « Marquer comme lu » sans ouvrir, ou
+    //     un client antérieur. Sans accusé de lecture : rien n'a été affiché.
+    socket.on("channel:read", async ({ channelId, messageId } = {}) => {
+      if (typeof channelId !== "string" || !channelId) return;
+      try {
+        if (typeof messageId === "string" && messageId) {
+          const read = await readUpTo(io, userId, channelId, messageId);
+          // Encore du non lu plus bas : les autres appareils gardent leur badge.
+          if (!read || read.unreadLeft) return;
+        } else {
+          await prisma.membership.update({
+            where: { userId_channelId: { userId, channelId } },
+            data: { lastReadAt: new Date() },
+          });
+        }
+      } catch {
+        return; // pas (ou plus) membre
+      }
       // Sync the read state to the user's OTHER devices/tabs so their unread
       // badge clears too (the sender already cleared locally).
       socket.to(`user:${userId}`).emit("channel:read", { channelId });

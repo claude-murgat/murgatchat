@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import EmojiPicker from "emoji-picker-react";
 import type { Socket } from "socket.io-client";
 import Avatar from "./Avatar.tsx";
@@ -19,6 +19,7 @@ import type {
   Attachment,
   Channel,
   Message,
+  MessageRead,
   MessagesResponse,
   NotifyLevel,
   User,
@@ -78,6 +79,31 @@ interface Timeline {
 
 const EMPTY_TIMELINE: Timeline = { channelId: null, messages: [], hasMore: false };
 const NO_MESSAGES: Message[] = [];
+
+/** Position vue d'un membre (ms) : dernier message affiché à son écran, arrivée dans le salon. */
+interface ReadPos {
+  seenAt: number;
+  joinedAt: number;
+}
+
+/** Accusés de lecture du salon ouvert, par membre. */
+interface Reads {
+  channelId: string | null;
+  byUser: Record<string, ReadPos>;
+}
+
+const NO_READS: Reads = { channelId: null, byUser: {} };
+
+// Un message compte comme affiché dès qu'une ligne de texte en est à l'écran
+// (ou tout le message, s'il est plus court).
+const DISPLAYED_MIN_PX = 24;
+
+// Au défilement, le dernier message affiché est signalé au plus une fois par
+// intervalle : le serveur ne retient de toute façon que le plus récent.
+const REPORT_THROTTLE_MS = 300;
+
+// Avatars sous un message (accusés de lecture) : au-delà, « +N ».
+const MAX_READ_AVATARS = 5;
 
 /** Évènement temps réel sur le fil du salon ouvert. */
 type LiveEvent =
@@ -310,6 +336,83 @@ function reactionLabel(users: ReactionUser[]) {
   return `${names[0]}, ${names[1]} et ${others} autre${others > 1 ? "s" : ""} ont réagi`;
 }
 
+// « Vu par Alice », « Vu par Alice et Bob », « Vu par Alice, Bob et Carol » ;
+// au-delà de dix noms, les neuf premiers « et N autres ».
+function seenLabel(users: User[]) {
+  const names = users.map((u) => u.displayName || u.username);
+  if (names.length > 10) return `Vu par ${names.slice(0, 9).join(", ")} et ${names.length - 9} autres`;
+  if (names.length === 1) return `Vu par ${names[0]}`;
+  return `Vu par ${names.slice(0, -1).join(", ")} et ${names[names.length - 1]}`;
+}
+
+// Fusionne des positions vues dans celles du salon. Chacune ne fait qu'avancer :
+// un `channel:seen` peut précéder la réponse d'un chargement lu en base avant lui.
+function mergeReads(reads: Reads, channelId: string, rows: MessageRead[]): Reads {
+  const byUser = reads.channelId === channelId ? { ...reads.byUser } : {};
+  for (const r of rows) {
+    const seenAt = new Date(r.seenAt).getTime();
+    if (seenAt > (byUser[r.userId]?.seenAt ?? -Infinity)) {
+      byUser[r.userId] = { seenAt, joinedAt: new Date(r.joinedAt).getTime() };
+    }
+  }
+  return { channelId, byUser };
+}
+
+// Accusés de lecture du fil : pour chaque message, les membres qui l'ont vu
+// (`seenBy`, au survol) et ceux dont c'est le dernier message vu (`markers`,
+// leurs avatars sous lui). Sont écartés l'utilisateur lui-même, l'auteur du
+// message — l'avoir écrit dit déjà qu'il l'a vu — et un message antérieur à
+// l'arrivée du membre dans le salon : rien ne dit qu'il est remonté le lire.
+function readMarks(
+  messages: Message[],
+  members: User[],
+  byUser: Record<string, ReadPos>,
+  meId: string | undefined
+) {
+  const seenBy = new Map<string, User[]>();
+  const markers = new Map<string, User[]>();
+  const add = (map: Map<string, User[]>, id: string, u: User) => {
+    const list = map.get(id);
+    if (list) list.push(u);
+    else map.set(id, [u]);
+  };
+  const readers = members
+    .filter((u) => u.id !== meId && byUser[u.id])
+    .sort((a, b) => a.displayName.localeCompare(b.displayName, "fr"));
+  if (!readers.length) return { seenBy, markers };
+  const times = messages.map((m) => new Date(m.createdAt).getTime());
+  for (const u of readers) {
+    const { seenAt, joinedAt } = byUser[u.id];
+    let last: Message | null = null;
+    for (let i = 0; i < messages.length && times[i] <= seenAt; i++) {
+      if (times[i] < joinedAt) continue;
+      last = messages[i];
+      if (last.author?.id !== u.id) add(seenBy, last.id, u);
+    }
+    if (last && last.author?.id !== u.id) add(markers, last.id, u);
+  }
+  return { seenBy, markers };
+}
+
+// Le message le plus récent qui est à l'écran du fil (cf. DISPLAYED_MIN_PX).
+function lastDisplayed(
+  container: HTMLElement,
+  messages: Message[],
+  rows: Record<string, HTMLElement>
+) {
+  const box = container.getBoundingClientRect();
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const row = rows[messages[i].id];
+    if (!row) continue;
+    const r = row.getBoundingClientRect();
+    // Au-dessus de l'écran : les plus anciens le sont aussi.
+    if (r.bottom <= box.top) return null;
+    const visible = Math.min(r.bottom, box.bottom) - Math.max(r.top, box.top);
+    if (visible >= Math.min(r.height, DISPLAYED_MIN_PX)) return messages[i];
+  }
+  return null;
+}
+
 function previewSnippet(body: string | null | undefined, max = 60) {
   const flat = (body || "").replace(/\s+/g, " ").trim();
   return flat.length > max ? flat.slice(0, max - 1) + "…" : flat;
@@ -403,6 +506,19 @@ export default function ChannelView({
   // Id du 1er message non lu à l'ouverture (frontière renvoyée par le serveur) :
   // on s'y positionne, et un séparateur « Nouveaux messages » le marque.
   const [firstUnreadId, setFirstUnreadId] = useState<string | null>(null);
+  // Accusés de lecture du salon ouvert : chargés avec le fil, puis tenus à jour
+  // par `channel:seen` (voir readMarks).
+  const [reads, setReads] = useState<Reads>(NO_READS);
+  const marks = useMemo(
+    () =>
+      readMarks(
+        messages,
+        channel?.members ?? [],
+        reads.channelId === channel?.id ? reads.byUser : {},
+        currentUser?.id
+      ),
+    [messages, channel?.members, channel?.id, reads, currentUser?.id]
+  );
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [scheduled, setScheduled] = useState<ScheduledMessage[]>([]);
   const [showScheduled, setShowScheduled] = useState(false);
@@ -439,6 +555,10 @@ export default function ChannelView({
   // USER_SCROLL_WINDOW_MS) : seule elle peut décoller la vue du bas.
   const userScrollAtRef = useRef(0);
   const messageRefs = useRef<Record<string, HTMLElement>>({});
+  // Dernier message signalé affiché au serveur (salon + horodatage, ms) : on ne
+  // renvoie qu'un message plus récent (cf. reportDisplayed).
+  const reportedRef = useRef<{ channelId: string | null; at: number }>({ channelId: null, at: 0 });
+  const reportTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   // Brouillons en cours par conversation (texte + pièces jointes déjà uploadées) :
   // ChannelView n'est PAS remonté au changement de salon, donc ce ref survit et
@@ -570,10 +690,11 @@ export default function ChannelView({
               return { ...merged, messages: live.reduce(applyLiveEvent, merged.messages) };
             });
           }
-          // Marquer lu APRÈS la réponse : le serveur a calculé `firstUnreadId` à
-          // partir de l'ancien `lastReadAt` ; l'émettre avant l'aurait effacé
-          // (course entre le GET et le socket channel:read).
-          if (isWindowFocused()) socket?.emit("channel:read", { channelId: activeChannelId });
+          setReads((r) => mergeReads(r, activeChannelId, res.reads ?? []));
+          // La lecture n'est signalée qu'une fois ce fil à l'écran (effet sur
+          // `messages`, reportDisplayed) : APRÈS la réponse, dont le serveur a
+          // calculé `firstUnreadId` à partir de l'ancien `lastReadAt` — un
+          // `channel:read` émis avant l'aurait effacé.
         })
         .catch(() => {
           if (cancelled || attempt !== latest) return;
@@ -615,16 +736,16 @@ export default function ChannelView({
     onFocusHandled?.();
   }, [focusMessageId, messages, onFocusHandled]);
 
+  // Retour sur la fenêtre (focus, onglet de nouveau visible) : ce qui est à
+  // l'écran devient lu et vu.
   useEffect(() => {
     if (!activeChannelId || !socket) return;
-    const markRead = () => {
-      if (isWindowFocused()) socket.emit("channel:read", { channelId: activeChannelId });
-    };
-    window.addEventListener("focus", markRead);
-    document.addEventListener("visibilitychange", markRead);
+    const onBack = () => requestAnimationFrame(() => reportRef.current());
+    window.addEventListener("focus", onBack);
+    document.addEventListener("visibilitychange", onBack);
     return () => {
-      window.removeEventListener("focus", markRead);
-      document.removeEventListener("visibilitychange", markRead);
+      window.removeEventListener("focus", onBack);
+      document.removeEventListener("visibilitychange", onBack);
     };
   }, [activeChannelId, socket]);
 
@@ -653,10 +774,13 @@ export default function ChannelView({
       // en double (ignoré par applyLiveEvent) repasserait ici sans rien changer :
       // « bottom » alors qu'on y est déjà, ou null, dans les deux cas sans effet.
       scrollModeRef.current = nearBottom ? { type: "bottom" } : null;
+      // Lu (et vu) seulement s'il paraît à l'écran : effet sur `messages`.
       live({ type: "new", message: msg });
-      // `socket` est garanti non-nul par le `return` en tête d'effet, mais TS perd
-      // ce raffinement dans une fonction déclarée (hoistée) — d'où l'assertion.
-      if (isWindowFocused()) socket!.emit("channel:read", { channelId: activeChannelId });
+    }
+    // Accusé de lecture d'un membre — l'utilisateur compris, depuis un autre appareil.
+    function onSeen(ev: MessageRead & { channelId: string }) {
+      if (!activeChannelId || ev.channelId !== activeChannelId) return;
+      setReads((r) => mergeReads(r, activeChannelId, [ev]));
     }
     function onUpdated(msg: Message) {
       if (!activeChannelId || msg.channelId !== activeChannelId) return;
@@ -716,6 +840,7 @@ export default function ChannelView({
     socket.on("reaction:update", onReaction);
     socket.on("user:deleted", onUserDeleted);
     socket.on("typing:update", onTyping);
+    socket.on("channel:seen", onSeen);
     return () => {
       socket.off("message:new", onNew);
       socket.off("message:system", onNew);
@@ -726,6 +851,7 @@ export default function ChannelView({
       socket.off("reaction:update", onReaction);
       socket.off("user:deleted", onUserDeleted);
       socket.off("typing:update", onTyping);
+      socket.off("channel:seen", onSeen);
     };
   }, [socket, activeChannelId, currentUser?.id]);
 
@@ -774,6 +900,48 @@ export default function ChannelView({
     scrollModeRef.current = null;
   }, [messages]);
 
+  // Lecture au fil de l'affichage : signale au serveur le message le plus récent
+  // que l'utilisateur a à l'écran, fenêtre active. Il fait avancer ses non-lus —
+  // la prochaine ouverture reprend au premier message jamais affiché — et ses
+  // accusés de lecture chez les autres membres : une conversation ouverte mais
+  // pas défilée n'est lue, et vue, que jusqu'où elle a paru.
+  function reportDisplayed() {
+    const el = scrollRef.current;
+    if (!socket || !activeChannelId || !el || !timelineShown || !isWindowFocused()) return;
+    const m = lastDisplayed(el, messages, messageRefs.current);
+    if (!m) return;
+    const at = new Date(m.createdAt).getTime();
+    const prev = reportedRef.current;
+    if (prev.channelId === activeChannelId && at <= prev.at) return;
+    reportedRef.current = { channelId: activeChannelId, at };
+    socket.emit("channel:read", { channelId: activeChannelId, messageId: m.id });
+  }
+  // Version à jour pour les écouteurs posés par les effets (focus, minuteur).
+  const reportRef = useRef(reportDisplayed);
+  useLayoutEffect(() => {
+    reportRef.current = reportDisplayed;
+  });
+  // Après chaque maj du fil (ouverture, message reçu, pagination), une fois la
+  // vue calée par l'effet ci-dessus et son frame de re-calage.
+  useEffect(() => {
+    const id = requestAnimationFrame(() => reportRef.current());
+    return () => cancelAnimationFrame(id);
+  }, [messages]);
+  // Au défilement : au plus une fois par REPORT_THROTTLE_MS, sur la position du moment.
+  function scheduleReport() {
+    if (reportTimerRef.current) return;
+    reportTimerRef.current = setTimeout(() => {
+      reportTimerRef.current = null;
+      reportRef.current();
+    }, REPORT_THROTTLE_MS);
+  }
+  useEffect(
+    () => () => {
+      if (reportTimerRef.current) clearTimeout(reportTimerRef.current);
+    },
+    []
+  );
+
   // Suit si l'utilisateur est (encore) au bas de la conversation : dès qu'il
   // remonte lire l'historique, on cesse de le re-caler en bas. Seul un
   // défilement de SON fait (cf. USER_SCROLL_WINDOW_MS) décolle la vue : un
@@ -794,6 +962,7 @@ export default function ChannelView({
     // dimensionnées rendent le fil court, et la page d'anciens préfixée
     // coupait le collage.
     if (el.scrollTop < 200 && hasMore && !loadingOlder && !stickBottomRef.current) loadOlder();
+    scheduleReport();
   }
 
   // Le contenu grandit APRÈS le scroll initial : images de pièces jointes,
@@ -1284,6 +1453,7 @@ export default function ChannelView({
               (new Date(prev.createdAt) as unknown as number) <
               5 * 60_000 &&
             !showDay;
+          const readers = marks.markers.get(m.id);
           return (
             <div key={m.id}>
               {showDay && (
@@ -1326,8 +1496,10 @@ export default function ChannelView({
                   onForward={() => setForwardingMessage(m)}
                   onReact={reactToMessage}
                   onJumpToParent={jumpToMessage}
+                  seenBy={marks.seenBy.get(m.id)}
                 />
               )}
+              {readers && <ReadMarkers users={readers} />}
             </div>
           );
         })}
@@ -1572,6 +1744,27 @@ function QuoteBubble({ parent, onJump }: QuoteBubbleProps) {
 // Message de service (« Charles a ajouté Bob au salon ») : une ligne
 // d'information centrée, sans avatar ni actions — on ne le modifie, ne le
 // supprime, n'y réagit ni n'y répond (le serveur le refuse aussi).
+// Accusés de lecture sous un message : les avatars des membres dont c'est le
+// dernier message vu (MAX_READ_AVATARS au plus, puis « +N »), leurs noms au survol.
+function ReadMarkers({ users }: { users: User[] }) {
+  const shown = users.slice(0, MAX_READ_AVATARS);
+  const more = users.length - shown.length;
+  const label = seenLabel(users);
+  return (
+    <div className="flex justify-end pr-4 pb-0.5">
+      <div role="img" aria-label={label} className="relative group/seen flex items-center gap-0.5">
+        {shown.map((u) => (
+          <Avatar key={u.id} user={u} size={18} />
+        ))}
+        {more > 0 && <span className="pl-0.5 text-[11px] leading-none text-slate-500">+{more}</span>}
+        <div className="pointer-events-none absolute bottom-full right-0 z-50 mb-1 hidden w-max max-w-64 rounded-md bg-slate-800 px-2 py-1 text-xs text-white shadow-lg group-hover/seen:block">
+          {label}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SystemMessageRow({
   message,
   rowRef,
@@ -1610,6 +1803,8 @@ interface MessageRowProps {
   onForward?: () => void;
   onReact?: (messageId: string, emoji: string) => void;
   onJumpToParent?: (id: string) => void;
+  /** Membres qui ont vu ce message (accusés de lecture), montrés au survol. */
+  seenBy?: User[];
 }
 
 function MessageRow({
@@ -1624,6 +1819,7 @@ function MessageRow({
   onForward,
   onReact,
   onJumpToParent,
+  seenBy,
 }: MessageRowProps) {
   const isOwn = message.author?.id === currentUser?.id;
   const [editing, setEditing] = useState(false);
@@ -1732,79 +1928,88 @@ function MessageRow({
           aria-hidden="true"
         />
       )}
+      {/* Au survol (ou à l'appui long) : la barre d'actions, et sous elle qui a vu
+          le message. Hors de la barre, la colonne laisse passer les clics. */}
       <div
-        className={`absolute right-2 top-1 items-center gap-1 bg-white border border-slate-200 rounded-sm shadow-xs ${
-          menuOpen ? "flex z-50" : "hidden group-hover:flex"
+        className={`pointer-events-none absolute right-2 top-1 flex-col items-end gap-1 ${
+          menuOpen ? "flex z-50" : "hidden z-30 group-hover:flex"
         }`}
       >
-        {onReact && (
-          <button
-            ref={reactBtnRef}
-            onClick={() => setShowPicker((v) => !v)}
-            className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
-            title="Réagir"
-          >
-            😀
-          </button>
-        )}
-        {onReply && (
-          <button
-            onClick={() => {
-              setMenuOpen(false);
-              onReply(message);
-            }}
-            className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
-            title="Répondre"
-          >
-            Répondre
-          </button>
-        )}
-        {canForward && (
-          <button
-            onClick={() => {
-              setMenuOpen(false);
-              onForward?.();
-            }}
-            className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
-            title="Transférer vers une autre conversation"
-          >
-            Transférer
-          </button>
-        )}
-        {isOwn && (
-          <button
-            onClick={() => {
-              setMenuOpen(false);
-              startEdit();
-            }}
-            className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
-            title="Modifier"
-          >
-            Modifier
-          </button>
-        )}
-        {isOwn ? (
-          <button
-            onClick={() => {
-              setMenuOpen(false);
-              onDelete(message);
-            }}
-            className="text-xs text-slate-600 hover:text-red-600 px-2 py-1"
-            title="Supprimer"
-          >
-            Supprimer
-          </button>
-        ) : (
-          <button
-            onClick={() => {
-              setMenuOpen(false);
-              onHide(message);
-            }}
-            className="text-xs text-slate-600 hover:text-red-600 px-2 py-1"
-            title="Supprimer ce message de votre côté seulement"
-          >
-            Supprimer pour moi
-          </button>
+        <div className="pointer-events-auto flex items-center gap-1 bg-white border border-slate-200 rounded-sm shadow-xs">
+          {onReact && (
+            <button
+              ref={reactBtnRef}
+              onClick={() => setShowPicker((v) => !v)}
+              className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
+              title="Réagir"
+            >
+              😀
+            </button>
+          )}
+          {onReply && (
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                onReply(message);
+              }}
+              className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
+              title="Répondre"
+            >
+              Répondre
+            </button>
+          )}
+          {canForward && (
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                onForward?.();
+              }}
+              className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
+              title="Transférer vers une autre conversation"
+            >
+              Transférer
+            </button>
+          )}
+          {isOwn && (
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                startEdit();
+              }}
+              className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
+              title="Modifier"
+            >
+              Modifier
+            </button>
+          )}
+          {isOwn ? (
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                onDelete(message);
+              }}
+              className="text-xs text-slate-600 hover:text-red-600 px-2 py-1"
+              title="Supprimer"
+            >
+              Supprimer
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                onHide(message);
+              }}
+              className="text-xs text-slate-600 hover:text-red-600 px-2 py-1"
+              title="Supprimer ce message de votre côté seulement"
+            >
+              Supprimer pour moi
+            </button>
+          )}
+        </div>
+        {seenBy && seenBy.length > 0 && (
+          <div className="w-max max-w-64 rounded-md bg-slate-800 px-2 py-1 text-xs text-white shadow-lg">
+            {seenLabel(seenBy)}
+          </div>
         )}
       </div>
     </>

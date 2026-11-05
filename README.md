@@ -433,8 +433,8 @@ pour les secrets) :
 
 ## Événements Socket.IO
 
-Côté client → serveur : `channel:join`, `channel:read`, `channel:unread`, `typing`, `message:send` (`{ channelId, body?, attachmentIds?, scheduledAt?, parentId? }`).
-Côté serveur → client : `message:new`, `message:system` (message de service, `kind: "system"` — évènement à part, qu'un client antérieur à la 1.6.0 ignore), `message:updated`, `message:deleted`, `message:hidden`, `reaction:update`, `channel:created` (`addedBy` quand quelqu'un vous ajoute), `channel:updated`, `channel:removed` (`reason` `left`/`removed`/`deleted`, `by`, `channelName`), `channel:hidden`, `channel:members` (`{ channelId, members, adminIds }`), `channel:read`, `channel:unread`, `notification`, `presence:state`, `presence:update`, `typing:update`, `claude:progress`, `session:revoked`, `user:deleted`.
+Côté client → serveur : `channel:join`, `channel:read` (`{ channelId, messageId? }` : avec `messageId`, le message le plus récent affiché à l'écran — non-lus et accusés de lecture avancent jusqu'à lui, sans reculer ; sans, tout est lu, sans accusé de lecture), `channel:unread`, `typing`, `message:send` (`{ channelId, body?, attachmentIds?, scheduledAt?, parentId? }`).
+Côté serveur → client : `message:new`, `message:system` (message de service, `kind: "system"` — évènement à part, qu'un client antérieur à la 1.6.0 ignore), `message:updated`, `message:deleted`, `message:hidden`, `reaction:update`, `channel:created` (`addedBy` quand quelqu'un vous ajoute), `channel:updated`, `channel:removed` (`reason` `left`/`removed`/`deleted`, `by`, `channelName`), `channel:hidden`, `channel:members` (`{ channelId, members, adminIds }`), `channel:read` (vers ses autres appareils, une fois la conversation lue jusqu'en bas), `channel:seen` (accusé de lecture `{ channelId, userId, seenAt, joinedAt }`, aux membres du salon), `channel:unread`, `notification`, `presence:state`, `presence:update`, `typing:update`, `claude:progress`, `session:revoked`, `user:deleted`.
 
 ### Salons et conversations directes
 
