@@ -439,8 +439,11 @@ Côté serveur → client : `message:new`, `message:system` (message de service,
 ### Salons et conversations directes
 
 Comme dans Slack, la barre latérale range les **salons** (publics ou privés) et les
-**messages directs** (conversations à deux, plus « Mes notes ») ; un « + » à côté de
+**messages directs** (conversations à deux) ; un « + » à côté de
 chaque section crée un salon (nom → visibilité → personnes) ou un nouveau message.
+« Mes notes », la conversation avec soi-même, est épinglée au-dessus des sections :
+chaque compte a la sienne d'office dès son inscription (les comptes plus anciens la
+reçoivent au démarrage du serveur), sans avoir à l'ouvrir d'abord.
 Un « groupe de discussion » est un **salon privé** (depuis la 1.6.0) : choisir plusieurs
 personnes dans « Nouveau message » en crée un, et la migration
 `20261029000000_private_salons` a converti les anciens DM de groupe. Comme les

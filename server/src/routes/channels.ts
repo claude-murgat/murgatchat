@@ -1461,4 +1461,55 @@ export async function ensureDefaultChannel() {
   return channel;
 }
 
+// « Mes notes » : la conversation directe dont l'utilisateur est le seul membre.
+// Chaque compte (hors bot technique) en a une d'office, épinglée en tête de sa
+// barre latérale — plus besoin de l'ouvrir d'abord par la recherche ou
+// « Nouveau message ». Créée vide, elle ne compte pas comme non lue.
+// POST /channels/dm la rouvre au lieu d'en créer une seconde.
+async function createSelfDm(io: Server | null | undefined, userId: string) {
+  const channel = await prisma.channel.create({
+    data: { isDirect: true, memberships: { create: [{ userId }] } },
+    include: CHANNEL_INCLUDE,
+  });
+  io?.to(`user:${userId}`).emit("channel:created", serializeChannel(channel, userId));
+  io?.in(`user:${userId}`).socketsJoin(`channel:${channel.id}`);
+  return channel;
+}
+
+// À l'inscription : « Mes notes » rejoint « Général » dans la liste du nouveau
+// compte. Idempotent. Renvoie la conversation créée, ou null si elle existait.
+export async function ensureSelfDm(io: Server | null | undefined, userId: string) {
+  const direct = await prisma.channel.findMany({
+    where: { isDirect: true, memberships: { some: { userId } } },
+    select: { _count: { select: { memberships: true } } },
+  });
+  if (direct.some((c) => c._count.memberships === 1)) return null;
+  return createSelfDm(io, userId);
+}
+
+// Rattrapage au démarrage, pour les comptes qui n'ont jamais ouvert « Mes
+// notes » : chacun reçoit la sienne. Le serveur écoute déjà, un client
+// reconnecté avant la fin la reçoit par `channel:created`. Idempotent, sans
+// effet une fois fait. Renvoie le nombre de conversations créées.
+export async function ensureSelfDms(io?: Server | null) {
+  const users = await prisma.user.findMany({
+    where: { username: { not: BOT_USERNAME } },
+    select: { id: true },
+  });
+  const direct = await prisma.channel.findMany({
+    where: { isDirect: true },
+    select: { memberships: { select: { userId: true } } },
+  });
+  const have = new Set(
+    direct.filter((c) => c.memberships.length === 1).map((c) => c.memberships[0].userId)
+  );
+  let created = 0;
+  for (const u of users) {
+    if (have.has(u.id)) continue;
+    await createSelfDm(io, u.id);
+    created += 1;
+  }
+  return created;
+}
+
 export default router;

@@ -144,7 +144,7 @@ test("un push de message déjà lu ailleurs ne s'affiche pas, et efface les noti
   // 5) L'app ferme les notifications d'une conversation dès qu'on l'ouvre. Il
   //    faut un VRAI message non lu dans #Général — d'un autre membre — sans quoi
   //    une resynchro de la liste des salons fermerait la notification à raison.
-  //    On quitte d'abord #Général pour « Mes notes » (créée via la recherche).
+  //    On quitte d'abord #Général pour « Mes notes » (ouverte via la recherche).
   await closeAll(page);
   page.on("dialog", (d) => d.accept());
   await page.getByPlaceholder(/^Rechercher/).fill("notes");

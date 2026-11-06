@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer } from "../../src/index.ts";
-import { ensureDefaultChannel } from "../../src/routes/channels.ts";
+import { ensureDefaultChannel, ensureSelfDms } from "../../src/routes/channels.ts";
+import { ensureBot } from "../../src/notify.ts";
 import { registerUser, authed } from "../helpers/api.js";
 import { prisma } from "../helpers/db.js";
 import { seedMessage } from "../helpers/seed.js";
@@ -134,6 +135,50 @@ describe("POST /channels/dm", () => {
       .post("/channels/dm")
       .send({ userIds: [user.id] });
     expect(viaSelfArray.body.channel.id).toBe(empty.body.channel.id);
+  });
+
+  it("« Mes notes » existe dès l'inscription, sans l'avoir ouverte", async () => {
+    await ensureDefaultChannel();
+    const { token, user } = await registerUser(app);
+    const list = (await authed(app, token).get("/channels")).body.channels;
+    const notes = list.filter((c) => c.isDirect && c.members.length === 1);
+    expect(notes).toHaveLength(1);
+    expect(notes[0].members[0].id).toBe(user.id);
+    expect(notes[0].displayName).toBe("Mes notes");
+    expect(notes[0].unread).toBe(false);
+    // « Général » reste la première conversation du nouveau compte.
+    expect(list[0].isDefault).toBe(true);
+    // L'ouvrir ensuite (recherche, « Nouveau message ») la rouvre, sans doublon.
+    const opened = await authed(app, token).post("/channels/dm").send({});
+    expect(opened.body.channel.id).toBe(notes[0].id);
+    expect(
+      await prisma.channel.count({ where: { isDirect: true, memberships: { some: { userId: user.id } } } })
+    ).toBe(1);
+  });
+
+  it("rattrape « Mes notes » au démarrage pour les comptes qui ne l'ont pas, une seule fois", async () => {
+    const { token: aTok, user: a } = await registerUser(app);
+    const { user: b } = await registerUser(app);
+    const bot = await ensureBot();
+    // Comptes antérieurs : aucune conversation avec soi-même.
+    await prisma.channel.deleteMany({ where: { isDirect: true } });
+    // Un vrai DM à deux ne compte pas comme « Mes notes ».
+    await authed(app, aTok).post("/channels/dm").send({ userId: b.id });
+
+    expect(await ensureSelfDms(io)).toBe(2);
+    for (const u of [a, b]) {
+      const mine = await prisma.channel.findMany({
+        where: { isDirect: true, memberships: { every: { userId: u.id } } },
+        include: { memberships: true },
+      });
+      expect(mine).toHaveLength(1);
+    }
+    // Jamais pour le bot technique des experts et du pipeline.
+    expect(
+      await prisma.channel.count({ where: { isDirect: true, memberships: { some: { userId: bot.id } } } })
+    ).toBe(0);
+    // Idempotent : un second démarrage ne crée rien.
+    expect(await ensureSelfDms(io)).toBe(0);
   });
 
   it("keeps the self-DM distinct from a 1:1 DM with another user", async () => {

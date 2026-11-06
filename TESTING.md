@@ -77,7 +77,8 @@ npm test -- test/http/auth.test.js   # un fichier
   push ni de messages planifiés ; **suppression définitive** (`DELETE /auth/users/:id`,
   compte désactivé seulement : purge messages/PJ/DM, réponses des autres conservées,
   rapports de bug gardés, bot protégé) ; `ensureOwner()` self-heal des bases pré-0.4.0), channels (create/list/public/join/dm/membres/leave +
-  règles du salon par défaut ; membre retiré d'un salon privé : plus d'édition/suppression de ses
+  règles du salon par défaut ; « Mes notes » d'office à l'inscription, rattrapée au démarrage pour
+  les comptes qui ne l'avaient pas, jamais pour le bot ; membre retiré d'un salon privé : plus d'édition/suppression de ses
   messages, planifiés abandonnés ; **gestion par les membres** (1.6.0, `channel-manage.test.js`) :
   tout membre renomme, ajoute (jamais le bot ni un compte désactivé), retire et quitte, seul un
   admin supprime ou change la visibilité, un compte désactivé n'est plus admin du salon (relais du
