@@ -10,7 +10,7 @@ import { registerUser, authed } from "../helpers/api.js";
 import { prisma } from "../helpers/db.js";
 import { seedMessage } from "../helpers/seed.js";
 
-// Accusés de lecture (1.7.0) : le client signale le message le plus récent qu'il
+// Accusés de lecture (1.6.5) : le client signale le message le plus récent qu'il
 // a eu à l'écran (`channel:read` + `messageId`). `seenAt` (accusés) et
 // `lastReadAt` (non-lus, reprise de lecture) avancent jusqu'à lui, jamais en
 // arrière, et les membres du salon — eux seuls — l'apprennent en direct

@@ -499,7 +499,7 @@ export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
     });
 
     // Lecture d'une conversation, sous deux formes :
-    //   - `{ channelId, messageId }` (web ≥ 1.7.0) : le message le plus récent
+    //   - `{ channelId, messageId }` (web ≥ 1.6.5) : le message le plus récent
     //     que l'utilisateur a eu à l'écran, fenêtre active (voir readUpTo) ;
     //   - `{ channelId }` : tout est lu — « Marquer comme lu » sans ouvrir, ou
     //     un client antérieur. Sans accusé de lecture : rien n'a été affiché.
