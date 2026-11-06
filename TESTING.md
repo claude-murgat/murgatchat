@@ -7,7 +7,7 @@ organisée en quatre couches de test, par ordre de valeur (plus des garde-fous
 
 | Couche | Outil | Ce qu'elle protège | Vérifiée |
 | --- | --- | --- | --- |
-| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 353 tests |
+| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 359 tests |
 | **E2E Web** (priorité 2) | Playwright | Câblage de l'UI web (auth, envoi, édition, suppression, threads, persistance) | ✅ parcours vert |
 | **Mobile** (priorité 3) | `expo export` + smoke APK | Le bundle RN se compile ; l'app se lance | Documentée |
 | **Charge** (k6) | k6 (HTTP + Socket.IO) | Tenue à 150 utilisateurs simultanés (REST + temps réel) | ✅ script validé (smoke) |
@@ -77,7 +77,8 @@ npm test -- test/http/auth.test.js   # un fichier
   push ni de messages planifiés ; **suppression définitive** (`DELETE /auth/users/:id`,
   compte désactivé seulement : purge messages/PJ/DM, réponses des autres conservées,
   rapports de bug gardés, bot protégé) ; `ensureOwner()` self-heal des bases pré-0.4.0), channels (create/list/public/join/dm/membres/leave +
-  règles du salon par défaut ; membre retiré d'un salon privé : plus d'édition/suppression de ses
+  règles du salon par défaut ; « Mes notes » d'office à l'inscription, rattrapée au démarrage pour
+  les comptes qui ne l'avaient pas, jamais pour le bot ; membre retiré d'un salon privé : plus d'édition/suppression de ses
   messages, planifiés abandonnés ; **gestion par les membres** (1.6.0, `channel-manage.test.js`) :
   tout membre renomme, ajoute (jamais le bot ni un compte désactivé), retire et quitte, seul un
   admin supprime ou change la visibilité, un compte désactivé n'est plus admin du salon (relais du

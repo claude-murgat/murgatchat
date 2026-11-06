@@ -71,6 +71,12 @@ model Membership {
   channelId String
   joinedAt  DateTime @default(now())
   lastReadAt DateTime @default(now())
+  // Accusés de lecture : horodatage du dernier message que le membre a eu à
+  // l'écran, fenêtre active. Ne recule jamais, et seul l'affichage le fait
+  // avancer — contrairement à `lastReadAt`, que « Marquer comme lu / non lu » et
+  // le masquage d'une conversation directe déplacent sans rien afficher.
+  // null : rien vu depuis la 1.6.5.
+  seenAt    DateTime?
   // Notifications par channel : "all" (tout), "mentions" (seulement quand le
   // membre est mentionné) ou "none" (muet). Par défaut on notifie tout, ce qui
   // reproduit le comportement historique pré-réglage.

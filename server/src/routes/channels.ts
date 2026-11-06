@@ -67,7 +67,7 @@ export async function isMember(userId: string, channelId: string) {
 // Dernier message d'une conversation tel que la barre latérale s'en sert (aperçu,
 // tri des DM, non-lu) : un message de service n'y compte pas — « Bob a quitté le
 // salon » ne doit rendre le salon non lu chez personne.
-const LAST_MESSAGE_WHERE = { delivered: true, kind: "user" } satisfies Prisma.MessageWhereInput;
+export const LAST_MESSAGE_WHERE = { delivered: true, kind: "user" } satisfies Prisma.MessageWhereInput;
 const CHANNEL_INCLUDE = {
   memberships: { include: { user: true } },
   messages: { orderBy: { createdAt: "desc" }, take: 1, where: LAST_MESSAGE_WHERE },
@@ -721,6 +721,17 @@ router.get("/:id/messages", requireAuth, async (req, res) => {
     firstUnreadId = fu?.id || null;
   }
 
+  // Accusés de lecture : jusqu'où chaque membre a vu le fil (`seenAt`), et
+  // depuis quand il en fait partie — un message antérieur à son arrivée ne
+  // compte pas comme vu, même s'il a vu la suite. Chargement initial seulement :
+  // le socket (`channel:seen`) tient ensuite le client à jour.
+  const reads = before
+    ? []
+    : await prisma.membership.findMany({
+        where: { channelId: id, seenAt: { not: null } },
+        select: { userId: true, seenAt: true, joinedAt: true },
+      });
+
   res.json({
     // plus ancien -> plus récent. Une réponse à un message masqué perd sa
     // citation, qui en montrerait le contenu (comme côté client au masquage).
@@ -732,6 +743,7 @@ router.get("/:id/messages", requireAuth, async (req, res) => {
     hasMore,
     nextCursor: hasMore ? oldestId : null,
     firstUnreadId,
+    reads,
   });
 });
 
@@ -1447,6 +1459,57 @@ export async function ensureDefaultChannel() {
     await prisma.membership.createMany({ data: toAdd, skipDuplicates: true });
   }
   return channel;
+}
+
+// « Mes notes » : la conversation directe dont l'utilisateur est le seul membre.
+// Chaque compte (hors bot technique) en a une d'office, épinglée en tête de sa
+// barre latérale — plus besoin de l'ouvrir d'abord par la recherche ou
+// « Nouveau message ». Créée vide, elle ne compte pas comme non lue.
+// POST /channels/dm la rouvre au lieu d'en créer une seconde.
+async function createSelfDm(io: Server | null | undefined, userId: string) {
+  const channel = await prisma.channel.create({
+    data: { isDirect: true, memberships: { create: [{ userId }] } },
+    include: CHANNEL_INCLUDE,
+  });
+  io?.to(`user:${userId}`).emit("channel:created", serializeChannel(channel, userId));
+  io?.in(`user:${userId}`).socketsJoin(`channel:${channel.id}`);
+  return channel;
+}
+
+// À l'inscription : « Mes notes » rejoint « Général » dans la liste du nouveau
+// compte. Idempotent. Renvoie la conversation créée, ou null si elle existait.
+export async function ensureSelfDm(io: Server | null | undefined, userId: string) {
+  const direct = await prisma.channel.findMany({
+    where: { isDirect: true, memberships: { some: { userId } } },
+    select: { _count: { select: { memberships: true } } },
+  });
+  if (direct.some((c) => c._count.memberships === 1)) return null;
+  return createSelfDm(io, userId);
+}
+
+// Rattrapage au démarrage, pour les comptes qui n'ont jamais ouvert « Mes
+// notes » : chacun reçoit la sienne. Le serveur écoute déjà, un client
+// reconnecté avant la fin la reçoit par `channel:created`. Idempotent, sans
+// effet une fois fait. Renvoie le nombre de conversations créées.
+export async function ensureSelfDms(io?: Server | null) {
+  const users = await prisma.user.findMany({
+    where: { username: { not: BOT_USERNAME } },
+    select: { id: true },
+  });
+  const direct = await prisma.channel.findMany({
+    where: { isDirect: true },
+    select: { memberships: { select: { userId: true } } },
+  });
+  const have = new Set(
+    direct.filter((c) => c.memberships.length === 1).map((c) => c.memberships[0].userId)
+  );
+  let created = 0;
+  for (const u of users) {
+    if (have.has(u.id)) continue;
+    await createSelfDm(io, u.id);
+    created += 1;
+  }
+  return created;
 }
 
 export default router;

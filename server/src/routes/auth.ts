@@ -6,7 +6,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "../db.ts";
 import { signToken, requireAuth } from "../auth.ts";
-import { broadcastMembers, syncSalonAdminsOf } from "./channels.ts";
+import { broadcastMembers, ensureSelfDm, syncSalonAdminsOf } from "./channels.ts";
 import { sendInvitationEmail, sendPasswordResetEmail, inviteLink } from "../mail.ts";
 import { getVapidPublicKey } from "../webpush.ts";
 import { verifyReadToken } from "../pushReadToken.ts";
@@ -116,6 +116,8 @@ router.post("/register", async (req, res) => {
       .catch(() => {});
     await broadcastMembers(req.io, def.id);
   }
+  // « Mes notes » d'office, après « Général » qui reste sa première conversation.
+  await ensureSelfDm(req.io, user.id);
 
   const authToken = signToken(user);
   res.json({ token: authToken, user: publicUser(user) });
