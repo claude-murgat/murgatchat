@@ -358,40 +358,35 @@ function mergeReads(reads: Reads, channelId: string, rows: MessageRead[]): Reads
   return { channelId, byUser };
 }
 
-// Accusés de lecture du fil : pour chaque message, les membres qui l'ont vu
-// (`seenBy`, au survol) et ceux dont c'est le dernier message vu (`markers`,
-// leurs avatars sous lui). Sont écartés l'utilisateur lui-même, l'auteur du
-// message — l'avoir écrit dit déjà qu'il l'a vu — et un message antérieur à
-// l'arrivée du membre dans le salon : rien ne dit qu'il est remonté le lire.
+// Accusés de lecture du fil : id du message → les membres dont c'est le dernier
+// message vu (leurs avatars sous lui). Sont écartés l'utilisateur lui-même,
+// l'auteur du message — l'avoir écrit dit déjà qu'il l'a vu — et un message
+// antérieur à l'arrivée du membre dans le salon : rien ne dit qu'il est remonté
+// le lire.
 function readMarks(
   messages: Message[],
   members: User[],
   byUser: Record<string, ReadPos>,
   meId: string | undefined
 ) {
-  const seenBy = new Map<string, User[]>();
   const markers = new Map<string, User[]>();
-  const add = (map: Map<string, User[]>, id: string, u: User) => {
-    const list = map.get(id);
-    if (list) list.push(u);
-    else map.set(id, [u]);
-  };
   const readers = members
     .filter((u) => u.id !== meId && byUser[u.id])
     .sort((a, b) => a.displayName.localeCompare(b.displayName, "fr"));
-  if (!readers.length) return { seenBy, markers };
+  if (!readers.length) return markers;
   const times = messages.map((m) => new Date(m.createdAt).getTime());
   for (const u of readers) {
     const { seenAt, joinedAt } = byUser[u.id];
     let last: Message | null = null;
     for (let i = 0; i < messages.length && times[i] <= seenAt; i++) {
-      if (times[i] < joinedAt) continue;
-      last = messages[i];
-      if (last.author?.id !== u.id) add(seenBy, last.id, u);
+      if (times[i] >= joinedAt) last = messages[i];
     }
-    if (last && last.author?.id !== u.id) add(markers, last.id, u);
+    if (!last || last.author?.id === u.id) continue;
+    const list = markers.get(last.id);
+    if (list) list.push(u);
+    else markers.set(last.id, [u]);
   }
-  return { seenBy, markers };
+  return markers;
 }
 
 // Le message le plus récent qui est à l'écran du fil (cf. DISPLAYED_MIN_PX).
@@ -509,7 +504,7 @@ export default function ChannelView({
   // Accusés de lecture du salon ouvert : chargés avec le fil, puis tenus à jour
   // par `channel:seen` (voir readMarks).
   const [reads, setReads] = useState<Reads>(NO_READS);
-  const marks = useMemo(
+  const markers = useMemo(
     () =>
       readMarks(
         messages,
@@ -1453,7 +1448,7 @@ export default function ChannelView({
               (new Date(prev.createdAt) as unknown as number) <
               5 * 60_000 &&
             !showDay;
-          const readers = marks.markers.get(m.id);
+          const readers = markers.get(m.id);
           return (
             <div key={m.id}>
               {showDay && (
@@ -1496,7 +1491,6 @@ export default function ChannelView({
                   onForward={() => setForwardingMessage(m)}
                   onReact={reactToMessage}
                   onJumpToParent={jumpToMessage}
-                  seenBy={marks.seenBy.get(m.id)}
                 />
               )}
               {readers && <ReadMarkers users={readers} />}
@@ -1741,23 +1735,43 @@ function QuoteBubble({ parent, onJump }: QuoteBubbleProps) {
   );
 }
 
-// Message de service (« Charles a ajouté Bob au salon ») : une ligne
-// d'information centrée, sans avatar ni actions — on ne le modifie, ne le
-// supprime, n'y réagit ni n'y répond (le serveur le refuse aussi).
 // Accusés de lecture sous un message : les avatars des membres dont c'est le
-// dernier message vu (MAX_READ_AVATARS au plus, puis « +N »), leurs noms au survol.
+// dernier message vu (MAX_READ_AVATARS au plus, puis « +N »). Leurs noms
+// s'affichent au survol des avatars, pas du message, qui ne montre que sa barre
+// d'actions. Au tactile, il n'y a pas de survol (cf. #439) : toucher les avatars
+// affiche les noms, toucher ailleurs les masque.
 function ReadMarkers({ users }: { users: User[] }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [open]);
   const shown = users.slice(0, MAX_READ_AVATARS);
   const more = users.length - shown.length;
   const label = seenLabel(users);
   return (
     <div className="flex justify-end pr-4 pb-0.5">
-      <div role="img" aria-label={label} className="relative group/seen flex items-center gap-0.5">
+      <div
+        ref={ref}
+        role="img"
+        aria-label={label}
+        onClick={() => setOpen((v) => !v)}
+        className="relative group/seen flex items-center gap-0.5"
+      >
         {shown.map((u) => (
           <Avatar key={u.id} user={u} size={18} />
         ))}
         {more > 0 && <span className="pl-0.5 text-[11px] leading-none text-slate-500">+{more}</span>}
-        <div className="pointer-events-none absolute bottom-full right-0 z-50 mb-1 hidden w-max max-w-64 rounded-md bg-slate-800 px-2 py-1 text-xs text-white shadow-lg group-hover/seen:block">
+        <div
+          className={`pointer-events-none absolute bottom-full right-0 z-50 mb-1 w-max max-w-64 rounded-md bg-slate-800 px-2 py-1 text-xs text-white shadow-lg ${
+            open ? "block" : "hidden group-hover/seen:block"
+          }`}
+        >
           {label}
         </div>
       </div>
@@ -1765,6 +1779,9 @@ function ReadMarkers({ users }: { users: User[] }) {
   );
 }
 
+// Message de service (« Charles a ajouté Bob au salon ») : une ligne
+// d'information centrée, sans avatar ni actions — on ne le modifie, ne le
+// supprime, n'y réagit ni n'y répond (le serveur le refuse aussi).
 function SystemMessageRow({
   message,
   rowRef,
@@ -1803,8 +1820,6 @@ interface MessageRowProps {
   onForward?: () => void;
   onReact?: (messageId: string, emoji: string) => void;
   onJumpToParent?: (id: string) => void;
-  /** Membres qui ont vu ce message (accusés de lecture), montrés au survol. */
-  seenBy?: User[];
 }
 
 function MessageRow({
@@ -1819,7 +1834,6 @@ function MessageRow({
   onForward,
   onReact,
   onJumpToParent,
-  seenBy,
 }: MessageRowProps) {
   const isOwn = message.author?.id === currentUser?.id;
   const [editing, setEditing] = useState(false);
@@ -1928,88 +1942,79 @@ function MessageRow({
           aria-hidden="true"
         />
       )}
-      {/* Au survol (ou à l'appui long) : la barre d'actions, et sous elle qui a vu
-          le message. Hors de la barre, la colonne laisse passer les clics. */}
       <div
-        className={`pointer-events-none absolute right-2 top-1 flex-col items-end gap-1 ${
-          menuOpen ? "flex z-50" : "hidden z-30 group-hover:flex"
+        className={`absolute right-2 top-1 items-center gap-1 bg-white border border-slate-200 rounded-sm shadow-xs ${
+          menuOpen ? "flex z-50" : "hidden group-hover:flex"
         }`}
       >
-        <div className="pointer-events-auto flex items-center gap-1 bg-white border border-slate-200 rounded-sm shadow-xs">
-          {onReact && (
-            <button
-              ref={reactBtnRef}
-              onClick={() => setShowPicker((v) => !v)}
-              className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
-              title="Réagir"
-            >
-              😀
-            </button>
-          )}
-          {onReply && (
-            <button
-              onClick={() => {
-                setMenuOpen(false);
-                onReply(message);
-              }}
-              className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
-              title="Répondre"
-            >
-              Répondre
-            </button>
-          )}
-          {canForward && (
-            <button
-              onClick={() => {
-                setMenuOpen(false);
-                onForward?.();
-              }}
-              className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
-              title="Transférer vers une autre conversation"
-            >
-              Transférer
-            </button>
-          )}
-          {isOwn && (
-            <button
-              onClick={() => {
-                setMenuOpen(false);
-                startEdit();
-              }}
-              className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
-              title="Modifier"
-            >
-              Modifier
-            </button>
-          )}
-          {isOwn ? (
-            <button
-              onClick={() => {
-                setMenuOpen(false);
-                onDelete(message);
-              }}
-              className="text-xs text-slate-600 hover:text-red-600 px-2 py-1"
-              title="Supprimer"
-            >
-              Supprimer
-            </button>
-          ) : (
-            <button
-              onClick={() => {
-                setMenuOpen(false);
-                onHide(message);
-              }}
-              className="text-xs text-slate-600 hover:text-red-600 px-2 py-1"
-              title="Supprimer ce message de votre côté seulement"
-            >
-              Supprimer pour moi
-            </button>
-          )}
-        </div>
-        {seenBy && seenBy.length > 0 && (
-          <div className="w-max max-w-64 rounded-md bg-slate-800 px-2 py-1 text-xs text-white shadow-lg">
-            {seenLabel(seenBy)}
-          </div>
+        {onReact && (
+          <button
+            ref={reactBtnRef}
+            onClick={() => setShowPicker((v) => !v)}
+            className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
+            title="Réagir"
+          >
+            😀
+          </button>
+        )}
+        {onReply && (
+          <button
+            onClick={() => {
+              setMenuOpen(false);
+              onReply(message);
+            }}
+            className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
+            title="Répondre"
+          >
+            Répondre
+          </button>
+        )}
+        {canForward && (
+          <button
+            onClick={() => {
+              setMenuOpen(false);
+              onForward?.();
+            }}
+            className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
+            title="Transférer vers une autre conversation"
+          >
+            Transférer
+          </button>
+        )}
+        {isOwn && (
+          <button
+            onClick={() => {
+              setMenuOpen(false);
+              startEdit();
+            }}
+            className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
+            title="Modifier"
+          >
+            Modifier
+          </button>
+        )}
+        {isOwn ? (
+          <button
+            onClick={() => {
+              setMenuOpen(false);
+              onDelete(message);
+            }}
+            className="text-xs text-slate-600 hover:text-red-600 px-2 py-1"
+            title="Supprimer"
+          >
+            Supprimer
+          </button>
+        ) : (
+          <button
+            onClick={() => {
+              setMenuOpen(false);
+              onHide(message);
+            }}
+            className="text-xs text-slate-600 hover:text-red-600 px-2 py-1"
+            title="Supprimer ce message de votre côté seulement"
+          >
+            Supprimer pour moi
+          </button>
         )}
       </div>
     </>
