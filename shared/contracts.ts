@@ -82,11 +82,20 @@ export const MessageSchema = MessageBase.passthrough();
 // chargement initial — null en pagination `before`).
 // `…Base` porte le message STRICT (pour les types) ; la version exportée réinjecte
 // le message tolérant (`.extend`) pour la validation runtime.
+// Accusés de lecture : jusqu'où un membre a vu le fil (`seenAt`), et depuis
+// quand il en fait partie (`joinedAt`).
+const MessageReadSchema = z.object({
+  userId: zId,
+  seenAt: zDate,
+  joinedAt: zDate,
+});
 const MessagesResponseBase = z.object({
   messages: z.array(MessageBase),
   hasMore: z.boolean(),
   nextCursor: zId.nullable(),
   firstUnreadId: zId.nullable(),
+  // Vide en pagination `before` ; absent d'un serveur antérieur à la 1.7.0.
+  reads: z.array(MessageReadSchema).optional(),
 });
 export const MessagesResponseSchema = MessagesResponseBase.extend({
   messages: z.array(MessageSchema),
@@ -114,4 +123,5 @@ export const NotificationEventSchema = NotificationEventBase.extend({
 export type Attachment = z.infer<typeof AttachmentSchema>;
 export type Message = z.infer<typeof MessageBase>;
 export type MessagesResponse = z.infer<typeof MessagesResponseBase>;
+export type MessageRead = z.infer<typeof MessageReadSchema>;
 export type NotificationEvent = z.infer<typeof NotificationEventBase>;

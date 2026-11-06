@@ -7,7 +7,7 @@ organisée en quatre couches de test, par ordre de valeur (plus des garde-fous
 
 | Couche | Outil | Ce qu'elle protège | Vérifiée |
 | --- | --- | --- | --- |
-| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 353 tests |
+| **Backend** (priorité 1) | Vitest + supertest + socket.io-client | API HTTP, temps réel Socket.IO, crypto, DnD, gating push, invitations + reset password + profil + propriétaire/panel admin — **la source de vérité** pour web/desktop/mobile | ✅ 359 tests |
 | **E2E Web** (priorité 2) | Playwright | Câblage de l'UI web (auth, envoi, édition, suppression, threads, persistance) | ✅ parcours vert |
 | **Mobile** (priorité 3) | `expo export` + smoke APK | Le bundle RN se compile ; l'app se lance | Documentée |
 | **Charge** (k6) | k6 (HTTP + Socket.IO) | Tenue à 150 utilisateurs simultanés (REST + temps réel) | ✅ script validé (smoke) |

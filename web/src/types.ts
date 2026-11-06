@@ -8,7 +8,13 @@
 //     et impossible de diverger du contrôle runtime.
 //
 // Ce fichier n'existe qu'à la compilation : aucun code émis.
-export type { Message, Attachment, MessagesResponse, NotificationEvent } from "../../shared/contracts.ts";
+export type {
+  Message,
+  Attachment,
+  MessagesResponse,
+  MessageRead,
+  NotificationEvent,
+} from "../../shared/contracts.ts";
 
 /** Utilisateur tel qu'exposé par l'API (publicUser). */
 export interface User {

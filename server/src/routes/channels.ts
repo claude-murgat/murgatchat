@@ -67,7 +67,7 @@ export async function isMember(userId: string, channelId: string) {
 // Dernier message d'une conversation tel que la barre latérale s'en sert (aperçu,
 // tri des DM, non-lu) : un message de service n'y compte pas — « Bob a quitté le
 // salon » ne doit rendre le salon non lu chez personne.
-const LAST_MESSAGE_WHERE = { delivered: true, kind: "user" } satisfies Prisma.MessageWhereInput;
+export const LAST_MESSAGE_WHERE = { delivered: true, kind: "user" } satisfies Prisma.MessageWhereInput;
 const CHANNEL_INCLUDE = {
   memberships: { include: { user: true } },
   messages: { orderBy: { createdAt: "desc" }, take: 1, where: LAST_MESSAGE_WHERE },
@@ -721,6 +721,17 @@ router.get("/:id/messages", requireAuth, async (req, res) => {
     firstUnreadId = fu?.id || null;
   }
 
+  // Accusés de lecture : jusqu'où chaque membre a vu le fil (`seenAt`), et
+  // depuis quand il en fait partie — un message antérieur à son arrivée ne
+  // compte pas comme vu, même s'il a vu la suite. Chargement initial seulement :
+  // le socket (`channel:seen`) tient ensuite le client à jour.
+  const reads = before
+    ? []
+    : await prisma.membership.findMany({
+        where: { channelId: id, seenAt: { not: null } },
+        select: { userId: true, seenAt: true, joinedAt: true },
+      });
+
   res.json({
     // plus ancien -> plus récent. Une réponse à un message masqué perd sa
     // citation, qui en montrerait le contenu (comme côté client au masquage).
@@ -732,6 +743,7 @@ router.get("/:id/messages", requireAuth, async (req, res) => {
     hasMore,
     nextCursor: hasMore ? oldestId : null,
     firstUnreadId,
+    reads,
   });
 });
 
