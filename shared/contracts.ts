@@ -94,7 +94,7 @@ const MessagesResponseBase = z.object({
   hasMore: z.boolean(),
   nextCursor: zId.nullable(),
   firstUnreadId: zId.nullable(),
-  // Vide en pagination `before` ; absent d'un serveur antérieur à la 1.7.0.
+  // Vide en pagination `before` ; absent d'un serveur antérieur à la 1.6.5.
   reads: z.array(MessageReadSchema).optional(),
 });
 export const MessagesResponseSchema = MessagesResponseBase.extend({

@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-// Accusés de lecture (1.7.0) :
+// Accusés de lecture (1.6.5) :
 //   - sous le dernier message qu'un membre a vu, son avatar ; son nom au survol ;
 //   - au survol d'un message, « Vu par … » ;
 //   - « vu » = affiché à l'écran : une conversation ouverte mais pas défilée
