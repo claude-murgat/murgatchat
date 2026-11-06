@@ -3,6 +3,7 @@ import { test, expect } from "@playwright/test";
 // Régression #362 : la conversation « Mes notes » (self-DM) ne doit PLUS
 // apparaître dans la liste des messages directs ; elle est épinglée en tête de
 // la barre latérale, au même niveau que les sections (avant « Salons »).
+// Elle y est d'office, dès la création du compte, sans l'avoir ouverte.
 // Comme journey.spec.js, ce spec a besoin d'une stack e2e isolée (DB vierge)
 // pour bootstrapper son propre admin. Voir TESTING.md.
 
@@ -50,16 +51,7 @@ test("« Mes notes » est épinglée en tête et hors de la liste des DM (#362)"
   page.on("dialog", (d) => d.accept());
   await bootstrapAdmin(page);
 
-  // Ouvre la conversation avec soi-même via la recherche unifiée : on tape, puis
-  // on choisit l'action « Mes notes (conversation avec soi-même) » de « Créer ».
-  await page.getByPlaceholder(/^Rechercher/).fill("notes");
-  await page.getByRole("button", { name: /Mes notes \(conversation avec soi-même\)/ }).click();
-
-  // La conversation s'ouvre et la recherche se vide : la barre latérale réaffiche
-  // ses sections. L'entrée épinglée « Mes notes » doit alors être présente. On
-  // attend le champ vidé : tant que les résultats restent affichés, la
-  // conversation tout juste créée (channel:created) peut y figurer en double.
-  await expect(page.getByPlaceholder(/^Rechercher/)).toHaveValue("");
+  // Compte tout juste créé, rien d'ouvert : l'entrée épinglée est déjà là.
   const notesEntry = page.getByRole("button", { name: /Mes notes/ });
   await expect(notesEntry).toBeVisible();
 
@@ -80,4 +72,13 @@ test("« Mes notes » est épinglée en tête et hors de la liste des DM (#362)"
     return following ? "notes-before-salons" : "salons-before-notes";
   });
   expect(order).toBe("notes-before-salons");
+
+  // L'action « Mes notes (conversation avec soi-même) » de la recherche la
+  // rouvre, sans en créer une seconde.
+  await page.getByPlaceholder(/^Rechercher/).fill("notes");
+  await page.getByRole("button", { name: /Mes notes \(conversation avec soi-même\)/ }).click();
+  await expect(page.getByPlaceholder(/^Rechercher/)).toHaveValue("");
+  await expect(page.getByPlaceholder(/^Message à /)).toBeVisible();
+  await expect(notesEntry).toHaveCount(1);
+  await expect(page.getByText("Aucun DM")).toBeVisible();
 });

@@ -7,7 +7,11 @@ import helmet from "helmet";
 import cors from "cors";
 import authRouter, { ensureOwner, ensureLowercaseIdentifiers } from "./routes/auth.ts";
 import usersRouter from "./routes/users.ts";
-import channelsRouter, { ensureDefaultChannel, ensureSalonAdmins } from "./routes/channels.ts";
+import channelsRouter, {
+  ensureDefaultChannel,
+  ensureSalonAdmins,
+  ensureSelfDms,
+} from "./routes/channels.ts";
 import uploadsRouter from "./routes/uploads.ts";
 import searchRouter, { ensureSearchIndex } from "./routes/search.ts";
 import bugReportsRouter from "./routes/bugReports.ts";
@@ -167,6 +171,11 @@ export function startServer() {
     ensureSalonAdmins(io)
       .then((n) => n > 0 && console.log(`Salon admins ready: ${n} salon(s) backfilled`))
       .catch((e) => console.error("ensureSalonAdmins error", e));
+    // « Mes notes » d'office pour chaque compte, y compris ceux qui ne l'avaient
+    // jamais ouverte. Idempotent.
+    ensureSelfDms(io)
+      .then((n) => n > 0 && console.log(`Self-DMs ready: ${n} created`))
+      .catch((e) => console.error("ensureSelfDms error", e));
     // Backfill `isOwner` for pre-existing deployments: if there's at least
     // one admin but no owner, the oldest admin is promoted.
     ensureOwner()
