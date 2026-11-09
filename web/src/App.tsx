@@ -739,9 +739,13 @@ export default function App() {
       };
       setToast({ title, body, open });
       setTimeout(() => setToast(null), 4500);
+      // Notification OS (toast) seulement quand l'utilisateur ne regarde pas l'app.
+      // Le point rouge du tray, lui, suit désormais le compteur de non-lus (effet
+      // badge plus bas) : plus de réglage ici, qui ratait un non-lu dès que
+      // l'événement `notification` n'arrivait pas (notifyLevel, mentions, DND,
+      // socket reconnecté) alors que le message était bien non lu (#458).
       if (!isWindowFocused()) {
         notify(title, body, open, data.channelId);
-        setTrayBadge(true); // desktop: red dot on the tray icon (no-op on web)
       }
     };
     socket.on("notification", onNotif);
@@ -749,13 +753,6 @@ export default function App() {
     // forme acceptée par EffectCallback (React ignore de toute façon ce retour).
     return (() => socket.off("notification", onNotif)) as () => void;
   }, [socket, activeChannelId]);
-
-  // Desktop: clear the tray unread dot when the window regains focus.
-  useEffect(() => {
-    const onFocus = () => setTrayBadge(false);
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, []);
 
   // Desktop : clic sur une notification native → ouvrir la conversation. La
   // fenêtre est déjà ramenée au premier plan côté Rust ; ici on ne fait que
@@ -773,15 +770,22 @@ export default function App() {
     return () => window.removeEventListener("desktop:notification-click", onNotifClick);
   }, []);
 
-  // Badge du nombre de conversations non lues sur l'icône de la barre des tâches
-  // (#170). Deux chemins mutuellement exclusifs selon l'environnement — et le
-  // chemin Desktop NE DOIT PAS être derrière la garde `setAppBadge`, que WebView2
-  // (Tauri) n'expose pas :
+  // Badge « non-lus » sur l'icône, piloté par l'état de non-lus faisant autorité
+  // (#170, #458). Trois cibles tenues en phase par le MÊME compteur, dérivé de
+  // `channels` — donc de `message:new` (émis à TOUS les membres) comme la liste et
+  // la sidebar, et non de l'événement `notification` (conditionnel : notifyLevel,
+  // filtre mentions, DND, ciblé `user:<id>`), qui en ratait et laissait le point
+  // du tray absent par intermittence là où tout le reste de l'UI montrait le non-lu
+  // (TSE : l'app vit dans le tray, le point du tray est l'unique indicateur) :
   //   - PWA installée (navigateur) : API Badging `navigator.setAppBadge` — compteur
   //     natif rendu par l'OS (aucune image à générer).
-  //   - Desktop Tauri : `setDesktopBadge` — simple point rouge « non lu » en overlay
-  //     natif Windows (présence, pas un nombre ; no-op ailleurs).
-  // À 0, on efface (y compris à la déconnexion, où `channels` repasse à []).
+  //   - Desktop Tauri : `setDesktopBadge` — point rouge « non lu » en overlay natif
+  //     Windows sur l'icône de la barre des tâches (présence, pas un nombre).
+  //   - Desktop Tauri : `setTrayBadge` — même point rouge sur l'icône du tray, seul
+  //     indicateur visible quand la fenêtre est repliée dans le tray.
+  // Le chemin Desktop NE DOIT PAS être derrière la garde `setAppBadge`, que WebView2
+  // (Tauri) n'expose pas. À 0, on efface (y compris à la déconnexion, où `channels`
+  // repasse à [], et dès qu'un salon est lu — plus besoin d'effacer au focus).
   useEffect(() => {
     const count = channels.reduce((n, c) => n + (c.unread ? 1 : 0), 0);
     if (typeof navigator !== "undefined" && "setAppBadge" in navigator) {
@@ -789,6 +793,7 @@ export default function App() {
       p?.catch?.(() => {});
     }
     setDesktopBadge(count);
+    setTrayBadge(count > 0); // desktop: point rouge du tray (no-op web/PWA)
   }, [channels]);
 
   const onLoggedIn = useCallback((u: User) => {
