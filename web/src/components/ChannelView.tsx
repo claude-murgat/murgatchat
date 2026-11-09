@@ -1839,6 +1839,8 @@ function MessageRow({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(message.body || "");
   const [showPicker, setShowPicker] = useState(false);
+  // Retour visuel transitoire du bouton « Copier » (« Copié ✓ »).
+  const [copied, setCopied] = useState(false);
   // Appui long (mobile/PWA) / clic droit : rend visible la barre d'actions, qui
   // n'apparaît sinon qu'au survol — inaccessible au tactile faute de `:hover` (#439).
   const [menuOpen, setMenuOpen] = useState(false);
@@ -1865,6 +1867,33 @@ function MessageRow({
   function startEdit() {
     setDraft(message.body || "");
     setEditing(true);
+  }
+  // Copie le texte du message dans le presse-papiers. Repli sur un <textarea>
+  // + execCommand quand l'API Clipboard est absente (contexte non sécurisé),
+  // même tactique que la copie des logs du rapport de bug.
+  async function copy() {
+    const text = message.body || "";
+    if (!text) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Copie refusée (permission, contexte) : on laisse l'utilisateur
+      // sélectionner le texte manuellement, sans bloquer l'UI.
+    }
   }
   async function save() {
     const trimmed = draft.trim();
@@ -1930,6 +1959,8 @@ function MessageRow({
   // Le transfert ne reporte que le texte ; on masque l'action pour un message
   // sans corps (pièce jointe / GIF seul) qui n'aurait rien à transférer (#124).
   const canForward = onForward && !!message.body;
+  // Rien à copier pour un message sans corps (pièce jointe / GIF seul).
+  const canCopy = !!message.body;
   // Toujours au moins une action : supprimer (son message) ou supprimer pour soi.
   const actions = !editing && (
     <>
@@ -1967,6 +1998,15 @@ function MessageRow({
             title="Répondre"
           >
             Répondre
+          </button>
+        )}
+        {canCopy && (
+          <button
+            onClick={copy}
+            className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
+            title="Copier le texte du message"
+          >
+            {copied ? "Copié ✓" : "Copier"}
           </button>
         )}
         {canForward && (
