@@ -78,7 +78,11 @@ export function setLogContext(patch: LogContext) {
 }
 
 export function platformLabel() {
-  if (typeof window !== "undefined" && window.__TAURI__) return "desktop";
+  // Tauri v2 n'injecte `__TAURI__` que si `withGlobalTauri` est activé (il ne
+  // l'est pas ici) ; le marqueur toujours présent dans le webview desktop est
+  // `__TAURI_INTERNALS__` — même détection que isTauri() dans desktop.ts. Sans
+  // ça, le diagnostic desktop retombait à tort sur « web » (#459).
+  if (typeof window !== "undefined" && window.__TAURI_INTERNALS__) return "desktop";
   if (
     typeof window !== "undefined" &&
     window.matchMedia?.("(display-mode: standalone)")?.matches
