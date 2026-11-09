@@ -17,6 +17,14 @@
 # un lien). On demande donc explicitement `gh pr create`. La PR, ouverte via le PAT
 # (secret GH_BOT_TOKEN), déclenche la CI tests.yml. Laisser la PR en attente de revue
 # humaine — c'est la seule porte de validation du pipeline.
+#
+# L'équipe ne doit pas recevoir une PR rouge. Sur les PR #440 et #460, la CI a échoué
+# sur l'e2e dès le premier commit et rien ne le signalait : le job se terminait
+# à l'ouverture de la PR. Deux protections :
+#   1. le prompt exige la suite e2e COMPLÈTE avant de pousser (#460 : 3 tests lancés
+#      sur 51, le test cassé n'en faisait pas partie) ;
+#   2. le job attend ensuite le verdict de la CI, relance Claude sur les logs si elle
+#      est rouge (2 réparations au plus), et ne prévient le chat qu'à la fin.
 name: claude-fix
 
 on:
@@ -28,6 +36,8 @@ permissions:
   pull-requests: write
   issues: write
   id-token: write
+  # Lire le résultat et les logs de la CI de la PR (.github/scripts/wait-pr-ci.sh).
+  actions: read
 
 concurrency:
   group: claude-fix-${{ github.event.issue.number }}
@@ -38,8 +48,37 @@ jobs:
     if: github.event.label.name == 'claude:fix'
     runs-on: [self-hosted, murgatchat]
     # Pas de plafond de tours côté Claude (cf. plus bas) : le temps de job est la
-    # seule borne. On laisse de la marge pour les fix qui demandent de l'exploration.
-    timeout-minutes: 60
+    # seule borne. On laisse de la marge pour les fix qui demandent de l'exploration,
+    # puis pour la boucle CI (3 attentes de ~5 min, 2 réparations de 30 min au plus).
+    timeout-minutes: 120
+    env:
+      # Partagé par les deux étapes de réparation. Tout ce qui varie (PR, branche,
+      # logs) est dans le rapport écrit par wait-pr-ci.sh.
+      CI_REPAIR_PROMPT: |
+        La CI GitHub de la PR que tu as ouverte pour l'issue #${{ github.event.issue.number }} de MurgaChat
+        (dépôt ${{ github.repository }}) est rouge. Travaille et rédige en français.
+
+        Le fichier `.git/ci-failure.md` donne la PR, la branche, le commit testé, les jobs en échec et
+        les logs complets. Il peut être long : cherche-y « Error », « failed » ou le nom du test.
+
+        1. Place-toi sur la branche de la PR, à jour : `git fetch origin <branche>` puis
+           `git checkout <branche>` (ou `git reset --hard origin/<branche>` si elle existe déjà ici).
+        2. Trouve la vraie cause de l'échec. Un test d'un autre fichier peut casser à cause de ton
+           changement : corrige alors ton code, ou adapte ce test en gardant ce qu'il vérifie.
+           N'efface pas de test, ne le désactive pas (`skip`, `fixme`, `only`) et n'affaiblis pas ses
+           assertions pour faire passer la CI.
+        3. Reproduis et vérifie avec `.github/scripts/e2e-local.sh <chemin du spec relatif à e2e/>`,
+           puis `.github/scripts/e2e-local.sh` SANS argument pour toute la suite (environ 5 minutes :
+           donne à ta commande Bash un timeout de 10 minutes). Si l'échec porte sur le lint, le
+           typecheck ou Vitest, rejoue la commande correspondante. Node n'est pas installé sur le
+           runner : passe par un conteneur `node:24` travaillant sur une copie du dépôt.
+        4. Commit sur la même branche et pousse. Pas de force-push, pas de nouvelle branche ni de
+           nouvelle PR, et ne fusionne pas.
+        5. Si l'échec n'a aucun rapport avec ton changement (test instable, panne d'infrastructure),
+           ne pousse rien et explique-le dans un commentaire de la PR.
+
+        RÈGLE IMPORTANTE — pas de @mention. N'écris JAMAIS « @ » suivi d'un identifiant (PR,
+        commits, commentaires) : un pseudo du chat peut coïncider avec un vrai compte GitHub.
     steps:
       # Garde-fou credentials, en TOUT PREMIER pour échouer vite et clairement.
       # GH_BOT_TOKEN est un PAT : il expire. Quand il est mort, claude-code-action
@@ -294,11 +333,24 @@ jobs:
             3. Applique le correctif MINIMAL et cohérent avec le style du dépôt
                (TypeScript ESM dans server/, web/ et shared/ ; conventions existantes).
             4. Ajoute ou ajuste un test si pertinent (Vitest dans server/ ; Playwright dans e2e/).
-            5. Commit, puis pousse la branche.
-            6. OUVRE une Pull Request vers `main` avec `gh pr create` : titre explicite, et corps
+            5. AVANT de pousser, vérifie comme le fera la CI de la PR :
+               - le lint et le typecheck de chaque paquet touché (`npm run lint` et
+                 `npm run typecheck` dans web/ ou server/). Node n'est pas installé sur le
+                 runner : passe par un conteneur `node:24` travaillant sur une copie du dépôt,
+                 pour ne pas laisser de fichiers root dans le workspace ;
+               - TOUTE la suite e2e, en lançant `.github/scripts/e2e-local.sh` SANS argument
+                 (stack isolée bâtie depuis tes sources, environ 5 minutes : donne à ta commande
+                 Bash un timeout de 10 minutes). Ne te limite pas aux tests qui te semblent
+                 concernés : un changement d'interface casse souvent un test d'un autre fichier.
+                 Passer un chemin de spec ne sert qu'à itérer.
+               Tout doit passer. Si ton changement casse un test existant, corrige ton code,
+               ou adapte ce test en gardant ce qu'il vérifie : ne l'efface pas, ne le désactive
+               pas (`skip`, `fixme`, `only`) et n'affaiblis pas ses assertions.
+            6. Commit, puis pousse la branche.
+            7. OUVRE une Pull Request vers `main` avec `gh pr create` : titre explicite, et corps
                en français décrivant le diagnostic et le correctif, terminé par une ligne
                « Fixes #${{ github.event.issue.number }} » pour lier et clore l'issue au merge.
-            7. N'effectue AUCUNE action destructrice et ne fusionne pas : la PR doit rester en
+            8. N'effectue AUCUNE action destructrice et ne fusionne pas : la PR doit rester en
                attente de revue humaine.
 
             RÈGLE IMPORTANTE — pas de @mention. N'écris JAMAIS « @ » suivi d'un identifiant
@@ -328,10 +380,79 @@ jobs:
         if: always()
         run: .github/scripts/format-claude-log.sh "${{ steps.claude.outputs.execution_file }}"
 
-      # Notifie l'équipe dans le chat MurgaChat dès que la PR est ouverte. Best-effort :
-      # n'échoue jamais le job (la PR existe déjà). Requiert le secret SUPPORT_NOTIFY_TOKEN
-      # (partagé avec le serveur) et, optionnellement, la variable CHAT_NOTIFY_URL
-      # (défaut http://localhost:4000, joignable car runner local).
+      # Boucle CI : verdict, réparation, verdict… La CI de GitHub reste la référence,
+      # car un test peut passer sur le runner et échouer sur ubuntu-latest (#440).
+      # Une réparation qui ne pousse rien laisse le même SHA en échec : on s'arrête
+      # là plutôt que de relancer Claude sur les mêmes logs. continue-on-error : une
+      # réparation qui plante ne doit pas priver l'équipe de la notification finale.
+      # La transcription suit chaque réparation, car l'action réécrit à chaque
+      # exécution le même execution_file.
+      - name: Attendre la CI de la PR
+        id: ci1
+        timeout-minutes: 30
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: .github/scripts/wait-pr-ci.sh "${{ github.event.issue.number }}"
+
+      - name: Réparer la CI (1re tentative)
+        id: repair1
+        if: steps.ci1.outputs.state == 'red'
+        continue-on-error: true
+        timeout-minutes: 30
+        uses: anthropics/claude-code-action@d70510b174a1244958df0b03166a54912811f3e6 # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GH_BOT_TOKEN }}
+          display_report: true
+          prompt: ${{ env.CI_REPAIR_PROMPT }}
+          claude_args: |
+            --model claude-opus-4-8
+            --allowedTools "Read,Grep,Glob,Edit,Write,Bash"
+
+      - name: Transcription de la 1re réparation
+        if: always() && steps.repair1.outcome != 'skipped'
+        run: .github/scripts/format-claude-log.sh "${{ steps.repair1.outputs.execution_file }}"
+
+      - name: Attendre la CI après la 1re réparation
+        id: ci2
+        if: steps.ci1.outputs.state == 'red'
+        timeout-minutes: 30
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: .github/scripts/wait-pr-ci.sh "${{ github.event.issue.number }}"
+
+      - name: Réparer la CI (2e tentative)
+        id: repair2
+        if: steps.ci2.outputs.state == 'red' && steps.ci2.outputs.sha != steps.ci1.outputs.sha
+        continue-on-error: true
+        timeout-minutes: 30
+        uses: anthropics/claude-code-action@d70510b174a1244958df0b03166a54912811f3e6 # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GH_BOT_TOKEN }}
+          display_report: true
+          prompt: ${{ env.CI_REPAIR_PROMPT }}
+          claude_args: |
+            --model claude-opus-4-8
+            --allowedTools "Read,Grep,Glob,Edit,Write,Bash"
+
+      - name: Transcription de la 2e réparation
+        if: always() && steps.repair2.outcome != 'skipped'
+        run: .github/scripts/format-claude-log.sh "${{ steps.repair2.outputs.execution_file }}"
+
+      - name: Attendre la CI après la 2e réparation
+        id: ci3
+        if: steps.ci2.outputs.state == 'red' && steps.ci2.outputs.sha != steps.ci1.outputs.sha
+        timeout-minutes: 30
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: .github/scripts/wait-pr-ci.sh "${{ github.event.issue.number }}"
+
+      # Notifie l'équipe dans le chat MurgaChat une fois le verdict de la CI connu, et
+      # le mentionne s'il n'est pas vert. Best-effort : n'échoue jamais le job (la PR
+      # existe déjà). Requiert le secret SUPPORT_NOTIFY_TOKEN (partagé avec le serveur)
+      # et, optionnellement, la variable CHAT_NOTIFY_URL (défaut http://localhost:4000,
+      # joignable car runner local).
       - name: Notifier MurgaChat
         if: always()
         env:
@@ -340,6 +461,9 @@ jobs:
           CHAT_NOTIFY_URL: ${{ vars.CHAT_NOTIFY_URL || 'http://localhost:4000' }}
           ISSUE: ${{ github.event.issue.number }}
           REPO: ${{ github.repository }}
+          # Dernier verdict obtenu (une étape non exécutée donne une chaîne vide).
+          CI_STATE: ${{ steps.ci3.outputs.state || steps.ci2.outputs.state || steps.ci1.outputs.state }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           # Cette étape ne doit JAMAIS faire échouer le job : quand elle tourne, le
           # travail utile est déjà fait (la PR est ouverte ou non, une notif ratée n'y
@@ -369,6 +493,18 @@ jobs:
           # Le titre n'est qu'un libellé d'affichage : s'il manque, on notifie quand
           # même plutôt que d'abandonner une notif dont le lien PR, lui, est bon.
           [ -n "$TITLE" ] || TITLE="issue #$ISSUE"
+          # Le texte du message est composé par le serveur : le titre est le seul champ
+          # libre pour signaler une CI qui n'est pas verte, sans redéployer le serveur.
+          case "$CI_STATE" in
+            red)
+              TITLE="⚠️ CI encore rouge après réparation automatique — $TITLE"
+              gh pr comment "$PR_URL" --body "⚠️ La CI est encore rouge après les tentatives de réparation automatique de claude-fix : une intervention humaine est nécessaire. Détail des tentatives : $RUN_URL" \
+                || echo "Commentaire de PR impossible (non bloquant)"
+              ;;
+            unknown) TITLE="⏳ CI sans verdict — $TITLE" ;;
+          esac
+          # Le serveur refuse un titre de plus de 300 caractères.
+          TITLE="${TITLE:0:300}"
           PAYLOAD=$(jq -n --argjson n "$ISSUE" --arg u "$PR_URL" --arg t "$TITLE" \
             '{issueNumber:$n, prUrl:$u, title:$t}')
           if [ -z "$PAYLOAD" ]; then

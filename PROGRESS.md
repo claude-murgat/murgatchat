@@ -1798,6 +1798,19 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      alignées dans `Cargo.lock` (installeur Windows construit avant le merge). Aucun changement
      fonctionnel attendu.
 
+## Itération 2026-11-09 — `claude:fix` attend le verdict de la CI
+
+157. **Pipeline `claude:fix` : PR vérifiée avant d'être annoncée** — les PR #440 et #460 sont
+     arrivées rouges sur l'e2e sans que rien ne le signale : le job se terminait à l'ouverture de
+     la PR, et pour #460 Claude n'avait lancé que 3 tests e2e sur 51. Claude rejoue désormais
+     toute la suite avant de pousser (`.github/scripts/e2e-local.sh` : stack isolée, Playwright à
+     la version du lockfile, aucun fichier root laissé dans le workspace). Le job attend ensuite
+     le verdict de `tests.yml` (`.github/scripts/wait-pr-ci.sh`), relance Claude sur les logs si
+     la CI est rouge (deux réparations au plus, sur la même branche) et ne prévient le chat qu'à
+     la fin, en signalant une CI encore rouge ou sans verdict. Environ 5 minutes de plus par run
+     sur le runner ; `timeout-minutes` passe de 60 à 120. Aucun changement applicatif, donc pas
+     de nouvelle version.
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
