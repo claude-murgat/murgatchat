@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import EmojiPicker from "emoji-picker-react";
 import type { Socket } from "socket.io-client";
 import Avatar from "./Avatar.tsx";
@@ -15,6 +16,7 @@ import { extOf, fileIcon } from "../fileIcon.ts";
 import { isWindowFocused } from "../desktop.ts";
 import { pasteAsMarkdown } from "../pasteMarkdown.ts";
 import { useLongPress } from "../hooks/useLongPress.ts";
+import type { LongPressPosition } from "../hooks/useLongPress.ts";
 import type {
   Attachment,
   Channel,
@@ -1850,6 +1852,27 @@ function MessageRow({
   const longPress = useLongPress(() => {
     if (!editing) setMenuOpen(true);
   });
+  // Point du clic droit à la souris, où s'ouvre le menu. Reste null à l'appui
+  // long : la barre d'actions s'affiche alors en haut de la ligne.
+  const [menuPos, setMenuPos] = useState<LongPressPosition | null>(null);
+  function closeMenu() {
+    setMenuOpen(false);
+    setMenuPos(null);
+  }
+  // Le menu du navigateur reste disponible là où il sert : dans le champ de
+  // modification (coller) et sur du texte sélectionné dans ce message (copier
+  // un extrait). Partout ailleurs sur la ligne, c'est le menu d'actions.
+  function onRowContextMenu(e: ReactMouseEvent<HTMLDivElement>) {
+    if (editing) return;
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed && e.currentTarget.contains(selection.anchorNode)) {
+      return;
+    }
+    // Android déclenche aussi `contextmenu` à l'appui long.
+    const isTouch = (e.nativeEvent as PointerEvent).pointerType === "touch";
+    setMenuPos(isTouch ? null : { x: e.clientX, y: e.clientY });
+    longPress.handlers.onContextMenu(e);
+  }
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const reactBtnRef = useRef<HTMLButtonElement | null>(null);
 
@@ -1889,7 +1912,10 @@ function MessageRow({
         document.body.removeChild(ta);
       }
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      setTimeout(() => {
+        setCopied(false);
+        closeMenu();
+      }, 1500);
     } catch {
       // Copie refusée (permission, contexte) : on laisse l'utilisateur
       // sélectionner le texte manuellement, sans bloquer l'UI.
@@ -1969,29 +1995,51 @@ function MessageRow({
       {menuOpen && (
         <div
           className="fixed inset-0 z-40"
-          onClick={() => setMenuOpen(false)}
+          onClick={closeMenu}
+          onContextMenu={(e) => {
+            // stopPropagation : le backdrop est rendu dans la ligne, dont le clic
+            // droit rouvrirait aussitôt le menu.
+            e.preventDefault();
+            e.stopPropagation();
+            closeMenu();
+          }}
           aria-hidden="true"
         />
       )}
       <div
-        className={`absolute right-2 top-1 items-center gap-1 bg-white border border-slate-200 rounded-sm shadow-xs ${
-          menuOpen ? "flex z-50" : "hidden group-hover:flex"
-        }`}
+        className={
+          menuPos
+            ? "fixed z-50 w-48 overflow-hidden rounded-md bg-white shadow-lg [&>button]:block [&>button]:w-full [&>button]:px-3 [&>button]:py-1.5 [&>button]:text-left [&>button]:text-sm [&>button:hover]:bg-slate-100"
+            : `absolute right-2 top-1 items-center gap-1 bg-white border border-slate-200 rounded-sm shadow-xs ${
+                menuOpen ? "flex z-50" : "hidden group-hover:flex"
+              }`
+        }
+        style={
+          menuPos
+            ? {
+                left: Math.min(menuPos.x, window.innerWidth - 200),
+                top: Math.min(menuPos.y, window.innerHeight - 200),
+              }
+            : undefined
+        }
       >
         {onReact && (
           <button
             ref={reactBtnRef}
-            onClick={() => setShowPicker((v) => !v)}
+            onClick={() => {
+              if (menuPos) closeMenu();
+              setShowPicker((v) => !v);
+            }}
             className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
             title="Réagir"
           >
-            😀
+            {menuPos ? "😀 Réagir" : "😀"}
           </button>
         )}
         {onReply && (
           <button
             onClick={() => {
-              setMenuOpen(false);
+              closeMenu();
               onReply(message);
             }}
             className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
@@ -2012,7 +2060,7 @@ function MessageRow({
         {canForward && (
           <button
             onClick={() => {
-              setMenuOpen(false);
+              closeMenu();
               onForward?.();
             }}
             className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
@@ -2024,7 +2072,7 @@ function MessageRow({
         {isOwn && (
           <button
             onClick={() => {
-              setMenuOpen(false);
+              closeMenu();
               startEdit();
             }}
             className="text-xs text-slate-600 hover:text-aubergine-700 px-2 py-1"
@@ -2036,7 +2084,7 @@ function MessageRow({
         {isOwn ? (
           <button
             onClick={() => {
-              setMenuOpen(false);
+              closeMenu();
               onDelete(message);
             }}
             className="text-xs text-slate-600 hover:text-red-600 px-2 py-1"
@@ -2047,7 +2095,7 @@ function MessageRow({
         ) : (
           <button
             onClick={() => {
-              setMenuOpen(false);
+              closeMenu();
               onHide(message);
             }}
             className="text-xs text-slate-600 hover:text-red-600 px-2 py-1"
@@ -2106,6 +2154,7 @@ function MessageRow({
       <div
         ref={rowRef}
         {...longPress.handlers}
+        onContextMenu={onRowContextMenu}
         className="relative pl-12 pr-4 py-0.5 hover:bg-slate-50 group rounded-sm pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]"
       >
         {actions}
@@ -2127,6 +2176,7 @@ function MessageRow({
     <div
       ref={rowRef}
       {...longPress.handlers}
+      onContextMenu={onRowContextMenu}
       className="relative px-2 py-1.5 hover:bg-slate-50 rounded-sm group pointer-coarse:select-none pointer-coarse:[-webkit-touch-callout:none]"
     >
       {actions}

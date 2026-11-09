@@ -1,9 +1,8 @@
 import { test, expect } from "@playwright/test";
 
-// Clic droit sur un message (desktop web) : la barre d'actions s'ouvre et le
-// bouton « Copier » recopie le texte du message dans le presse-papiers — le
-// menu natif du navigateur étant neutralisé, c'est la seule voie de copie au
-// clic droit (#457).
+// Clic droit sur un message (#457) : le menu d'actions s'ouvre à l'endroit du
+// curseur, et « Copier » recopie le texte du message dans le presse-papiers. Sur
+// du texte sélectionné, le menu du navigateur reste disponible pour un extrait.
 
 const API_URL = process.env.E2E_API_URL || "http://localhost:4001";
 // Requêtes côté Node : forcer IPv4 (Windows résout "localhost" en ::1).
@@ -79,7 +78,12 @@ async function send(page, name, text) {
   await expect(chat(page).getByText(text)).toBeVisible();
 }
 
-test("le clic droit ouvre un menu dont « Copier » recopie le message", async ({
+const copierDans = (row) => row.getByRole("button", { name: "Copier", exact: true });
+// Le menu ouvert au curseur. Le fond transparent, lui aussi fixe, n'a pas de bouton.
+const menuAuCurseur = (row) =>
+  row.locator("div.fixed").filter({ has: row.page().getByRole("button") });
+
+test("le clic droit ouvre, au curseur, un menu dont « Copier » recopie le message", async ({
   browser,
   request,
 }) => {
@@ -91,16 +95,55 @@ test("le clic droit ouvre un menu dont « Copier » recopie le message", async (
   await send(me, priv.name, texte);
 
   const row = messageRow(me, texte);
+  const ligne = await row.boundingBox();
+  // À gauche de la ligne : la barre visible au survol est, elle, calée à droite.
+  // Vérifier la seule visibilité de « Copier » ne prouverait donc rien.
+  const x = Math.round(ligne.x + 80);
+  const y = Math.round(ligne.y + ligne.height / 2);
 
-  // Clic droit : le menu natif est neutralisé et la barre d'actions s'ouvre.
-  await row.click({ button: "right" });
-  const copier = row.getByRole("button", { name: "Copier", exact: true });
-  await expect(copier).toBeVisible();
+  await me.mouse.click(x, y, { button: "right" });
+  await expect(copierDans(row)).toBeVisible();
+
+  const menu = await menuAuCurseur(row).boundingBox();
+  const fenetre = me.viewportSize();
+  expect(Math.round(menu.x)).toBe(Math.min(x, fenetre.width - 200));
+  expect(Math.round(menu.y)).toBe(Math.min(y, fenetre.height - 200));
 
   // Le clic recopie le texte du message et confirme (« Copié ✓ »).
-  await copier.click();
+  await copierDans(row).click();
   await expect(row.getByRole("button", { name: "Copié ✓" })).toBeVisible();
 
   const presse = await me.evaluate(() => navigator.clipboard.readText());
   expect(presse).toBe(texte);
+
+  // Le menu se referme une fois la copie confirmée.
+  await expect(menuAuCurseur(row)).toHaveCount(0);
+});
+
+test("clic droit sur du texte sélectionné : le menu du navigateur reste disponible", async ({
+  browser,
+  request,
+}) => {
+  const { admin, priv } = await setup(request);
+  const me = await openAs(browser, admin);
+  await openChannel(me, priv.name);
+
+  const texte = "message dont on copie un extrait";
+  await send(me, priv.name, texte);
+
+  const row = messageRow(me, texte);
+  const corps = row.getByText(texte, { exact: true });
+  await corps.selectText();
+
+  // Au niveau du document, le gestionnaire de React a déjà été exécuté.
+  await me.evaluate(() => {
+    document.addEventListener("contextmenu", (e) => {
+      window.__menuNatifBloque = e.defaultPrevented;
+    });
+  });
+  await corps.click({ button: "right" });
+
+  expect(await me.evaluate(() => window.__menuNatifBloque)).toBe(false);
+  // Et l'app n'ouvre pas son propre menu par-dessus.
+  await expect(menuAuCurseur(row)).toHaveCount(0);
 });
