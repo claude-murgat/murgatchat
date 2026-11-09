@@ -237,7 +237,9 @@ test("lecture partielle : l'avatar s'arrête au dernier message affiché, la rep
   expect(resumeAt).toBe(seenUpTo + 1);
 
   // Il défile jusqu'en bas : son avatar descend sous la dernière ligne.
-  await bobPage.getByText(`ligne ${seenUpTo}`, { exact: true }).hover();
+  // Survol à gauche du message : à cette largeur, la barre d'actions, calée à
+  // droite, recouvre le centre de la ligne et intercepterait le survol.
+  await bobPage.getByText(`ligne ${seenUpTo}`, { exact: true }).hover({ position: { x: 5, y: 5 } });
   await bobPage.mouse.wheel(0, 5000);
   await expect.poll(() => markedLine(marker)).toBe(30);
 });
