@@ -380,9 +380,13 @@ workflows GitHub Actions (`.github/workflows/`) :
    implémente un correctif sur une branche et ouvre une **PR** (`Fixes #N`) laissée en
    **attente de revue**. Ce workflow tourne sur un **runner self-hosted** étiqueté
    `[self-hosted, murgatchat]` (cf. setup ci-dessous) — sur ta machine de dev, ce qui
-   lui permet de joindre le chat sur `localhost`. Dès la PR ouverte, une étape appelle
+   lui permet de joindre le chat sur `localhost`. Avant de pousser, Claude rejoue toute
+   la suite e2e (`.github/scripts/e2e-local.sh`). La PR ouverte, le job **attend le
+   verdict de `tests.yml`** ; si la CI est rouge, Claude est relancé sur les logs, deux
+   fois au plus, sur la même branche. Une fois le verdict connu, une étape appelle
    `POST /support/notify` du serveur, qui **poste un message dans le salon d'équipe**
-   (défaut `support-dev`) pour notifier directement dans MurgaChat.
+   (défaut `support-dev`) pour notifier directement dans MurgaChat — le message signale
+   une CI encore rouge ou sans verdict.
 3. **Revue** — un humain relit la PR et décide du merge. Pour une seconde paire d'yeux,
    `claude.yml` permet d'itérer avec Claude en commentant **`@claude`** sur la PR.
 
