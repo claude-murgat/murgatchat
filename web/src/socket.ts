@@ -31,7 +31,10 @@ export function getSocket(token: string): Socket {
   // Resolve the server URL at connect time so it follows the runtime-configured
   // address (set on the login screen), not a value baked at build time.
   socket = io(getApiBaseUrl(), {
-    auth: { token, platform: window.__TAURI__ ? "desktop" : "web" },
+    // Même marqueur que isTauri()/platformLabel() : `__TAURI_INTERNALS__` est
+    // présent dans le webview desktop, contrairement à `__TAURI__` (injecté
+    // seulement sous `withGlobalTauri`) qui laissait le desktop s'annoncer « web ».
+    auth: { token, platform: window.__TAURI_INTERNALS__ ? "desktop" : "web" },
     transports: ["websocket", "polling"],
   });
   instrument(socket);
