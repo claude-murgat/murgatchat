@@ -19,7 +19,7 @@ export default function Avatar({ user, size = 36 }: AvatarProps) {
     .toUpperCase();
   return (
     <div
-      className="rounded-md grid place-items-center font-semibold text-white shrink-0"
+      className="rounded-md grid place-items-center font-semibold text-white shrink-0 select-none"
       style={{
         width: size,
         height: size,

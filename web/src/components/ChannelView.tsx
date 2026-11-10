@@ -1461,7 +1461,7 @@ export default function ChannelView({
                 </div>
               )}
               {m.id === firstUnreadId && (
-                <div ref={unreadElRef} className="flex items-center my-3">
+                <div ref={unreadElRef} className="flex items-center my-3 select-none">
                   <div className="flex-1 border-t border-slackred/50" />
                   <div className="px-3 text-xs font-semibold text-slackred uppercase tracking-wide">
                     Nouveaux messages
@@ -1757,7 +1757,7 @@ function ReadMarkers({ users }: { users: User[] }) {
   const more = users.length - shown.length;
   const label = seenLabel(users);
   return (
-    <div className="flex justify-end pr-4 pb-0.5">
+    <div className="flex justify-end pr-4 pb-0.5 select-none">
       <div
         ref={ref}
         role="img"
@@ -1860,16 +1860,20 @@ function MessageRow({
     setMenuPos(null);
   }
   // Le menu du navigateur reste disponible là où il sert : dans le champ de
-  // modification (coller) et sur du texte sélectionné dans ce message (copier
-  // un extrait). Partout ailleurs sur la ligne, c'est le menu d'actions.
+  // modification (coller), sur un message touché par la sélection (copier un
+  // extrait) et, à la souris, sur un lien ou un média (copier l'adresse, l'image).
+  // Partout ailleurs sur la ligne, c'est le menu d'actions.
   function onRowContextMenu(e: ReactMouseEvent<HTMLDivElement>) {
     if (editing) return;
     const selection = window.getSelection();
-    if (selection && !selection.isCollapsed && e.currentTarget.contains(selection.anchorNode)) {
+    // Contenance partielle : une sélection à cheval sur plusieurs messages compte
+    // pour chacun d'eux, quel que soit le sens du glissé.
+    if (selection && !selection.isCollapsed && selection.containsNode(e.currentTarget, true)) {
       return;
     }
     // Android déclenche aussi `contextmenu` à l'appui long.
     const isTouch = (e.nativeEvent as PointerEvent).pointerType === "touch";
+    if (!isTouch && (e.target as Element).closest("a, img, video")) return;
     setMenuPos(isTouch ? null : { x: e.clientX, y: e.clientY });
     longPress.handlers.onContextMenu(e);
   }
@@ -2009,8 +2013,8 @@ function MessageRow({
       <div
         className={
           menuPos
-            ? "fixed z-50 w-48 overflow-hidden rounded-md bg-white shadow-lg [&>button]:block [&>button]:w-full [&>button]:px-3 [&>button]:py-1.5 [&>button]:text-left [&>button]:text-sm [&>button:hover]:bg-slate-100"
-            : `absolute right-2 top-1 items-center gap-1 bg-white border border-slate-200 rounded-sm shadow-xs ${
+            ? "fixed z-50 w-48 select-none overflow-hidden rounded-md bg-white shadow-lg [&>button]:block [&>button]:w-full [&>button]:px-3 [&>button]:py-1.5 [&>button]:text-left [&>button]:text-sm [&>button:hover]:bg-slate-100"
+            : `absolute right-2 top-1 select-none items-center gap-1 bg-white border border-slate-200 rounded-sm shadow-xs ${
                 menuOpen ? "flex z-50" : "hidden group-hover:flex"
               }`
         }
@@ -2124,7 +2128,7 @@ function MessageRow({
   );
 
   const reactionChips = message.reactions?.length > 0 && (
-    <div className="mt-1 flex flex-wrap gap-1">
+    <div className="mt-1 flex flex-wrap gap-1 select-none">
       {message.reactions.map((r) => {
         const mine = r.users?.some((u) => u.id === currentUser?.id);
         return (
@@ -2160,7 +2164,7 @@ function MessageRow({
         {actions}
         {picker}
         <div className="flex items-start gap-2">
-          <div className="text-xs text-slate-400 w-0 group-hover:w-10 overflow-hidden transition-all">
+          <div className="text-xs text-slate-400 w-0 group-hover:w-10 overflow-hidden transition-all select-none">
             {formatDate(message.createdAt)}
           </div>
           <div className="flex-1 min-w-0">
