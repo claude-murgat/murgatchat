@@ -203,6 +203,81 @@ fn clear_desktop_notifications(app: tauri::AppHandle, channel_ids: Vec<String>) 
 #[tauri::command]
 fn clear_desktop_notifications(_app: tauri::AppHandle, _channel_ids: Vec<String>) {}
 
+// Une install « tous les utilisateurs » (TSE) se met à jour une seule fois, par un
+// admin, pour toutes les sessions : ne pas proposer la MAJ aux autres comptes. Une
+// copie privée reste proposée : l'installeur la rebascule sur la copie commune
+// (installer-hooks.nsh).
+#[cfg(windows)]
+#[tauri::command]
+fn can_self_update(app: tauri::AppHandle) -> bool {
+    use windows::core::{w, HSTRING};
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::Security::{
+        GetTokenInformation, TokenElevationType, TokenElevationTypeDefault, TOKEN_ELEVATION_TYPE,
+        TOKEN_QUERY,
+    };
+    use windows::Win32::System::Registry::{RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ};
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    use windows::Win32::UI::Shell::IsUserAnAdmin;
+
+    let key = HSTRING::from(format!(
+        r"Software\Microsoft\Windows\CurrentVersion\Uninstall\{}",
+        app.package_info().name
+    ));
+    let mut path = [0u16; 1024];
+    let mut size = std::mem::size_of_val(&path) as u32;
+    let found = unsafe {
+        RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            &key,
+            w!("DisplayIcon"),
+            RRF_RT_REG_SZ,
+            None,
+            Some(path.as_mut_ptr().cast()),
+            Some(&mut size),
+        )
+    }
+    .is_ok();
+    let runs_shared_copy = found && {
+        let shared_exe = String::from_utf16_lossy(&path[..(size as usize / 2).saturating_sub(1)]);
+        std::env::current_exe().is_ok_and(|exe| {
+            shared_exe
+                .trim_matches('"')
+                .eq_ignore_ascii_case(&exe.to_string_lossy())
+        })
+    };
+    if !runs_shared_copy {
+        return true;
+    }
+
+    // Admin : jeton scindé par l'UAC (élevable), ou administrateur sans UAC.
+    // shortcut: Backup Operators et Power Users ont aussi un jeton scindé et voient la
+    // bannière ; lire le jeton lié (TokenLinkedToken) si de tels comptes existent sur le TSE.
+    unsafe {
+        let mut token = HANDLE::default();
+        let mut kind = TokenElevationTypeDefault;
+        let mut len = 0u32;
+        let split_token = OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token).is_ok()
+            && GetTokenInformation(
+                token,
+                TokenElevationType,
+                Some((&raw mut kind).cast()),
+                size_of::<TOKEN_ELEVATION_TYPE>() as u32,
+                &mut len,
+            )
+            .is_ok()
+            && kind != TokenElevationTypeDefault;
+        let _ = CloseHandle(token);
+        split_token || IsUserAnAdmin().as_bool()
+    }
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+fn can_self_update() -> bool {
+    true
+}
+
 fn main() {
     tauri::Builder::default()
         // Single instance: a second launch (e.g. clicking the icon while the app
@@ -241,7 +316,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             set_tray_badge,
             notify_desktop,
-            clear_desktop_notifications
+            clear_desktop_notifications,
+            can_self_update
         ])
         .setup(|app| {
             // Fixe l'AppUserModelID explicite du process = app_id des toasts = AUMID

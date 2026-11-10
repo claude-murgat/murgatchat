@@ -46,6 +46,18 @@
 ; removes it in both contexts and, if present, migrates it to a shortcut on THIS
 ; install so login keeps launching the current version. PREUNINSTALL clears it.
 ;
+; ----------------------------------------------------------------------------
+; 4) PREINSTALL - jamais de copie privée à côté d'une install « tous les utilisateurs ».
+; ----------------------------------------------------------------------------
+; En installMode "both", un compte standard n'a pas d'UAC : MultiUser.nsh passe sans
+; rien dire en « Moi seul », installeur comme auto-updater. Sur le TSE, chaque session
+; installait donc sa propre copie (%LOCALAPPDATA%\Programs\Chat), sans toucher à celle
+; de Program Files. Si une install machine existe, on retire la copie privée éventuelle
+; et on remet son démarrage auto sur la copie commune. Un admin met alors à jour cette
+; copie commune ; les autres comptes la relancent et l'installeur s'arrête. Exception :
+; une copie commune plus ancienne que la copie privée, qui se met à jour comme avant
+; tant qu'un admin n'est pas passé (sinon le clic ferait redescendre de version).
+;
 ; Macros/vars below (IsShortcutTarget, UnpinShortcut, SetLnkAppUserModelId,
 ; ${PRODUCTNAME}, ${MAINBINARYNAME}, ${STARTMENUFOLDER}, ${INSTALLMODE},
 ; $AppStartMenuFolder, $MultiUser.InstallMode) come from Tauri's template /
@@ -53,6 +65,54 @@
 
 !macro NSIS_HOOK_PREINSTALL
   Push $0
+  Push $1
+  Push $2
+
+  !if "${INSTALLMODE}" == "both"
+    ReadRegStr $0 HKLM "${UNINSTKEY}" "DisplayIcon"
+    StrCpy $0 $0 -1 1 ; DisplayIcon est entre guillemets
+    ReadRegStr $1 HKLM "${UNINSTKEY}" "DisplayVersion"
+    ReadRegStr $2 HKCU "${UNINSTKEY}" "DisplayVersion"
+    nsis_tauri_utils::SemverCompare "$1" "$2"
+    Pop $1
+    ${If} $MultiUser.Privileges == "Admin"
+      StrCpy $1 0 ; un admin met à jour la copie commune, même plus ancienne
+    ${EndIf}
+    ${If} ${FileExists} "$0"
+    ${AndIf} $MultiUser.InstallMode == "CurrentUser"
+    ${AndIf} $1 <> -1
+      nsis_tauri_utils::KillProcessCurrentUser "${MAINBINARYNAME}.exe"
+      Pop $1
+      ReadRegStr $1 HKCU "${MANUPRODUCTKEY}" ""
+      ${If} $1 != ""
+      ${AndIf} ${FileExists} "$1\${MAINBINARYNAME}.exe"
+        Sleep 500 ; le temps que Windows libère le binaire qu'on vient de tuer
+        Delete "$1\${MAINBINARYNAME}.exe"
+        Delete "$1\uninstall.exe"
+        Delete "$SMPROGRAMS\${PRODUCTNAME}.lnk"
+        Delete "$DESKTOP\${PRODUCTNAME}.lnk"
+        DeleteRegKey HKCU "${UNINSTKEY}"
+        DeleteRegKey HKCU "Software\Classes\murgatchat"
+        ReadRegStr $1 HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"
+        ${If} $1 != ""
+          WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}" '"$0" --hidden'
+        ${EndIf}
+      ${EndIf}
+      SetOutPath "$TEMP" ; RMDir refuse le répertoire courant
+      RMDir "$INSTDIR"
+      ${If} $MultiUser.Privileges == "Admin"
+        Call MultiUser.InstallMode.AllUsers
+        SetOutPath $INSTDIR
+      ${Else}
+        MessageBox MB_OK|MB_ICONINFORMATION "Chat est déjà installé pour tous les utilisateurs de cet ordinateur : inutile de l'installer dans votre session. Les mises à jour se font une seule fois, par un administrateur." /SD IDOK
+        nsis_tauri_utils::RunAsUser "$0" ""
+        Quit
+      ${EndIf}
+    ${EndIf}
+  !endif
+
+  Pop $2
+  Pop $1
   nsExec::Exec 'cmd /c taskkill /F /IM "chat-desktop.exe"'
   Pop $0
   Pop $0

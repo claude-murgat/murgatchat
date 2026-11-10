@@ -372,6 +372,8 @@ export function isWindowFocused() {
 export async function checkDesktopUpdate() {
   if (!isTauri()) return null;
   try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    if (!(await invoke<boolean>("can_self_update"))) return null;
     const { check } = await import("@tauri-apps/plugin-updater");
     const update = await check();
     return update && update.available !== false ? update : null;
@@ -381,9 +383,8 @@ export async function checkDesktopUpdate() {
   }
 }
 
-// Download + install the given update, then relaunch. Throws on failure (e.g. a
-// per-machine/Program Files install without admin rights) so the caller can
-// surface it to the user.
+// Download + install the given update, then relaunch. Throws on failure (e.g. the
+// UAC prompt refused on an all-users install) so the caller can surface it.
 export async function installDesktopUpdate(update: Update) {
   await update.downloadAndInstall();
   const { relaunch } = await import("@tauri-apps/plugin-process");
