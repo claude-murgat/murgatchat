@@ -134,6 +134,8 @@ function fakeTauri() {
           return args.handler;
         case "plugin:notification|is_permission_granted":
           return true;
+        case "plugin:image|new":
+          return 7;
         default:
           return null;
       }
@@ -151,6 +153,20 @@ const clearedChannels = (page) =>
     window.__calls.filter((c) => c.cmd === "clear_desktop_notifications").flatMap((c) => c.args.channelIds)
   );
 const forgetCalls = (page) => page.evaluate(() => (window.__calls = []));
+// Valeurs successives du point rouge du tray, et de celui de la barre des tâches.
+const trayDots = (page) =>
+  page.evaluate(() => window.__calls.filter((c) => c.cmd === "set_tray_badge").map((c) => c.args.unread));
+const taskbarDots = (page) =>
+  page.evaluate(() =>
+    window.__calls.filter((c) => c.cmd === "plugin:window|set_overlay_icon").map((c) => c.args.value != null)
+  );
+
+// La fenêtre passe derrière une autre, sans aller dans le tray.
+const blurWindow = (page) =>
+  page.evaluate(() => {
+    window.__win.focused = false;
+    window.__emit("tauri://blur");
+  });
 
 // La fenêtre passe dans le tray.
 const hideWindow = (page) =>
@@ -198,6 +214,56 @@ for (const [gesture, restore] of [
     await openGeneral(desktop);
     await expect(desktop.getByRole("paragraph").filter({ hasText: "le suivant" })).toBeVisible();
     await expect(desktop.getByText("Nouveaux messages")).toHaveCount(0);
+
+    await bobPage.context().close();
+    await desktop.context().close();
+  });
+}
+
+// Le webview reste « visible » dans le tray : ce signal relance une resynchro de la
+// liste des conversations, sans que personne soit revenu sur la fenêtre.
+async function resync(page) {
+  const listed = page.waitForResponse(
+    (r) => new URL(r.url()).pathname === "/channels" && r.request().method() === "GET"
+  );
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await listed;
+  await page.waitForTimeout(200);
+}
+
+for (const [situation, leave, back] of [
+  ["dans le tray", hideWindow, restoreWithoutDomFocus],
+  ["derrière une autre fenêtre", blurWindow, restoreDomFocusFirst],
+]) {
+  test(`desktop : un message dans la conversation ouverte, fenêtre ${situation}, allume le point jusqu'au retour`, async ({
+    request,
+    browser,
+  }) => {
+    const { alice, bob } = await accounts(request);
+    const desktop = await openApp(browser, alice, { init: fakeTauri });
+    const bobPage = await openApp(browser, bob);
+
+    // Fenêtre au premier plan : aucun point, pas même un instant.
+    await say(bobPage, "sous les yeux");
+    await expect(desktop.getByRole("paragraph").filter({ hasText: "sous les yeux" })).toBeVisible();
+    await desktop.waitForTimeout(300);
+    expect(await trayDots(desktop)).not.toContain(true);
+    expect(await taskbarDots(desktop)).not.toContain(true);
+
+    await leave(desktop);
+    await forgetCalls(desktop);
+    await say(bobPage, "pendant l'absence");
+    await expect.poll(() => trayDots(desktop)).toContain(true);
+    await expect.poll(() => taskbarDots(desktop)).toContain(true);
+
+    // La resynchro ne l'éteint pas : le serveur le dit non lu, et il l'est.
+    await resync(desktop);
+    expect(await trayDots(desktop)).not.toContain(false);
+    expect(await taskbarDots(desktop)).not.toContain(false);
+
+    await back(desktop);
+    await expect.poll(async () => (await trayDots(desktop)).at(-1)).toBe(false);
+    await expect.poll(async () => (await taskbarDots(desktop)).at(-1)).toBe(false);
 
     await bobPage.context().close();
     await desktop.context().close();
@@ -398,6 +464,52 @@ test("PWA : rien pour la conversation ouverte au premier plan, une notification 
 const windowInBackground = () => {
   document.hasFocus = () => false;
 };
+
+// Fenêtre dont le test décide du focus, et compteur de l'icône de la PWA.
+const pwaWindow = () => {
+  window.__focused = true;
+  window.__badges = [];
+  document.hasFocus = () => window.__focused;
+  navigator.setAppBadge = (n) => (window.__badges.push(n), Promise.resolve());
+  navigator.clearAppBadge = () => (window.__badges.push(0), Promise.resolve());
+};
+
+test("PWA : un message dans la conversation ouverte, fenêtre sans le focus, compte jusqu'au retour", async ({
+  request,
+  browser,
+}) => {
+  const { alice, bob } = await accounts(request);
+  const page = await openApp(browser, alice, { init: pwaWindow });
+  const bobPage = await openApp(browser, bob);
+  const badges = () => page.evaluate(() => window.__badges);
+  const lastBadge = async () => (await badges()).at(-1);
+  const setFocused = (focused) => page.evaluate((f) => (window.__focused = f), focused);
+
+  // Fenêtre au premier plan : le compteur ne bouge pas, pas même un instant.
+  await say(bobPage, "sous les yeux");
+  await expect(page.getByRole("paragraph").filter({ hasText: "sous les yeux" })).toBeVisible();
+  await page.waitForTimeout(300);
+  expect((await badges()).filter(Boolean)).toEqual([]);
+
+  // Retour par le focus de la fenêtre…
+  await setFocused(false);
+  await say(bobPage, "pendant l'absence");
+  await expect.poll(lastBadge).toBe(1);
+  await setFocused(true);
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect.poll(lastBadge).toBe(0);
+
+  // …ou parce que l'onglet redevient visible.
+  await setFocused(false);
+  await say(bobPage, "encore absent");
+  await expect.poll(lastBadge).toBe(1);
+  await setFocused(true);
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await expect.poll(lastBadge).toBe(0);
+
+  await bobPage.context().close();
+  await page.context().close();
+});
 
 test("PWA : un message reçu par le socket puis par le push n'alerte qu'une fois", async ({
   request,

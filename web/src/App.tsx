@@ -103,11 +103,13 @@ function closeReadChannelNotifications(channels: Channel[], askedAt: number) {
 // un aperçu local plus récent est gardé avec son non-lu, et un salon absent de la
 // réponse (créé ou rejoint entre-temps) est conservé. Un salon déjà connu au
 // lancement de la requête et absent de la réponse, lui, a disparu pendant une
-// coupure (retiré, supprimé) : il est retiré. Le salon ouvert reste lu.
+// coupure (retiré, supprimé) : il est retiré. `seenId`, le salon sous les yeux de
+// l'utilisateur (ouvert, fenêtre active), reste lu. Fenêtre absente, on n'en passe
+// aucun : le non-lu du salon ouvert doit survivre, c'est le point du tray.
 function mergeChannels(
   prev: Channel[],
   fresh: Channel[],
-  activeId: string | null,
+  seenId: string | null,
   knownBefore?: Set<string>
 ) {
   const merged = fresh.map((c) => {
@@ -119,7 +121,7 @@ function mergeChannels(
     const next = newerLocally
       ? { ...c, lastMessage: local.lastMessage, unread: local.unread || c.unread }
       : c;
-    return next.id === activeId ? { ...next, unread: false } : next;
+    return next.id === seenId ? { ...next, unread: false } : next;
   });
   const known = new Set(fresh.map((c) => c.id));
   return [...merged, ...prev.filter((c) => !known.has(c.id) && !knownBefore?.has(c.id))];
@@ -276,13 +278,21 @@ export default function App() {
 
   // Conversation ouverte : ses notifications en attente n'ont plus lieu d'être,
   // à l'ouverture comme au retour sur la fenêtre (`desktop:presence` : sous Tauri,
-  // seul signal fiable d'un retour depuis le tray).
+  // seul signal fiable d'un retour depuis le tray). Au retour, le non-lu posé
+  // pendant l'absence tombe aussi : le serveur, lui, n'en renvoie pas la nouvelle à
+  // l'appareil qui vient de signaler sa lecture.
   useEffect(() => {
     setOpenChannel(activeChannelId);
     if (!activeChannelId) return;
     closeChannelNotifications([activeChannelId]);
     const onBack = () => {
-      if (isWindowFocused()) closeChannelNotifications([activeChannelId]);
+      if (!isWindowFocused()) return;
+      closeChannelNotifications([activeChannelId]);
+      setChannels((prev) =>
+        prev.some((c) => c.id === activeChannelId && c.unread)
+          ? prev.map((c) => (c.id === activeChannelId ? { ...c, unread: false } : c))
+          : prev
+      );
     };
     window.addEventListener("focus", onBack);
     window.addEventListener("desktop:presence", onBack);
@@ -377,13 +387,15 @@ export default function App() {
       // les affiche) : ni aperçu ni non-lu dans la liste, comme côté serveur
       // (LAST_MESSAGE_WHERE). Garde-fou si l'un d'eux passait par ici.
       if (msg.kind === "system") return;
+      // Conversation ouverte mais fenêtre absente (tray, autre application) : personne
+      // ne lit, le message reste non lu (point du tray, compteur PWA) jusqu'au retour.
+      const onScreen = activeChannelIdRef.current === msg.channelId && isWindowFocused();
       setChannels((prev) =>
         prev.map((c) => {
           if (c.id !== msg.channelId) return c;
-          const isActive = activeChannelIdRef.current === c.id;
           const fromMe = msg.author?.id === user.id;
           let unread = c.unread;
-          if (isActive) unread = false;
+          if (onScreen) unread = false;
           else if (!fromMe) unread = true;
           return {
             ...c,
@@ -703,9 +715,8 @@ export default function App() {
         .listChannels()
         .then((res) => {
           if (cancelled || attempt !== latest) return;
-          setChannels((prev) =>
-            mergeChannels(prev, res.channels, activeChannelIdRef.current, knownBefore)
-          );
+          const seenId = isWindowFocused() ? activeChannelIdRef.current : null;
+          setChannels((prev) => mergeChannels(prev, res.channels, seenId, knownBefore));
           // Salon ouvert disparu pendant la coupure : on le referme.
           const listed = new Set((res.channels as Channel[]).map((c) => c.id));
           setActiveChannelId((curr) =>
@@ -801,7 +812,7 @@ export default function App() {
   //     indicateur visible quand la fenêtre est repliée dans le tray.
   // Le chemin Desktop NE DOIT PAS être derrière la garde `setAppBadge`, que WebView2
   // (Tauri) n'expose pas. À 0, on efface (y compris à la déconnexion, où `channels`
-  // repasse à [], et dès qu'un salon est lu — plus besoin d'effacer au focus).
+  // repasse à [], et dès qu'un salon est lu).
   useEffect(() => {
     const count = channels.reduce((n, c) => n + (c.unread ? 1 : 0), 0);
     if (typeof navigator !== "undefined" && "setAppBadge" in navigator) {

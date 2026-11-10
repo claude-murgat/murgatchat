@@ -171,7 +171,8 @@ Playwright, refuse la permission de notification.
 par l'attente de l'API, un push retenu si ; rien pour la conversation ouverte au premier plan ;
 une seule alerte quand un message arrive par le socket et par le push) ; pour Windows, un faux
 `__TAURI_INTERNALS__` enregistre les commandes natives et simule la fenêtre (retour du tray →
-conversation lue, toasts retirés). **À vérifier à la main**, faute de vrai Windows ou de vrai
+conversation lue, toasts retirés ; message dans la conversation ouverte, fenêtre absente →
+point du tray et de la barre des tâches jusqu'au retour). **À vérifier à la main**, faute de vrai Windows ou de vrai
 téléphone : l'affichage et le retrait réels des toasts, le délai sur un Android endormi.
 
 ### Option recommandée — stack isolé (ne touche pas la base de dev)
