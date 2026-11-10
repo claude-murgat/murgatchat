@@ -195,10 +195,12 @@ export async function notify(
   title: string,
   body: string,
   onClick?: (() => void) | null,
-  channelId?: string | null
+  channelId?: string | null,
+  messageId?: string | null
 ) {
   await ready;
   if (mode === "tauri") {
+    if (channelId) desktopToastShownAt.set(channelId, Date.now());
     // Toast natif via une commande Rust (`notify_desktop`) : le plugin
     // tauri-plugin-notification ne remonte pas le clic côté desktop. Le clic
     // ramène la fenêtre et émet l'événement `desktop:notification-click` (relayé
@@ -224,17 +226,23 @@ export async function notify(
           ? await navigator.serviceWorker.getRegistration()
           : null;
       if (reg && typeof reg.showNotification === "function") {
+        // Le web push du même message est arrivé d'abord : déjà signalé.
+        const tag = channelId ? `channel:${channelId}` : "murgat-chat";
+        if (messageId && (await reg.getNotifications({ tag })).some((n) => n.data?.messageId === messageId)) {
+          return;
+        }
         await reg.showNotification(title, {
           body,
           icon: "/icons/icon-192.png",
           badge: "/icons/badge-72.png",
           // Même tag que le web push (socket.js) : un message déjà notifié par
           // push ET par ce chemin premier-plan se fusionne au lieu de doubler.
-          tag: channelId ? `channel:${channelId}` : "murgat-chat",
+          tag,
           renotify: !!channelId,
           data: {
             url: channelId ? `/?channel=${encodeURIComponent(channelId)}` : "/",
             channelId: channelId ?? null,
+            messageId: messageId ?? null,
             // Comme le web push (sw.ts) : la resynchro ne ferme que les
             // notifications affichées avant sa requête (closeChannelNotifications).
             receivedAt: Date.now(),
@@ -265,6 +273,23 @@ export async function notify(
       console.error("[desktop] Notification failed:", e);
     }
   }
+}
+
+// Heure du dernier toast Windows de chaque conversation, le temps de cette session.
+const desktopToastShownAt = new Map<string, number>();
+
+// Retire du centre de notifications Windows les toasts des conversations lues.
+// `shownBefore` (ms) : même rôle que dans closeChannelNotifications, un toast plus
+// récent que la réponse du serveur qui dit « lu » concerne un nouveau message. Une
+// conversation sans heure connue a pu laisser un toast avant un redémarrage : on
+// le retire aussi. No-op hors Tauri.
+export function clearDesktopNotifications(channelIds: Iterable<string>, shownBefore = Infinity) {
+  if (!isTauri()) return;
+  const ids = Array.from(channelIds).filter((id) => (desktopToastShownAt.get(id) ?? 0) < shownBefore);
+  if (ids.length === 0) return;
+  import("@tauri-apps/api/core")
+    .then((mod) => mod.invoke("clear_desktop_notifications", { channelIds: ids }))
+    .catch((e) => console.error("[desktop] clear_desktop_notifications failed:", e));
 }
 
 // Desktop only: show (true) or clear (false) a red unread dot on the tray icon.

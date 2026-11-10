@@ -6,10 +6,12 @@
 //     in `injectManifest` mode via `self.__WB_MANIFEST`).
 //   - `push` handler is defensive: parses payload as JSON → text → fallback, and
 //     always leaves a notification visible (silent push gets the SW deregistered
-//     on iOS, Chrome shows a generic one). Before showing, it asks the server
-//     whether the message was meanwhile read on another device (push held until
-//     unlock by Android Doze) and drops / closes what is already read — see
-//     shared/pushTriage.ts.
+//     on iOS, Chrome shows a generic one). Nothing shows for a message already
+//     alerted here or a conversation on screen in a foreground window. It asks
+//     the server whether the message was meanwhile read on another device (push
+//     held until unlock by Android Doze) and drops / closes what is already read
+//     — see shared/pushTriage.ts — but a push that was just sent never waits for
+//     that answer more than an instant.
 //   - `notificationclick` focuses an open window or opens a new one, deep-linking
 //     to the conversation. Workaround for an iOS WebKit bug where `openWindow`
 //     ignores the target URL on a cold app launch: the target URL is also stored
@@ -21,7 +23,7 @@
 
 import { precacheAndRoute, cleanupOutdatedCaches } from "workbox-precaching";
 import type { PrecacheEntry } from "workbox-precaching";
-import { triagePush } from "../../shared/pushTriage.ts";
+import { isFreshPush, triagePush } from "../../shared/pushTriage.ts";
 
 // Le tsconfig charge à la fois `DOM` et `WebWorker`, si bien que `self` se résout
 // vers `Window`. On le redéclare ici (portée module, purement compilatoire) avec
@@ -42,6 +44,12 @@ const SW_CONFIG_CACHE = "murgat-sw-config-v1";
 const API_BASE_KEY = "/__api_base__";
 // Au-delà, on affiche comme avant plutôt que de retarder la notification.
 const READ_STATE_TIMEOUT_MS = 2500;
+// Un push tout juste envoyé n'attend pas la réponse plus longtemps : au réveil
+// d'un téléphone, le réseau met souvent plus d'une seconde à revenir, et c'est
+// le délai que l'utilisateur percevait entre la vibration et son message.
+const FRESH_READ_WAIT_MS = 300;
+// Une fenêtre gelée par l'OS ne répond jamais : on notifie sans elle.
+const OPEN_CHANNEL_ANSWER_MS = 200;
 
 // ── Push ──────────────────────────────────────────────────────────────────
 
@@ -58,6 +66,10 @@ interface PushPayload {
   channelId?: string | null;
   /** Jeton signé : le serveur dit si ce message a été lu depuis (cf. pushReadToken.ts). */
   readToken?: string;
+  /** Horodatage (ms) du message : distingue un push récent d'un push retenu en route. */
+  sentAt?: number;
+  /** Le même message arrive aussi par le socket quand l'app est ouverte. */
+  messageId?: string;
 }
 
 async function handlePush(event: PushEvent) {
@@ -68,6 +80,7 @@ async function handlePush(event: PushEvent) {
     channelId: payload.channelId || null,
     receivedAt: Date.now(),
     readToken: payload.readToken || null,
+    messageId: payload.messageId || null,
   };
   const options = {
     body: payload.body || FALLBACK_BODY,
@@ -111,7 +124,41 @@ async function handlePush(event: PushEvent) {
   // Le push arrive parfois des heures après l'envoi (Android le retient en Doze
   // jusqu'au déverrouillage) : on demande au serveur ce qui a été lu depuis.
   const displayed = await self.registration.getNotifications();
-  const states = await fetchReadStates([payload.readToken, ...displayed.map(readTokenOf)]);
+  // Déjà signalé par le chemin premier plan (socket → notify, desktop.ts) : le
+  // même tag remplacerait la notification, et `renotify` alerterait une 2e fois.
+  if (payload.messageId && displayed.some((n) => n.data?.messageId === payload.messageId)) {
+    await informed;
+    return;
+  }
+  // Conversation sous les yeux, sur CET appareil : rien à signaler, et ce qui
+  // restait affiché pour elle n'a plus lieu d'être. Les autres appareils reçoivent
+  // leur push normalement, c'est chacun qui décide pour lui-même.
+  if (payload.channelId && (await conversationOnScreen(payload.channelId))) {
+    for (const n of displayed) if (n.tag === options.tag) n.close();
+    await informed;
+    return;
+  }
+
+  const now = Date.now();
+  const pending = fetchReadStates(
+    [payload.readToken, ...displayed.map(readTokenOf)],
+    typeof payload.sentAt === "number" ? Math.max(0, now - payload.sentAt) : undefined
+  );
+  const states = isFreshPush(payload.sentAt, now)
+    ? await Promise.race([pending, wait(FRESH_READ_WAIT_MS)])
+    : await pending;
+  if (!states) {
+    // Pas de réponse à temps : on affiche maintenant, on trie ensuite. Le tag du
+    // message entrant est exclu : l'ancienne notification vient d'être remplacée
+    // par la nouvelle, et la fermer fermerait celle-ci.
+    await self.registration.showNotification(title, options);
+    const late = await pending;
+    displayed.forEach((n, i) => {
+      if (late[i + 1] === true && n.tag !== options.tag) n.close();
+    });
+    await informed;
+    return;
+  }
   const { show, close } = triagePush(
     states[0],
     displayed.map((n, i) => ({ read: states[i + 1], receivedAt: Number(n.data?.receivedAt) || 0 }))
@@ -131,6 +178,35 @@ async function informClients(payload: PushPayload) {
   } catch {
     // Non-fatal.
   }
+}
+
+function wait(ms: number): Promise<null> {
+  return new Promise((resolve) => setTimeout(() => resolve(null), ms));
+}
+
+// Une fenêtre au premier plan affiche-t-elle cette conversation ? Seule la page
+// le sait (pwa.ts) ; on ne l'interroge que si elle est visible et active, donc
+// aucune attente quand le téléphone dort.
+async function conversationOnScreen(channelId: string) {
+  try {
+    const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    const foreground = windows.filter((c) => c.focused && c.visibilityState === "visible");
+    return (await Promise.all(foreground.map(askOpenChannel))).includes(channelId);
+  } catch {
+    return false;
+  }
+}
+
+function askOpenChannel(client: WindowClient): Promise<string | null> {
+  return new Promise((resolve) => {
+    const { port1, port2 } = new MessageChannel();
+    const timer = setTimeout(() => resolve(null), OPEN_CHANNEL_ANSWER_MS);
+    port1.onmessage = (e) => {
+      clearTimeout(timer);
+      resolve(typeof e.data === "string" ? e.data : null);
+    };
+    client.postMessage({ type: "OPEN_CHANNEL?" }, [port2]);
+  });
 }
 
 function readTokenOf(n: Notification): string | null {
@@ -178,7 +254,11 @@ async function apiBase(): Promise<string | null> {
 // État de lecture (true = lu) des messages désignés par ces jetons, aligné sur
 // `tokens` ; null quand il est inconnu (pas de jeton, API injoignable, délai
 // dépassé) — l'appelant se comporte alors comme sans vérification.
-async function fetchReadStates(tokens: (string | null)[]): Promise<(boolean | null)[]> {
+// `pushDelayMs` : temps mis par ce push pour arriver, journalisé par le serveur.
+async function fetchReadStates(
+  tokens: (string | null)[],
+  pushDelayMs?: number
+): Promise<(boolean | null)[]> {
   const out: (boolean | null)[] = tokens.map(() => null);
   const asked = tokens.flatMap((t, i) => (t ? [i] : []));
   if (asked.length === 0) return out;
@@ -190,7 +270,7 @@ async function fetchReadStates(tokens: (string | null)[]): Promise<(boolean | nu
     const res = await fetch(`${base}/auth/web-push/read-state`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tokens: asked.map((i) => tokens[i]) }),
+      body: JSON.stringify({ tokens: asked.map((i) => tokens[i]), pushDelayMs }),
       signal: ctrl.signal,
     });
     if (!res.ok) return out;

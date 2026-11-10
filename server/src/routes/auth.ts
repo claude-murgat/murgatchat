@@ -402,12 +402,22 @@ router.delete("/web-push/subscribe", requireAuth, async (req, res) => {
 // destinataire (cf. pushReadToken.ts). Réponse alignée sur `tokens` :
 // true = lu, false = non lu, null = jeton invalide (le client affiche alors).
 const READ_STATE_MAX_TOKENS = 50;
+// Au-delà du TTL des pushs (24 h, webpush.ts), la valeur ne peut être qu'erronée.
+const PUSH_DELAY_LOG_MAX_MS = 2 * 86_400_000;
 router.post("/web-push/read-state", async (req, res) => {
   const tokens: unknown[] = Array.isArray(req.body?.tokens)
     ? req.body.tokens.slice(0, READ_STATE_MAX_TOKENS)
     : [];
   const claims = tokens.map(verifyReadToken);
   const valid = claims.filter((c) => c !== null);
+  // Délai réel entre l'envoi du message et son arrivée sur l'appareil, seule
+  // mesure possible de ce qui se passe après le service push (FCM, Doze). Jamais
+  // journalisé sans jeton valide : la route est ouverte, le journal ne doit pas
+  // pouvoir être rempli de l'extérieur.
+  const delay = req.body?.pushDelayMs;
+  if (valid.length && typeof delay === "number" && delay >= 0 && delay < PUSH_DELAY_LOG_MAX_MS) {
+    console.log(`[push] delivered after ${Math.round(delay)} ms`);
+  }
   const memberships = valid.length
     ? await prisma.membership.findMany({
         where: { OR: valid.map(({ userId, channelId }) => ({ userId, channelId })) },

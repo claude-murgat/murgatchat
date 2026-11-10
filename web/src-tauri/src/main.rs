@@ -18,6 +18,25 @@ const APP_ID: &str = "com.example.chat.desktop";
 #[cfg(windows)]
 const DEEP_LINK_SCHEME: &str = "murgatchat";
 
+// Groupe Windows de tous les toasts de messages.
+#[cfg(windows)]
+const TOAST_GROUP: &str = "messages";
+
+// Tag Windows d'une conversation : une seule entrée par conversation dans le
+// centre de notifications, remplacée à chaque nouveau message (le premier message
+// non lu n'y reste plus), et retirable une fois la conversation lue. Empreinte
+// FNV-1a sur 16 caractères : au-delà, le tag est refusé avant Windows 10 1703
+// (Windows Server 2016, possible sur un TSE) et le toast ne s'afficherait pas.
+#[cfg(windows)]
+fn toast_tag(channel_id: &str) -> String {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in channel_id.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
+}
+
 // Échappe le texte pour l'insérer dans du XML (contenu de toast + attribut launch).
 #[cfg(windows)]
 fn xml_escape(s: &str) -> String {
@@ -111,6 +130,7 @@ fn notify_desktop(app: tauri::AppHandle, title: String, body: String, channel_id
         use windows::Data::Xml::Dom::XmlDocument;
         use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
 
+        let tag = channel_id.as_deref().map(toast_tag);
         let launch = match channel_id {
             Some(id) => format!("{}://channel/{}", DEEP_LINK_SCHEME, id),
             None => format!("{}://open", DEEP_LINK_SCHEME),
@@ -127,6 +147,10 @@ fn notify_desktop(app: tauri::AppHandle, title: String, body: String, channel_id
             let doc = XmlDocument::new()?;
             doc.LoadXml(&HSTRING::from(xml.as_str()))?;
             let toast = ToastNotification::CreateToastNotification(&doc)?;
+            if let Some(tag) = &tag {
+                toast.SetTag(&HSTRING::from(tag.as_str()))?;
+                toast.SetGroup(&HSTRING::from(TOAST_GROUP))?;
+            }
             let notifier =
                 ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(APP_ID))?;
             notifier.Show(&toast)?;
@@ -149,6 +173,35 @@ fn notify_desktop(
     _channel_id: Option<String>,
 ) {
 }
+
+// Retire du centre de notifications les toasts des conversations données : elles
+// ont été lues, ici ou sur un autre appareil. Sans effet sur un tag absent.
+#[cfg(windows)]
+#[tauri::command]
+fn clear_desktop_notifications(app: tauri::AppHandle, channel_ids: Vec<String>) {
+    let _ = app.run_on_main_thread(move || {
+        use windows::core::HSTRING;
+        use windows::UI::Notifications::ToastNotificationManager;
+
+        let clear = || -> windows::core::Result<()> {
+            let history = ToastNotificationManager::History()?;
+            let group = HSTRING::from(TOAST_GROUP);
+            let app_id = HSTRING::from(APP_ID);
+            for id in &channel_ids {
+                let tag = HSTRING::from(toast_tag(id).as_str());
+                history.RemoveGroupedTagWithId(&tag, &group, &app_id)?;
+            }
+            Ok(())
+        };
+        if let Err(e) = clear() {
+            eprintln!("[desktop] toast clear failed: {e:?}");
+        }
+    });
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+fn clear_desktop_notifications(_app: tauri::AppHandle, _channel_ids: Vec<String>) {}
 
 fn main() {
     tauri::Builder::default()
@@ -185,7 +238,11 @@ fn main() {
         // plugin so the updater can relaunch the app after installing.
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .invoke_handler(tauri::generate_handler![set_tray_badge, notify_desktop])
+        .invoke_handler(tauri::generate_handler![
+            set_tray_badge,
+            notify_desktop,
+            clear_desktop_notifications
+        ])
         .setup(|app| {
             // Fixe l'AppUserModelID explicite du process = app_id des toasts = AUMID
             // du raccourci NSIS : c'est ce qui attribue la toast à notre app (nom +

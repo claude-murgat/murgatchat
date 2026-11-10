@@ -264,6 +264,41 @@ describe("état de lecture des Web Push (jeton + /auth/web-push/read-state)", ()
       .toEqual([true]);
   });
 
+  it("le push porte l'identifiant du message et son horodatage", async () => {
+    const sendMock = mockWebPush();
+    const { author, recipient, channelId } = await setup({ recipientToken: false });
+    await subscribeWebPush(recipient.user.id);
+    const aSock = await ready(author.token, channelId);
+
+    const { message } = await send(aSock, { channelId, body: "à l'heure" });
+    const payload = JSON.parse(sendMock.mock.calls[0][1]);
+    expect(payload.messageId).toBe(message.id);
+    expect(payload.sentAt).toBe(new Date(message.createdAt).getTime());
+  });
+
+  it("journalise le délai d'arrivée d'un push, seulement avec un jeton valide", async () => {
+    const sendMock = mockWebPush();
+    const { author, recipient, channelId } = await setup({ recipientToken: false });
+    await subscribeWebPush(recipient.user.id);
+    const aSock = await ready(author.token, channelId);
+    await send(aSock, { channelId, body: "mesure" });
+    const { readToken } = JSON.parse(sendMock.mock.calls[0][1]);
+    const log = vi.spyOn(console, "log");
+    const delays = () =>
+      log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith("[push] delivered"));
+    const report = (tokens, pushDelayMs) =>
+      authed(srv.app, author.token).post("/auth/web-push/read-state").send({ tokens, pushDelayMs });
+
+    await report(["falsifie.abc"], 99);
+    await report([readToken], "99");
+    await report([readToken], -1);
+    await report([readToken], 3 * 86_400_000);
+    expect(delays()).toEqual([]);
+
+    await report([readToken], 1234.4);
+    expect(delays()).toEqual(["[push] delivered after 1234 ms"]);
+  });
+
   it("chaque destinataire reçoit son propre jeton", async () => {
     const sendMock = mockWebPush();
     const { author, recipient, channelId } = await setup({ recipientToken: false });

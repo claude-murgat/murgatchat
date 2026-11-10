@@ -18,6 +18,7 @@ import {
   unsubscribePush,
   resubscribeIfNeeded,
   closeChannelNotifications,
+  setOpenChannel,
 } from "./pwa.ts";
 import Login from "./components/Login.tsx";
 import Sidebar from "./components/Sidebar.tsx";
@@ -273,9 +274,24 @@ export default function App() {
     if (user && activeChannelId) saveLastChannelId(user.id, activeChannelId);
   }, [activeChannelId, user]);
 
-  // Conversation ouverte : ses notifications en attente n'ont plus lieu d'être.
+  // Conversation ouverte : ses notifications en attente n'ont plus lieu d'être,
+  // à l'ouverture comme au retour sur la fenêtre (`desktop:presence` : sous Tauri,
+  // seul signal fiable d'un retour depuis le tray).
   useEffect(() => {
-    if (activeChannelId) closeChannelNotifications([activeChannelId]);
+    setOpenChannel(activeChannelId);
+    if (!activeChannelId) return;
+    closeChannelNotifications([activeChannelId]);
+    const onBack = () => {
+      if (isWindowFocused()) closeChannelNotifications([activeChannelId]);
+    };
+    window.addEventListener("focus", onBack);
+    window.addEventListener("desktop:presence", onBack);
+    document.addEventListener("visibilitychange", onBack);
+    return () => {
+      window.removeEventListener("focus", onBack);
+      window.removeEventListener("desktop:presence", onBack);
+      document.removeEventListener("visibilitychange", onBack);
+    };
   }, [activeChannelId]);
 
   // Keep the diagnostic context (used by bug reports) in sync with the server
@@ -745,7 +761,7 @@ export default function App() {
       // l'événement `notification` n'arrivait pas (notifyLevel, mentions, DND,
       // socket reconnecté) alors que le message était bien non lu (#458).
       if (!isWindowFocused()) {
-        notify(title, body, open, data.channelId);
+        notify(title, body, open, data.channelId, data.message.id);
       }
     };
     socket.on("notification", onNotif);

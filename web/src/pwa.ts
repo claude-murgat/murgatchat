@@ -15,7 +15,7 @@
 // All API calls go through api.js so they respect the runtime-configured server URL.
 
 import { api, getApiBaseUrl, getToken } from "./api.ts";
-import { isTauri } from "./desktop.ts";
+import { clearDesktopNotifications, isTauri } from "./desktop.ts";
 
 const PENDING_CACHE = "murgat-pending-nav-v1";
 const PENDING_KEY = "/__pending_nav__";
@@ -27,7 +27,14 @@ const SHARE_CACHE = "murgat-shared-v1";
 let swRegistration: ServiceWorkerRegistration | null | undefined = null;
 let lastVapidKey: string | null = null;
 
+// Conversation affichée, demandée par le service worker à l'arrivée d'un push.
+let openChannelId: string | null = null;
+
 // ── Public API ────────────────────────────────────────────────────────────
+
+export function setOpenChannel(channelId: string | null) {
+  openChannelId = channelId;
+}
 
 // Detect PWA install state (iOS Safari uses navigator.standalone; everyone
 // else uses display-mode media query).
@@ -165,7 +172,11 @@ export async function closeChannelNotifications(
   channelIds: Iterable<string>,
   shownBefore = Infinity
 ) {
-  if (isTauri() || !pwaSupported()) return;
+  if (isTauri()) {
+    clearDesktopNotifications(channelIds, shownBefore);
+    return;
+  }
+  if (!pwaSupported()) return;
   const tags = new Set(Array.from(channelIds, (id) => `channel:${id}`));
   if (tags.size === 0) return;
   try {
@@ -307,7 +318,9 @@ function listenForSwMessages(): void {
   navigator.serviceWorker.addEventListener("message", (event) => {
     const data = event.data;
     if (!data?.type) return;
-    if (data.type === "NAVIGATE" && data.url) {
+    if (data.type === "OPEN_CHANNEL?") {
+      event.ports[0]?.postMessage(openChannelId);
+    } else if (data.type === "NAVIGATE" && data.url) {
       window.dispatchEvent(new CustomEvent("pwa:deeplink", { detail: { url: data.url } }));
     } else if (data.type === "PUSH_RECEIVED") {
       window.dispatchEvent(new CustomEvent("pwa:push", { detail: data.payload || {} }));
