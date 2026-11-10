@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { triagePush } from "../../../shared/pushTriage.ts";
+import { FRESH_PUSH_MAX_AGE_MS, isFreshPush, triagePush } from "../../../shared/pushTriage.ts";
 
 const unread = (receivedAt = 0) => ({ read: false, receivedAt });
 const read = (receivedAt = 0) => ({ read: true, receivedAt });
@@ -58,6 +58,25 @@ describe("triagePush (tri d'un Web Push à son arrivée)", () => {
           expect(show !== "none" || remaining > 0).toBe(true);
         }
       }
+    }
+  });
+});
+
+describe("isFreshPush (ce push vient-il d'être envoyé ?)", () => {
+  const now = 1_000_000;
+
+  it("récent juste sous la limite, retenu à partir de la limite", () => {
+    expect(isFreshPush(now - FRESH_PUSH_MAX_AGE_MS + 1, now)).toBe(true);
+    expect(isFreshPush(now - FRESH_PUSH_MAX_AGE_MS, now)).toBe(false);
+  });
+
+  it("horloge du téléphone en retard : considéré comme récent", () => {
+    expect(isFreshPush(now + 60_000, now)).toBe(true);
+  });
+
+  it("sans horodatage exploitable : considéré comme retenu, on vérifie d'abord", () => {
+    for (const sentAt of [undefined, null, "123", NaN, Infinity]) {
+      expect(isFreshPush(sentAt, now)).toBe(false);
     }
   });
 });

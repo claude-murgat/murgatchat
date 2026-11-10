@@ -167,6 +167,12 @@ comme le serveur : un message déjà lu ailleurs n'est pas affiché, les notific
 fermées, l'app ferme celles d'une conversation qu'on ouvre. Il tourne sur le **Chromium
 complet** (`channel: "chromium"`) : `chromium-headless-shell`, le headless par défaut de
 Playwright, refuse la permission de notification.
+`notifications.spec.js` : même technique pour le service worker (un push récent ne passe pas
+par l'attente de l'API, un push retenu si ; rien pour la conversation ouverte au premier plan ;
+une seule alerte quand un message arrive par le socket et par le push) ; pour Windows, un faux
+`__TAURI_INTERNALS__` enregistre les commandes natives et simule la fenêtre (retour du tray →
+conversation lue, toasts retirés). **À vérifier à la main**, faute de vrai Windows ou de vrai
+téléphone : l'affichage et le retrait réels des toasts, le délai sur un Android endormi.
 
 ### Option recommandée — stack isolé (ne touche pas la base de dev)
 ```bash

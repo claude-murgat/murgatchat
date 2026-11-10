@@ -734,14 +734,20 @@ export default function ChannelView({
   }, [focusMessageId, messages, onFocusHandled]);
 
   // Retour sur la fenêtre (focus, onglet de nouveau visible) : ce qui est à
-  // l'écran devient lu et vu.
+  // l'écran devient lu et vu. Sous Tauri, `desktop:presence` est indispensable :
+  // le webview ne voit pas toujours passer le focus d'une fenêtre rouverte depuis
+  // le tray, et quand il le voit, c'est parfois avant que l'état natif soit à
+  // jour — la lecture n'était alors jamais signalée, et la conversation rouvrait
+  // sans fin sur son premier message non lu.
   useEffect(() => {
     if (!activeChannelId || !socket) return;
     const onBack = () => requestAnimationFrame(() => reportRef.current());
     window.addEventListener("focus", onBack);
+    window.addEventListener("desktop:presence", onBack);
     document.addEventListener("visibilitychange", onBack);
     return () => {
       window.removeEventListener("focus", onBack);
+      window.removeEventListener("desktop:presence", onBack);
       document.removeEventListener("visibilitychange", onBack);
     };
   }, [activeChannelId, socket]);

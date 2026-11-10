@@ -46,8 +46,9 @@ export function isUserDnd(user: DndUser, now = new Date()) {
 // Notifications push : on pousse vers TOUS les appareils de l'utilisateur dès
 // qu'un message le concerne, sans tenir compte de la présence. L'ancien système
 // (heartbeat "activity"/"away" + sonde "presence:probe") retenait le push de
-// l'appareil regardé ; il a été retiré à la demande (on préfère notifier partout,
-// quitte à doubler l'affichage in-app sur l'appareil actif).
+// l'appareil regardé ; il a été retiré à la demande (on préfère notifier partout).
+// Chaque appareil décide pour lui-même à l'arrivée du push : le service worker
+// n'affiche rien pour la conversation ouverte au premier plan (cf. web/src/sw.ts).
 
 // Les seuls champs utilisateur consultés pour la détection de mention ; `Partial`
 // pour la même raison que `DndUser` (appels de test avec un objet partiel).
@@ -69,6 +70,7 @@ export function isMentioned(user: MentionUser, body: unknown) {
 // quel dans l'évènement socket, donc inutile de le décrire ici. `author` peut se
 // réduire à `{ id }` quand la relation n'a pas été chargée (cf. publicUser).
 type NotifiableMessage = {
+  id?: string;
   body: string | null;
   author?: { id: string; displayName?: string | null } | null;
   // Horodatage du message : signé dans le jeton de lecture des Web Push.
@@ -115,12 +117,19 @@ export async function notifyMembers(
     title: serialized.author?.displayName || "Nouveau message",
     body: pushExcerpt(serialized.body || "(pièce jointe)"),
     sentAt: serialized.createdAt ? new Date(serialized.createdAt).getTime() : Date.now(),
+    messageId: serialized.id,
   };
   await pushToUsers(recipientIds, push);
 }
 
 // `sentAt` : horodatage (ms) du message, comparé à `lastReadAt` (cf. pushReadToken.ts).
-type PushContent = { channelId: string; title: string; body: string; sentAt: number };
+type PushContent = {
+  channelId: string;
+  title: string;
+  body: string;
+  sentAt: number;
+  messageId?: string;
+};
 
 // Les services push refusent une charge utile de plus de 4 Ko (FCM répond 413,
 // APNs pareil, Expo renvoie MessageTooBig) : le destinataire ne recevrait rien.
@@ -155,7 +164,10 @@ export function pushExcerpt(text: string) {
 }
 
 // Push vers tous les appareils (natifs et navigateurs) des utilisateurs donnés.
-async function pushToUsers(userIds: string[], { channelId, title, body, sentAt }: PushContent) {
+async function pushToUsers(
+  userIds: string[],
+  { channelId, title, body, sentAt, messageId }: PushContent
+) {
   if (userIds.length === 0) return;
   const [tokens, webSubs] = await Promise.all([
     prisma.pushToken.findMany({ where: { userId: { in: userIds } } }),
@@ -208,6 +220,11 @@ async function pushToUsers(userIds: string[], { channelId, title, body, sentAt }
         // Permet au service worker de vérifier, à l'affichage, que le message
         // n'a pas été lu entre-temps sur un autre appareil (cf. sw.ts).
         readToken: signReadToken({ userId, channelId, createdAt: sentAt }),
+        // `sentAt` : un push tout juste envoyé s'affiche sans attendre le réseau.
+        // `messageId` : le même message arrive aussi par le socket quand l'app
+        // est ouverte, il ne doit alerter qu'une fois (cf. sw.ts, desktop.ts).
+        sentAt,
+        messageId,
       })
     );
   }

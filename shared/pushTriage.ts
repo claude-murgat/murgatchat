@@ -18,6 +18,20 @@
 //   - sinon, rien n'étant affiché, on montre le message SANS son ni vibration ;
 //   - `mustShow` (Safari/iOS) : on affiche toujours, en silence.
 
+// Au-delà de cet âge, le push a été retenu en route (Doze, appareil hors ligne) :
+// il n'est plus urgent, le service worker prend le temps de demander au serveur
+// s'il a été lu. En deçà, il n'attend le réseau qu'un instant (cf. sw.ts).
+export const FRESH_PUSH_MAX_AGE_MS = 30_000;
+
+/**
+ * Ce push vient-il d'être envoyé ? `sentAt` absent (serveur antérieur) : non.
+ * Une horloge de téléphone en retard donne un âge négatif : le push passe pour
+ * récent, et il est alors affiché sans attendre, ce qui reste le bon défaut.
+ */
+export function isFreshPush(sentAt: unknown, now: number): boolean {
+  return typeof sentAt === "number" && Number.isFinite(sentAt) && now - sentAt < FRESH_PUSH_MAX_AGE_MS;
+}
+
 /** État d'une notification déjà affichée. `read: null` = inconnu (gardée). */
 export type DisplayedNotification = { read: boolean | null; receivedAt: number };
 
