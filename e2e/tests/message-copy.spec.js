@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 // Clic droit sur un message (#457) : le menu d'actions s'ouvre à l'endroit du
 // curseur, et « Copier » recopie le texte du message dans le presse-papiers. Sur
-// du texte sélectionné, le menu du navigateur reste disponible pour un extrait.
+// du texte sélectionné ou un lien, le menu du navigateur reste disponible.
 
 const API_URL = process.env.E2E_API_URL || "http://localhost:4001";
 // Requêtes côté Node : forcer IPv4 (Windows résout "localhost" en ::1).
@@ -120,6 +120,28 @@ test("le clic droit ouvre, au curseur, un menu dont « Copier » recopie le mess
   await expect(menuAuCurseur(row)).toHaveCount(0);
 });
 
+// Un vrai glissé de souris : `selectText()` pose la sélection par script, sans le
+// survol qui fait apparaître la barre d'actions dans le texte sélectionné.
+async function glisser(page, de, a) {
+  await page.mouse.move(de.x, de.y);
+  await page.mouse.down();
+  await page.mouse.move(a.x, a.y, { steps: 15 });
+  await page.mouse.up();
+}
+
+const milieu = (boite, dx) => ({ x: boite.x + dx, y: boite.y + boite.height / 2 });
+const selection = (page) => page.evaluate(() => window.getSelection().toString());
+const clicDroit = (page, point) => page.mouse.click(point.x, point.y, { button: "right" });
+
+// Au niveau du document, le gestionnaire de React a déjà été exécuté.
+const surveillerMenuNatif = (page) =>
+  page.evaluate(() => {
+    document.addEventListener("contextmenu", (e) => {
+      window.__menuNatifBloque = e.defaultPrevented;
+    });
+  });
+const menuNatifBloque = (page) => page.evaluate(() => window.__menuNatifBloque);
+
 test("clic droit sur du texte sélectionné : le menu du navigateur reste disponible", async ({
   browser,
   request,
@@ -132,18 +154,71 @@ test("clic droit sur du texte sélectionné : le menu du navigateur reste dispon
   await send(me, priv.name, texte);
 
   const row = messageRow(me, texte);
-  const corps = row.getByText(texte, { exact: true });
-  await corps.selectText();
+  const boite = await row.getByText(texte, { exact: true }).boundingBox();
+  await glisser(me, milieu(boite, 1), milieu(boite, 90));
+  expect(await selection(me)).not.toBe("");
 
-  // Au niveau du document, le gestionnaire de React a déjà été exécuté.
-  await me.evaluate(() => {
-    document.addEventListener("contextmenu", (e) => {
-      window.__menuNatifBloque = e.defaultPrevented;
-    });
-  });
-  await corps.click({ button: "right" });
+  await surveillerMenuNatif(me);
+  await clicDroit(me, milieu(boite, 40));
 
-  expect(await me.evaluate(() => window.__menuNatifBloque)).toBe(false);
+  expect(await menuNatifBloque(me)).toBe(false);
   // Et l'app n'ouvre pas son propre menu par-dessus.
   await expect(menuAuCurseur(row)).toHaveCount(0);
+});
+
+test("sélection sur deux messages : clic droit natif sur chacun, sans l'interface dans le texte", async ({
+  browser,
+  request,
+}) => {
+  const { admin, priv } = await setup(request);
+  const me = await openAs(browser, admin);
+  await openChannel(me, priv.name);
+
+  const t1 = "alpha bravo charlie delta echo foxtrot";
+  const t2 = "golf hotel india juliet kilo lima";
+  await send(me, priv.name, t1);
+  await send(me, priv.name, t2);
+
+  const b1 = await messageRow(me, t1).getByText(t1, { exact: true }).boundingBox();
+  const b2 = await messageRow(me, t2).getByText(t2, { exact: true }).boundingBox();
+  const debut = milieu(b1, 1);
+  const fin = milieu(b2, 130);
+  await surveillerMenuNatif(me);
+
+  // Glissé vers le bas : la sélection commence dans le message du haut, et le
+  // clic droit tombe sur celui du bas.
+  await glisser(me, debut, fin);
+  // Ni les boutons de la barre d'actions ni l'heure masquée d'un message groupé.
+  expect(await selection(me)).toMatch(/^alpha bravo charlie delta echo foxtrot\s+golf/);
+  await clicDroit(me, milieu(b2, 40));
+  expect(await menuNatifBloque(me)).toBe(false);
+  await expect(menuAuCurseur(messageRow(me, t2))).toHaveCount(0);
+
+  // Glissé vers le haut : l'inverse.
+  await me.evaluate(() => window.getSelection().removeAllRanges());
+  await glisser(me, fin, debut);
+  await clicDroit(me, milieu(b1, 40));
+  expect(await menuNatifBloque(me)).toBe(false);
+  await expect(menuAuCurseur(messageRow(me, t1))).toHaveCount(0);
+});
+
+test("clic droit sur un lien : le menu du navigateur reste disponible", async ({
+  browser,
+  request,
+}) => {
+  const { admin, priv } = await setup(request);
+  const me = await openAs(browser, admin);
+  await openChannel(me, priv.name);
+
+  const composer = me.getByPlaceholder(`Message dans #${priv.name}`);
+  await composer.fill("[un lien](https://example.com/page)");
+  await composer.press("Enter");
+  const lien = chat(me).getByRole("link", { name: "un lien" });
+  await expect(lien).toBeVisible();
+
+  await surveillerMenuNatif(me);
+  await lien.click({ button: "right" });
+
+  expect(await menuNatifBloque(me)).toBe(false);
+  await expect(chat(me).locator("div.fixed").filter({ has: me.getByRole("button") })).toHaveCount(0);
 });
