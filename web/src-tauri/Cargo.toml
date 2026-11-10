@@ -23,10 +23,14 @@ serde_json = "1"
 #  - UI_Notifications + Data_Xml_Dom : construire la toast « protocole » à la main
 #    (le clic d'une toast ne peut PAS être reçu en in-process pour une app Win32
 #    non-packagée → activation par protocole `murgatchat://…`, cf. main.rs) ;
-#  - Win32_UI_Shell : SetCurrentProcessExplicitAppUserModelID (attribution de la toast).
+#  - Win32_UI_Shell : SetCurrentProcessExplicitAppUserModelID (attribution de la toast) ;
+#  - Win32_System_Registry + Win32_Security + Win32_System_Threading : can_self_update.
 windows = { version = "0.61", features = [
     "Win32_UI_Shell",
     "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Registry",
+    "Win32_System_Threading",
     "UI_Notifications",
     "Data_Xml_Dom",
 ] }

@@ -112,6 +112,8 @@ L'adresse du serveur se saisit **dans l'app** (écran de connexion) ; aucun serv
 
 **Installeur Windows** : téléchargez-le depuis la section **[Releases](../../releases)** du dépôt (mobile = PWA, pas d'APK). Chaque release est buildée automatiquement par CI au push d'un tag `v*` (voir [Releases automatisées](#releases-automatisées-ci)). L'installeur NSIS est signé pour l'**auto-updater** (minisign) mais n'a pas de certificat **Authenticode** → SmartScreen avertit à la première installation. L'adresse du serveur se configure **dans l'app** (écran de connexion) ; les builds ne bakent **aucun serveur par défaut** (champ vide au premier lancement).
 
+**Serveur partagé (TSE/RDS)** : un administrateur installe Chat une seule fois en choisissant **« Install for anyone using this computer »**. Les mises à jour se font de même, une seule fois, depuis la bannière d'une session admin ou avec l'installeur ; Chat se ferme alors dans les autres sessions, jusqu'à sa réouverture. Les sessions qui utilisent cette copie commune n'ont ni bannière ni installation à faire. Une session qui tourne encore sur une ancienne copie privée voit une dernière bannière : un clic la rebascule sur la copie commune.
+
 Le scaffold complet est dans [web/src-tauri/](web/src-tauri/). Tauri lance Vite en dev et embarque le `dist/` en release.
 
 **Pré-requis Windows :**
