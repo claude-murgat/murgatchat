@@ -1870,6 +1870,19 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      désinstallation « pour tous » laisse son entrée HKLM (`PREUNINSTALL` finit en
      `SetShellVarContext current`).
 
+## Itération 2026-11-17 — le logo de Murgat Chat
+
+166. **Le logo de Murgat Chat remplace le « # »** — le logo de l'entreprise (poissons et vagues)
+     dans une bulle de discussion, dessiné par l'équipe, vectorisé (potrace) depuis ses fichiers.
+     Dans l'onglet du navigateur : `web/public/favicon.ico`, un rendu par taille (16, 32 et
+     48 px) pour que le navigateur prenne celui de l'écran au lieu de rétrécir un seul dessin ; à
+     16 px le trait est très légèrement épaissi, sinon les six vagues ne font qu'une trame grise.
+     La bulle y est pleine (blanche) pour se voir aussi sur un onglet sombre. Dans la barre
+     latérale : le logo blanc (40 px) à gauche de « Chat Workspace », intégré au bundle
+     (`web/src/brand/`, import `?inline`) pour s'afficher hors ligne et dans l'appli de bureau.
+     Restent au « # » : l'icône de la PWA installée, l'appli de bureau Windows, l'appli mobile et
+     l'écran de connexion. Test : e2e `branding.spec.js`.
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
