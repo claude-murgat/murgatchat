@@ -15,6 +15,8 @@ import {
   isSalon,
   isSelfDm as isSelfDmOf,
 } from "../channelRules.ts";
+// Intégré au bundle (data URI) : affiché hors ligne et dans l'appli de bureau.
+import logoBlanc from "../brand/logo-murgat-chat-blanc.svg?inline";
 
 /** État du menu contextuel d'une conversation : la cible + où l'afficher. */
 interface ConvMenuState extends LongPressPosition {
@@ -222,16 +224,25 @@ export default function Sidebar({
         className="px-4 py-3 border-b border-aubergine-600 flex items-center justify-between relative"
         style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}
       >
-        <div>
-          <div className="font-bold text-lg leading-tight">Chat Workspace</div>
-          <button
-            onClick={() => setShowMenu((s) => !s)}
-            className="text-xs text-aubergine-400 hover:text-white flex items-center gap-1"
-          >
-            <span className="inline-block w-2 h-2 rounded-full bg-green-400" />
-            {user.displayName} <span>▾</span>
-          </button>
-          {dnd && <div className="text-[11px] text-yellow-300 mt-0.5">{dnd}</div>}
+        <div className="flex items-center gap-3 min-w-0">
+          {/* Logo de Murgat Chat, en blanc sur l'aubergine de la barre. */}
+          <img
+            src={logoBlanc}
+            alt=""
+            className="w-10 h-10 shrink-0"
+            draggable={false}
+          />
+          <div className="min-w-0">
+            <div className="font-bold text-lg leading-tight">Chat Workspace</div>
+            <button
+              onClick={() => setShowMenu((s) => !s)}
+              className="text-xs text-aubergine-400 hover:text-white flex items-center gap-1"
+            >
+              <span className="inline-block w-2 h-2 rounded-full bg-green-400" />
+              {user.displayName} <span>▾</span>
+            </button>
+            {dnd && <div className="text-[11px] text-yellow-300 mt-0.5">{dnd}</div>}
+          </div>
         </div>
         {/* Click-outside backdrop: dismisses the user menu (invisible, below the
             menu's z-30 but above everything else). Same idea as the modals. */}
