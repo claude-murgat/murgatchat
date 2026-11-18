@@ -233,7 +233,7 @@ export default function Sidebar({
             draggable={false}
           />
           <div className="min-w-0">
-            <div className="font-bold text-lg leading-tight">Chat Workspace</div>
+            <div className="font-bold text-lg leading-tight">Murgat Chat</div>
             <button
               onClick={() => setShowMenu((s) => !s)}
               className="text-xs text-aubergine-400 hover:text-white flex items-center gap-1"

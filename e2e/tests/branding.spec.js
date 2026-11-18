@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 // Logo de Murgat Chat : l'icône de l'onglet (favicon.ico, un rendu par taille)
-// et le logo blanc à gauche de « Chat Workspace » dans la barre latérale.
+// et le logo blanc à gauche de « Murgat Chat » dans la barre latérale.
 
 const API_URL = process.env.E2E_API_URL || "http://localhost:4001";
 const tag = () => `brand_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e4)}`;
@@ -31,7 +31,7 @@ test("l'onglet affiche le logo Murgat Chat (16, 32 et 48 px)", async ({ page, re
   expect(sizes).toEqual([16, 32, 48]);
 });
 
-test("le logo blanc est à gauche de « Chat Workspace »", async ({ page }) => {
+test("le logo blanc est à gauche de « Murgat Chat »", async ({ page }) => {
   const t = tag();
   await page.goto("/");
   await page.getByPlaceholder(/Adresse du serveur/).fill(API_URL);
@@ -48,7 +48,7 @@ test("le logo blanc est à gauche de « Chat Workspace »", async ({ page }) => 
   if (await submit.count()) await submit.click();
   else await page.getByRole("button", { name: "S'inscrire", exact: true }).click();
 
-  const title = page.getByText("Chat Workspace", { exact: true });
+  const title = page.getByText("Murgat Chat", { exact: true });
   await expect(title).toBeVisible();
   const logo = page.locator("aside img").first();
   await expect(logo).toBeVisible();

@@ -56,7 +56,7 @@ export default function ChannelListScreen({ navigation }) {
     <View style={styles.container}>
       <View style={styles.workspace}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.wsName}>Chat Workspace</Text>
+          <Text style={styles.wsName}>Murgat Chat</Text>
           <View style={styles.wsUserRow}>
             <PresenceDot online size={8} />
             <Text style={styles.wsUser}>{user?.displayName}</Text>

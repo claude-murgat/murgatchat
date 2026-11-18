@@ -149,7 +149,7 @@ seule admin d'un salon dont les autres membres sont désactivés est prévenue q
 le relais (détails et menu contextuel) — et, pour un salon privé, que personne ne pourra l'y
 rajouter ; le salon survit et son membre réactivé le reprend.
 `branding.spec.js` : l'onglet déclare une seule icône, `/favicon.ico`, servie avec ses trois
-rendus (16, 32 et 48 px) ; le logo blanc, chargé, fait 40 px à gauche de « Chat Workspace ».
+rendus (16, 32 et 48 px) ; le logo blanc, chargé, fait 40 px à gauche de « Murgat Chat ».
 `paste-markdown.spec.js` : une liste copiée (vrai Ctrl+C dans Chromium, dont le texte brut
 n'a ni puces ni retraits) puis collée (Ctrl+V) arrive en Markdown dans le composer, Ctrl+Z
 l'annule d'un coup, et le message envoyé s'affiche en liste imbriquée ; listes Word / Outlook

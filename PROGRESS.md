@@ -1883,6 +1883,13 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      Restent au « # » : l'icône de la PWA installée, l'appli de bureau Windows, l'appli mobile et
      l'écran de connexion. Test : e2e `branding.spec.js`.
 
+## Itération 2026-11-18 — « Murgat Chat » en tête de la barre latérale
+
+167. **Le titre de la barre latérale devient « Murgat Chat »** — à droite du logo, « Chat
+     Workspace » laisse la place au nom de l'application, celui de l'onglet du navigateur et de
+     la PWA installée ; même titre en tête de la liste des conversations de l'appli mobile.
+     Test : e2e `branding.spec.js`.
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
