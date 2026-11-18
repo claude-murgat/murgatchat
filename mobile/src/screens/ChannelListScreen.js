@@ -5,6 +5,7 @@ import {
   ScrollView,
   Pressable,
   Modal,
+  Image,
   StyleSheet,
 } from "react-native";
 import { useChat } from "../ChatContext";
@@ -55,6 +56,8 @@ export default function ChannelListScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <View style={styles.workspace}>
+        {/* Logo de Murgat Chat, en blanc sur l'aubergine (comme la barre latérale du web). */}
+        <Image source={require("../../assets/logo-blanc.png")} style={styles.wsLogo} />
         <View style={{ flex: 1 }}>
           <Text style={styles.wsName}>Murgat Chat</Text>
           <View style={styles.wsUserRow}>
@@ -236,7 +239,15 @@ function SectionHeader({ title, onAdd, onBrowse }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
-  workspace: { backgroundColor: colors.aubergine, paddingHorizontal: 16, paddingVertical: 12 },
+  workspace: {
+    backgroundColor: colors.aubergine,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  wsLogo: { width: 36, height: 36 },
   wsName: { color: colors.white, fontWeight: "700", fontSize: 16 },
   wsUserRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
   wsUser: { color: colors.aubergineMuted },

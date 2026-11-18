@@ -5,13 +5,18 @@
     "version": "0.6.1",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
     "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
       "backgroundColor": "#3F0E40"
     },
     "android": {
       "package": "com.charlesmurgat.chat",
       "versionCode": 8,
       "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "monochromeImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#3F0E40"
       }
     },
@@ -31,7 +36,13 @@
       }
     },
     "plugins": [
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#3F0E40"
+        }
+      ],
       [
         "expo-build-properties",
         {

@@ -1901,8 +1901,24 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      tuile aubergine (`sources/icone-appli.svg`), un peu plus grand en 16 et 24 px ; le badge
      des notifications Android est la bulle seule. Dans `icon.ico`, l'entrée 32 px vient en
      premier : Tauri prend la première entrée comme icône de fenêtre et de zone de
-     notification (l'ancien .ico n'avait qu'une image de 16 px). Reste au « # » : l'appli
-     mobile. Test : e2e `branding.spec.js`.
+     notification (l'ancien .ico n'avait qu'une image de 16 px). L'appli native
+     (`mobile/`) suit au point 169. Test : e2e `branding.spec.js`.
+
+## Itération 2026-11-18 (fin) — l'appli Android native aux couleurs de Murgat Chat
+
+169. **Les logos dans l'appli native, et l'APK de retour dans les releases** — l'appli
+     React Native (`mobile/`, Expo 51) est gelée côté fonctionnalités depuis le pivot PWA,
+     mais encore installée chez certains. Elle n'avait aucune icône (celle d'Expo par défaut).
+     `mobile/assets/` : icône de l'appli, icône adaptative Android (bulle « plein blanc » dans
+     la zone sûre, fond aubergine, servant aussi d'icône monochrome pour les thèmes
+     d'Android 13), écran de démarrage, petite icône des notifications (blanche, teinte
+     aubergine) ; logo « vide blanc » dans l'en-tête de la liste des conversations (36 dp) et
+     au-dessus de la carte de connexion (56 dp). Build : `.github/workflows/android.yml` (Node
+     20, JDK 17, prebuild + Gradle), sur les PR qui touchent `mobile/`, à la main, et dans
+     `release.yml` APRÈS `publish` — un échec Android ne retient jamais l'installeur Windows.
+     Contrôles : aucun serveur figé, icône adaptative présente, **même certificat que l'APK
+     0.6.1** (sinon elle ne s'installe pas par-dessus). versionCode = MAJ×10000 + MIN×100 + PAT
+     (1.6.15 → 10615, au-dessus de 601).
 
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),

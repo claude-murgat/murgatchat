@@ -2,7 +2,8 @@ name: release
 
 # Push a tag like v0.6.2 → run the full test suite, then build the Windows
 # desktop installer (Tauri/MSVC) and publish it to a GitHub Release. Version
-# comes from the tag. Mobile is PWA-only now — no APK is built here.
+# comes from the tag. Once published, the Android APK of the native app is
+# built and attached too (android.yml) — after, so it can never block desktop.
 on:
   push:
     tags: ["v*"]
@@ -183,3 +184,19 @@ jobs:
             exit 1
           fi
           echo "« latest » : $L"
+
+  # APK Android de l'appli native (voir android.yml), attachée à la release APRÈS
+  # sa publication : un échec du build Android ne retient jamais l'installeur
+  # Windows ni l'auto-update desktop. Relancer ce job suffit à la rattacher.
+  android:
+    needs: publish
+    uses: ./.github/workflows/android.yml
+    with:
+      tag: ${{ github.ref_name }}
+    # Uniquement ce que le build Android utilise (signature, FCM), jamais `inherit`.
+    secrets:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
