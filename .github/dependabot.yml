@@ -15,8 +15,8 @@ updates:
       prefix: "ci"
 
   # ── npm : les trois projets réellement déployés ────────────────────────────
-  # (mobile/ et e2e/ sont volontairement hors périmètre : mobile est gelé depuis
-  # le pivot PWA, e2e n'est que de l'outillage de test.)
+  # (mobile/ est volontairement hors périmètre : gelé depuis le pivot PWA. e2e/ a
+  # sa propre entrée, en fin de fichier.)
   #
   # UNE SEULE entrée pour les trois répertoires, et non une par projet : le dépôt
   # n'utilise pas les workspaces npm (ça casserait le build tauri), donc sept
@@ -240,3 +240,20 @@ updates:
       # types du tout. À relever EN MÊME TEMPS que le runtime, jamais avant.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+
+  # ── npm : outillage e2e (Playwright) ──────────────────────────────────────
+  # Longtemps hors périmètre (« ce n'est que de l'outillage de test ») : Playwright
+  # est resté en 1.60 jusqu'au jour où `ubuntu-latest` est passé à Ubuntu 26.04,
+  # que Playwright ne sait installer que depuis la 1.61. Plus aucun e2e ne passait
+  # en CI, ni la porte de `release.yml` (2026-11-18). Playwright embarque le
+  # navigateur et la liste des OS qu'il sait installer : il doit suivre.
+  # Entrée séparée : e2e/ ne partage aucun paquet avec web, server et shared,
+  # inutile de l'insérer dans leurs groupes ci-dessus.
+  - package-ecosystem: "npm"
+    directory: "/e2e"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "chore"
