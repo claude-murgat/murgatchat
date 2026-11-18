@@ -493,7 +493,7 @@ dependencies = [
 
 [[package]]
 name = "chat-desktop"
-version = "1.6.12"
+version = "1.6.13"
 dependencies = [
  "serde",
  "serde_json",
