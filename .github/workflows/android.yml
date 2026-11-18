@@ -140,14 +140,19 @@ jobs:
             echo "::error::app.config : API_URL non vide, un serveur a été figé dans l'APK"; exit 1
           fi
           # Les icônes de l'appli sont bien embarquées (sinon : icône Expo par défaut).
-          unzip -l "$APK" | grep -E 'ic_launcher|notification_icon|splashscreen_logo' | awk '{print $NF}'
-          unzip -l "$APK" | grep -q 'ic_launcher_foreground' \
-            || { echo "::error::icône adaptative absente de l'APK"; exit 1; }
+          # En release, AGP raccourcit les chemins des fichiers (res/mipmap-…/ic_launcher.webp
+          # devient res/AB.webp) : on lit donc les NOMS dans la table des ressources.
+          BT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          RES=$("$BT/aapt2" dump resources "$APK" | grep -oE '(mipmap|drawable)/(ic_launcher[a-z_]*|notification_icon|splashscreen[a-z_]*)' | sort -u) || true
+          echo "$RES"
+          for r in mipmap/ic_launcher_foreground drawable/notification_icon; do
+            grep -qx "$r" <<< "$RES" || { echo "::error::$r absente de l'APK"; exit 1; }
+          done
           # Même certificat que la dernière APK publiée (0.6.1) : sinon, l'APK ne
           # s'installe pas par-dessus et il faudrait désinstaller l'ancienne.
           if [ -f app/upload.keystore ]; then
             gh release download v0.6.1 -p 'Chat_0.6.1.apk' -D /tmp/ref --repo "$GITHUB_REPOSITORY"
-            SIGNER="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner"
+            SIGNER="$BT/apksigner"
             REF=$("$SIGNER" verify --print-certs /tmp/ref/Chat_0.6.1.apk | grep 'SHA-256 digest')
             NEW=$("$SIGNER" verify --print-certs "$APK" | grep 'SHA-256 digest')
             echo "0.6.1 : $REF"; echo "nouvelle : $NEW"
