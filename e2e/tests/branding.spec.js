@@ -40,11 +40,13 @@ test("l'onglet affiche le logo Murgat Chat (SVG, et .ico 16, 32 et 48 px)", asyn
   const sizes = [0, 1, 2].map((i) => ico[6 + i * 16]).sort((a, b) => a - b);
   expect(sizes).toEqual([16, 32, 48]);
 
-  // Le SVG passe en blanc en mode sombre.
+  // Le SVG, sans fond (pas de tuile), passe en blanc en mode sombre.
   const svg = await request.get("/favicon.svg");
   expect(svg.ok()).toBe(true);
   expect(svg.headers()["content-type"]).toContain("image/svg+xml");
-  expect(await svg.text()).toContain("prefers-color-scheme:dark");
+  const svgText = await svg.text();
+  expect(svgText).toContain("prefers-color-scheme:dark");
+  expect(svgText).not.toContain("<rect");
 });
 
 test("l'écran de connexion affiche le logo, plus le « # »", async ({ page }) => {

@@ -1918,7 +1918,16 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      `release.yml` APRÈS `publish` — un échec Android ne retient jamais l'installeur Windows.
      Contrôles : aucun serveur figé, icône adaptative présente, **même certificat que l'APK
      0.6.1** (sinon elle ne s'installe pas par-dessus). versionCode = MAJ×10000 + MIN×100 + PAT
-     (1.6.15 → 10615, au-dessus de 601).
+     (1.6.14 → 10614, au-dessus de 601).
+
+## Itération 2026-11-18 (soir) — l'onglet sans fond
+
+170. **Le logo de l'onglet, sans fond** — le kit « plein noir » posait une tuile blanche en mode
+     clair et une bulle pleine blanche en mode sombre ; à 16 px, ses vagues évidées se fondaient
+     en gris. L'onglet prend maintenant le logo « vide » (traits seuls, sans fond) : traits
+     noirs (`#1D1D1D`) sur un onglet clair, blancs en mode sombre, logo agrandi à 98 % du
+     carré. `favicon.ico` (Safari) : les mêmes traits noirs, 16 / 32 / 48 px. Test : e2e
+     `branding.spec.js` (pas de `<rect>` dans le SVG).
 
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),

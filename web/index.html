@@ -11,10 +11,11 @@
 
     <!-- Manifest (généré par vite-plugin-pwa au build). -->
     <link rel="manifest" href="/manifest.webmanifest" />
-    <!-- Logo de l'onglet. Chrome, Edge et Firefox prennent le SVG : bulle noire sur
-         un onglet clair, blanche en mode sombre (media query dans le fichier).
-         Safari et les vieux navigateurs prennent le .ico (16, 32, 48 px) ; le
-         sizes="32x32" sert justement à ce que Chrome préfère le SVG. -->
+    <!-- Logo de l'onglet, sans fond, en traits seuls (logo « vide »). Chrome, Edge et
+         Firefox prennent le SVG : traits noirs sur un onglet clair, blancs en mode
+         sombre (media query dans le fichier). Safari et les vieux navigateurs
+         prennent le .ico (16, 32, 48 px, traits noirs) ; le sizes="32x32" sert
+         justement à ce que Chrome préfère le SVG. -->
     <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 
