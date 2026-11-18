@@ -1,0 +1,156 @@
+name: android
+
+# APK Android de l'appli native (mobile/, Expo 51). Ses fonctionnalités sont gelées
+# depuis le passage à la PWA, et #75 avait retiré ce build de la release ; mais elle
+# est encore installée chez certains : sans nouvelle APK, ils gardaient l'icône
+# Expo par défaut et un bandeau « Nouvelle version disponible » sans rien à
+# installer (l'appli compare sa version à celle du serveur).
+#
+# - pull_request touchant mobile/ : construit l'APK, en artefact du run (contrôle) ;
+# - release.yml (workflow_call), APRÈS `publish` : l'APK signée est attachée à la
+#   release du tag. Après, et non avant : un échec du build Android ne doit jamais
+#   retenir l'installeur Windows ni l'auto-update desktop. Relancer le job suffit ;
+# - à la main (workflow_dispatch) : reconstruire l'APK depuis la branche choisie et
+#   l'attacher à une release existante.
+on:
+  pull_request:
+    paths:
+      - "mobile/**"
+      - ".github/workflows/android.yml"
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release à laquelle attacher l'APK (ex. v1.6.14)"
+        required: true
+
+permissions:
+  contents: write # attacher l'APK à la release
+
+jobs:
+  apk:
+    name: apk (android)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Node 20 : la version avec laquelle le SDK Expo 51 de l'appli a été construit
+      # et publié (dernière APK : 0.6.1). L'appli est gelée, son outillage aussi.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+      - run: npm ci # postinstall → patch-package
+        working-directory: mobile
+
+      # Version de l'APK = celle de la release (tag), sinon celle du web (PR).
+      # versionCode monotone, même formule qu'avant #75 : 0.6.1 → 601, 1.6.14 → 10614.
+      - id: vc
+        shell: bash
+        run: |
+          if [ -n "$TAG" ]; then V="${TAG#v}"; else V="$(node -p 'require("./web/package.json").version')"; fi
+          BASE="${V%%-*}" # sans le suffixe -rc.N
+          IFS=. read -r MAJ MIN PAT <<< "$BASE"
+          echo "code=$(( MAJ*10000 + MIN*100 + PAT ))" >> "$GITHUB_OUTPUT"
+          echo "name=$V" >> "$GITHUB_OUTPUT"
+
+      # google-services.json (FCM, notifications push) depuis un secret ; sans lui,
+      # l'APK se construit sans push.
+      - name: google-services.json (FCM)
+        shell: bash
+        env:
+          GS_B64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          if [ -n "$GS_B64" ]; then
+            echo "$GS_B64" | base64 -d > mobile/google-services.json
+          else
+            echo "::warning::GOOGLE_SERVICES_JSON_BASE64 absent : APK sans notifications push"
+          fi
+
+      # android/ n'est pas versionné : prebuild le régénère depuis app.json (icônes,
+      # écran de démarrage, icône de notification compris).
+      - name: Expo prebuild (android)
+        working-directory: mobile
+        env:
+          APP_VERSION: ${{ steps.vc.outputs.name }}
+          ANDROID_VERSION_CODE: ${{ steps.vc.outputs.code }}
+        run: npx expo prebuild -p android --no-install
+
+      # Signée avec la clé d'upload des APK précédentes, sinon Android refuse de
+      # l'installer par-dessus. Sans le secret (PR depuis un fork), APK signée en
+      # debug : bonne pour un contrôle, jamais attachée à une release.
+      - name: APK release
+        shell: bash
+        working-directory: mobile/android
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > app/upload.keystore
+            # Lues par le plugin mobile/plugins/withReleaseSigning.js.
+            export ORG_GRADLE_PROJECT_MURGAT_UPLOAD_STORE_FILE=upload.keystore
+            export ORG_GRADLE_PROJECT_MURGAT_UPLOAD_STORE_PASSWORD="$KS_PASSWORD"
+            export ORG_GRADLE_PROJECT_MURGAT_UPLOAD_KEY_ALIAS="$KEY_ALIAS"
+            export ORG_GRADLE_PROJECT_MURGAT_UPLOAD_KEY_PASSWORD="$KEY_PASSWORD"
+          elif [ -n "$TAG" ]; then
+            echo "::error::Clé de signature absente : pas d'APK de release sans elle."; exit 1
+          fi
+          ./gradlew :app:assembleRelease --no-daemon
+
+      - id: apk
+        shell: bash
+        working-directory: mobile/android
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          APK="Chat_${{ steps.vc.outputs.name }}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$APK"
+          # Aucun serveur ne doit être figé dans l'APK.
+          if unzip -p "$APK" assets/app.config | grep -q '"API_URL":""'; then
+            echo "app.config : API_URL vide ✓"
+          else
+            echo "::error::app.config : API_URL non vide, un serveur a été figé dans l'APK"; exit 1
+          fi
+          # Les icônes de l'appli sont bien embarquées (sinon : icône Expo par défaut).
+          unzip -l "$APK" | grep -E 'ic_launcher|notification_icon|splashscreen_logo' | awk '{print $NF}'
+          unzip -l "$APK" | grep -q 'ic_launcher_foreground' \
+            || { echo "::error::icône adaptative absente de l'APK"; exit 1; }
+          # Même certificat que la dernière APK publiée (0.6.1) : sinon, l'APK ne
+          # s'installe pas par-dessus et il faudrait désinstaller l'ancienne.
+          if [ -f app/upload.keystore ]; then
+            gh release download v0.6.1 -p 'Chat_0.6.1.apk' -D /tmp/ref --repo "$GITHUB_REPOSITORY"
+            SIGNER="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)/apksigner"
+            REF=$("$SIGNER" verify --print-certs /tmp/ref/Chat_0.6.1.apk | grep 'SHA-256 digest')
+            NEW=$("$SIGNER" verify --print-certs "$APK" | grep 'SHA-256 digest')
+            echo "0.6.1 : $REF"; echo "nouvelle : $NEW"
+            [ -n "$REF" ] && [ "$REF" = "$NEW" ] \
+              || { echo "::error::certificat différent de celui de l'APK 0.6.1"; exit 1; }
+          fi
+          echo "path=mobile/android/$APK" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: apk
+          path: ${{ steps.apk.outputs.path }}
+          retention-days: 14
+
+      - name: Attacher l'APK à la release
+        if: ${{ inputs.tag != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$TAG" "${{ steps.apk.outputs.path }}" --clobber --repo "$GITHUB_REPOSITORY"

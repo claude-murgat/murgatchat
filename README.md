@@ -18,7 +18,7 @@ Copie graphiquement inspirée de Slack avec :
 └── mobile/         # app Expo (Android ; iOS = PWA)
 ```
 
-> L'installeur Windows `.exe` n'est **pas** versionné dans le dépôt : il est buildé par CI et publié dans les [GitHub Releases](../../releases) au push d'un tag `v*` (mobile = PWA, pas d'APK).
+> L'installeur Windows `.exe` n'est **pas** versionné dans le dépôt : il est buildé par CI et publié dans les [GitHub Releases](../../releases) au push d'un tag `v*`, avec l'APK Android de l'appli native (mobile = PWA d'abord).
 
 ## Démarrage avec Docker
 
@@ -110,7 +110,7 @@ L'adresse du serveur se saisit **dans l'app** (écran de connexion) ; aucun serv
 
 ### Desktop (Tauri — Windows / macOS / Linux)
 
-**Installeur Windows** : téléchargez-le depuis la section **[Releases](../../releases)** du dépôt (mobile = PWA, pas d'APK). Chaque release est buildée automatiquement par CI au push d'un tag `v*` (voir [Releases automatisées](#releases-automatisées-ci)). L'installeur NSIS est signé pour l'**auto-updater** (minisign) mais n'a pas de certificat **Authenticode** → SmartScreen avertit à la première installation. L'adresse du serveur se configure **dans l'app** (écran de connexion) ; les builds ne bakent **aucun serveur par défaut** (champ vide au premier lancement).
+**Installeur Windows** : téléchargez-le depuis la section **[Releases](../../releases)** du dépôt (mobile : la PWA, ou l'APK Android de l'appli native attachée à chaque release). Chaque release est buildée automatiquement par CI au push d'un tag `v*` (voir [Releases automatisées](#releases-automatisées-ci)). L'installeur NSIS est signé pour l'**auto-updater** (minisign) mais n'a pas de certificat **Authenticode** → SmartScreen avertit à la première installation. L'adresse du serveur se configure **dans l'app** (écran de connexion) ; les builds ne bakent **aucun serveur par défaut** (champ vide au premier lancement).
 
 **Serveur partagé (TSE/RDS)** : un administrateur installe Chat une seule fois en choisissant **« Install for anyone using this computer »**. Les mises à jour se font de même, une seule fois, depuis la bannière d'une session admin ou avec l'installeur ; Chat se ferme alors dans les autres sessions, jusqu'à sa réouverture. Les sessions qui utilisent cette copie commune n'ont ni bannière ni installation à faire. Une session qui tourne encore sur une ancienne copie privée voit une dernière bannière : un clic la rebascule sur la copie commune.
 
@@ -145,7 +145,7 @@ En MSVC (toolchain standard, ce que fait la CI), `WebView2Loader.dll` est liée 
 
 ### Releases automatisées (CI)
 
-Le workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) se déclenche au **push d'un tag `v*`** et publie une GitHub Release avec l'**installeur Windows signé**. La distribution mobile passe désormais par la **PWA** (« Ajouter à l'écran d'accueil ») — **plus d'APK ni de build iOS dans la CI** (voir le *pivot PWA* dans [PROGRESS.md](PROGRESS.md)).
+Le workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) se déclenche au **push d'un tag `v*`** et publie une GitHub Release avec l'**installeur Windows signé**. La distribution mobile passe d'abord par la **PWA** (« Ajouter à l'écran d'accueil ») ; l'**APK Android** de l'appli native (gelée côté fonctionnalités) est reconstruite et attachée **après** la publication ([`android.yml`](.github/workflows/android.yml)), sans pouvoir bloquer l'installeur Windows. Pas de build iOS (voir le *pivot PWA* dans [PROGRESS.md](PROGRESS.md)).
 
 Pipeline : `test` (réutilise [`tests.yml`](.github/workflows/tests.yml)) → `release` (crée une release *draft* + valide que les **3 fichiers de version == tag**) → `desktop` (`windows-latest`, MSVC, `tauri-action` : build, **signature** de l'installeur NSIS et génération de `latest.json` pour l'auto-updater) → `publish` (passe la release en *live* par un simple `PATCH draft=false`, puis vérifie que `/releases/latest` pointe sur elle — jamais sur une pré-release ; relançable sans risque).
 

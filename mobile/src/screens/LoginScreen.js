@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Image,
 } from "react-native";
 import { api, setToken, getApiBaseUrl, setApiBaseUrl, pingServer } from "../api";
 import { useChat } from "../ChatContext";
@@ -255,6 +256,8 @@ export default function LoginScreen() {
       style={styles.container}
     >
       <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }}>
+        {/* Logo de Murgat Chat, en blanc sur l'aubergine, au-dessus de la carte. */}
+        <Image source={require("../../assets/logo-blanc.png")} style={styles.logo} />
         <View style={styles.card}>
           <Text style={styles.title}>Chat</Text>
           <Text style={styles.subtitle}>{subtitle}</Text>
@@ -489,6 +492,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.aubergine,
     padding: 20,
   },
+  logo: { width: 56, height: 56, alignSelf: "center", marginBottom: 20 },
   card: {
     backgroundColor: colors.white,
     borderRadius: 12,
