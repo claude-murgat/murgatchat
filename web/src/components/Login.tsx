@@ -1,6 +1,8 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { api, setToken, getApiBaseUrl, setApiBaseUrl, pingServer } from "../api.ts";
 import type { User } from "../types.ts";
+// Intégré au bundle (data URI) : affiché hors ligne et dans l'appli de bureau.
+import logoBlanc from "../brand/logo-murgat-chat-blanc.svg?inline";
 
 /** Écran courant du formulaire. */
 type Mode = "login" | "register" | "forgot" | "reset";
@@ -326,7 +328,8 @@ export default function Login({
       <div className="w-full max-w-md bg-white text-slate-900 rounded-xl shadow-2xl overflow-hidden">
         <div className="bg-aubergine-700 text-white p-6">
           <div className="flex items-center gap-2 text-2xl font-bold">
-            <span className="inline-block w-9 h-9 rounded-lg bg-white text-aubergine-700 grid place-items-center">#</span>
+            {/* Logo de Murgat Chat, en blanc sur l'aubergine de l'en-tête. */}
+            <img src={logoBlanc} alt="" className="w-9 h-9 shrink-0" draggable={false} />
             Chat
           </div>
           <p className="opacity-80 mt-1 text-sm">{subtitle}</p>
