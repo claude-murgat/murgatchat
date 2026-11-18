@@ -9,7 +9,9 @@
 //
 // Subscriptions invalidated by the push service (HTTP 404/410) are pruned from
 // the DB on send so they don't pile up forever.
-import webpush from "web-push";
+// web-push 4 est un module ESM qui n'a plus d'export par défaut : on importe
+// l'espace de noms (les trois fonctions utilisées ici en sont des exports nommés).
+import * as webpush from "web-push";
 import fs from "node:fs";
 import path from "node:path";
 import type { WebPushSubscription } from "@prisma/client";
