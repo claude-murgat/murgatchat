@@ -22,6 +22,19 @@ on:
       tag:
         type: string
         required: true
+    # Seuls les secrets dont le build a besoin, passés un par un par release.yml :
+    # pas de `secrets: inherit`, qui donnerait tous les secrets du dépôt au build.
+    secrets:
+      ANDROID_KEYSTORE_BASE64:
+        required: true
+      ANDROID_KEYSTORE_PASSWORD:
+        required: true
+      ANDROID_KEY_ALIAS:
+        required: true
+      ANDROID_KEY_PASSWORD:
+        required: true
+      GOOGLE_SERVICES_JSON_BASE64:
+        required: false
   workflow_dispatch:
     inputs:
       tag:
