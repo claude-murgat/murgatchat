@@ -1890,6 +1890,20 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      la PWA installée ; même titre en tête de la liste des conversations de l'appli mobile.
      Test : e2e `branding.spec.js`.
 
+## Itération 2026-11-18 (suite) — les logos de l'équipe partout
+
+168. **Les logos dessinés par l'équipe remplacent le « # » et le premier tracé** — quatre
+     versions vectorielles (pleine ou en contour, blanche ou noire), rangées dans
+     `web/src/brand/sources/`. Onglet : le kit « plein noir » (`favicon.svg`, bulle noire sur un
+     onglet clair, blanche en mode sombre ; `favicon.ico` 16 / 32 / 48 px pour Safari). Barre
+     latérale et en-tête de l'écran de connexion : le logo « vide blanc ». Appli Windows (`web/src-tauri/icons/`) et PWA (icônes du
+     manifest, icône adaptative Android, icône iOS de 180 px) : le logo « plein blanc » sur une
+     tuile aubergine (`sources/icone-appli.svg`), un peu plus grand en 16 et 24 px ; le badge
+     des notifications Android est la bulle seule. Dans `icon.ico`, l'entrée 32 px vient en
+     premier : Tauri prend la première entrée comme icône de fenêtre et de zone de
+     notification (l'ancien .ico n'avait qu'une image de 16 px). Reste au « # » : l'appli
+     mobile. Test : e2e `branding.spec.js`.
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier

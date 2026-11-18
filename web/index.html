@@ -11,14 +11,16 @@
 
     <!-- Manifest (généré par vite-plugin-pwa au build). -->
     <link rel="manifest" href="/manifest.webmanifest" />
-    <!-- Logo de l'onglet : un .ico avec un rendu par taille (16, 32, 48 px), le
-         navigateur prend celui de l'écran. À 16 px le trait est un peu épaissi
-         pour rester lisible ; la bulle est pleine (blanche) pour se voir aussi
-         sur un onglet sombre. -->
-    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+    <!-- Logo de l'onglet. Chrome, Edge et Firefox prennent le SVG : bulle noire sur
+         un onglet clair, blanche en mode sombre (media query dans le fichier).
+         Safari et les vieux navigateurs prennent le .ico (16, 32, 48 px) ; le
+         sizes="32x32" sert justement à ce que Chrome préfère le SVG. -->
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 
-    <!-- iOS standalone PWA : icône d'écran d'accueil + status bar transparente. -->
-    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <!-- iOS standalone PWA : icône d'écran d'accueil (180 px, fond opaque : iOS
+         arrondit lui-même les coins) + status bar transparente. -->
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Murgat Chat" />

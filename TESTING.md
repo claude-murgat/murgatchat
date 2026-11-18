@@ -148,8 +148,10 @@ badge dans « Général ») ; la
 seule admin d'un salon dont les autres membres sont désactivés est prévenue que personne ne prendra
 le relais (détails et menu contextuel) — et, pour un salon privé, que personne ne pourra l'y
 rajouter ; le salon survit et son membre réactivé le reprend.
-`branding.spec.js` : l'onglet déclare une seule icône, `/favicon.ico`, servie avec ses trois
-rendus (16, 32 et 48 px) ; le logo blanc, chargé, fait 40 px à gauche de « Murgat Chat ».
+`branding.spec.js` : l'onglet déclare `/favicon.ico` (trois rendus, 16, 32 et 48 px) puis
+`/favicon.svg` (servi en `image/svg+xml`, avec sa variante sombre) ; l'icône iOS fait 180 px,
+chaque icône du manifest est servie à la taille annoncée, le badge des notifications fait 72 px ;
+le logo blanc, chargé, fait 40 px à gauche de « Murgat Chat ».
 `paste-markdown.spec.js` : une liste copiée (vrai Ctrl+C dans Chromium, dont le texte brut
 n'a ni puces ni retraits) puis collée (Ctrl+V) arrive en Markdown dans le composer, Ctrl+Z
 l'annule d'un coup, et le message envoyé s'affiche en liste imbriquée ; listes Word / Outlook

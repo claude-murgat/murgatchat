@@ -1,7 +1,8 @@
 import { test, expect } from "@playwright/test";
 
-// Logo de Murgat Chat : l'icône de l'onglet (favicon.ico, un rendu par taille)
-// et le logo blanc à gauche de « Murgat Chat » dans la barre latérale.
+// Logo de Murgat Chat : l'icône de l'onglet (SVG clair/sombre + .ico de secours),
+// les icônes de la PWA (manifest, écran d'accueil iOS, badge) et le logo blanc à
+// gauche de « Murgat Chat » dans la barre latérale.
 
 const API_URL = process.env.E2E_API_URL || "http://localhost:4001";
 const tag = () => `brand_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e4)}`;
@@ -13,12 +14,21 @@ test.beforeEach(async ({ request }) => {
   }
 });
 
-test("l'onglet affiche le logo Murgat Chat (16, 32 et 48 px)", async ({ page, request }) => {
+// Largeur et hauteur d'un PNG (en-tête IHDR).
+function pngSize(buf) {
+  expect(buf.subarray(1, 4).toString("latin1")).toBe("PNG");
+  return [buf.readUInt32BE(16), buf.readUInt32BE(20)];
+}
+
+test("l'onglet affiche le logo Murgat Chat (SVG, et .ico 16, 32 et 48 px)", async ({ page, request }) => {
   await page.goto("/");
-  // Une seule icône déclarée : le .ico, plus le « # » d'avant.
+  // Le .ico (Safari, vieux navigateurs) et le SVG (Chrome, Edge, Firefox).
   const icons = page.locator('link[rel="icon"]');
-  await expect(icons).toHaveCount(1);
-  await expect(icons).toHaveAttribute("href", "/favicon.ico");
+  await expect(icons).toHaveCount(2);
+  expect(await icons.evaluateAll((ls) => ls.map((l) => l.getAttribute("href")))).toEqual([
+    "/favicon.ico",
+    "/favicon.svg",
+  ]);
 
   const res = await request.get("/favicon.ico");
   expect(res.ok()).toBe(true);
@@ -29,6 +39,48 @@ test("l'onglet affiche le logo Murgat Chat (16, 32 et 48 px)", async ({ page, re
   expect(ico.readUInt16LE(4)).toBe(3);
   const sizes = [0, 1, 2].map((i) => ico[6 + i * 16]).sort((a, b) => a - b);
   expect(sizes).toEqual([16, 32, 48]);
+
+  // Le SVG passe en blanc en mode sombre.
+  const svg = await request.get("/favicon.svg");
+  expect(svg.ok()).toBe(true);
+  expect(svg.headers()["content-type"]).toContain("image/svg+xml");
+  expect(await svg.text()).toContain("prefers-color-scheme:dark");
+});
+
+test("l'écran de connexion affiche le logo, plus le « # »", async ({ page }) => {
+  await page.goto("/");
+  const logo = page.locator('img[src^="data:image/svg+xml"]').first();
+  await expect(logo).toBeVisible();
+  expect(await logo.evaluate((img) => img.complete && img.naturalWidth > 0)).toBe(true);
+  const box = await logo.boundingBox();
+  expect([box.width, box.height]).toEqual([36, 36]);
+});
+
+test("les icônes de la PWA existent à la bonne taille", async ({ page, request }) => {
+  await page.goto("/");
+  // Écran d'accueil iOS : 180 px.
+  await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute(
+    "href",
+    "/icons/apple-touch-icon.png",
+  );
+  const apple = await request.get("/icons/apple-touch-icon.png");
+  expect(apple.ok()).toBe(true);
+  expect(pngSize(await apple.body())).toEqual([180, 180]);
+
+  // Chaque icône du manifest est servie et a la taille qu'il annonce.
+  const manifest = await (await request.get("/manifest.webmanifest")).json();
+  expect(manifest.icons.length).toBeGreaterThanOrEqual(3);
+  for (const icon of manifest.icons) {
+    const r = await request.get(icon.src);
+    expect(r.ok(), icon.src).toBe(true);
+    const [w, h] = icon.sizes.split("x").map(Number);
+    expect(pngSize(await r.body()), icon.src).toEqual([w, h]);
+  }
+
+  // Badge des notifications Android (monochrome).
+  const badge = await request.get("/icons/badge-72.png");
+  expect(badge.ok()).toBe(true);
+  expect(pngSize(await badge.body())).toEqual([72, 72]);
 });
 
 test("le logo blanc est à gauche de « Murgat Chat »", async ({ page }) => {
