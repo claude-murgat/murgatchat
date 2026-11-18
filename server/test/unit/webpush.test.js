@@ -1,7 +1,15 @@
 import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 import { createECDH, randomBytes } from "node:crypto";
-import webpush from "web-push";
+import * as webpush from "web-push";
 import { sendWebPush } from "../../src/webpush.ts";
+
+// web-push 4 est un module ESM : son espace de noms est scellé, donc `vi.spyOn`
+// ne peut pas y remplacer `sendNotification`. On le remplace au chargement du
+// module (mock hissé) en gardant le reste de la vraie implémentation.
+vi.mock("web-push", async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, sendNotification: vi.fn(actual.sendNotification) };
+});
 
 // Clés VAPID fournies par l'environnement : sans elles, initWebPush en
 // générerait et les écrirait dans server/data/vapid.json.
@@ -11,7 +19,7 @@ beforeAll(() => {
   process.env.VAPID_PRIVATE_KEY = keys.privateKey;
 });
 afterEach(() => {
-  vi.restoreAllMocks();
+  vi.mocked(webpush.sendNotification).mockReset();
 });
 
 // Abonnement au format navigateur (clé P-256 non compressée + secret de 16
@@ -31,7 +39,7 @@ const payload = { title: "Alice", body: "coucou", channelId: "c1", tag: "channel
 describe("sendWebPush", () => {
   it("sends Urgency: high and a 24 h TTL, without Topic, with a request timeout", async () => {
     const sent = [];
-    vi.spyOn(webpush, "sendNotification").mockImplementation(async (sub, body, options) => {
+    vi.mocked(webpush.sendNotification).mockImplementation(async (sub, body, options) => {
       // Les en-têtes que web-push enverrait vraiment au service push pour cet appel.
       const { headers } = webpush.generateRequestDetails(sub, body, options);
       sent.push({ headers, options });
@@ -55,7 +63,7 @@ describe("sendWebPush", () => {
   it("doesn't let a slow push service hold back the other subscriptions", async () => {
     const started = [];
     let releaseSlow;
-    vi.spyOn(webpush, "sendNotification").mockImplementation((sub) => {
+    vi.mocked(webpush.sendNotification).mockImplementation((sub) => {
       started.push(sub.endpoint);
       if (sub.endpoint.endsWith("/slow")) {
         return new Promise((resolve) => {

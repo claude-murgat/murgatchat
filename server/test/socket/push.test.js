@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import { createECDH, randomBytes } from "node:crypto";
-import webpush from "web-push";
+import * as webpush from "web-push";
 import {
   startTestServer,
   connectSocket,
@@ -10,6 +10,18 @@ import {
 } from "../helpers/server.js";
 import { registerUser, authed } from "../helpers/api.js";
 import { prisma } from "../helpers/db.js";
+
+// web-push 4 est un module ESM : son espace de noms est scellé, donc `vi.spyOn`
+// ne peut pas y remplacer `sendNotification`. On le remplace au chargement du
+// module (mock hissé) en gardant le reste de la vraie implémentation.
+vi.mock("web-push", async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, sendNotification: vi.fn(actual.sendNotification) };
+});
+
+const sendNotification = webpush.sendNotification;
+// Implémentation réelle, restaurée après chaque test qui l'a remplacée.
+const actualSendNotification = sendNotification.getMockImplementation();
 
 let srv;
 beforeAll(async () => {
@@ -34,6 +46,8 @@ afterEach(() => {
   open.length = 0;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  sendNotification.mockReset();
+  sendNotification.mockImplementation(actualSendNotification);
 });
 
 // Mock the Expo push endpoint (push.js uses global fetch) so gating is testable
@@ -47,9 +61,7 @@ function mockExpo(data = [{ status: "ok", id: "ticket-1" }]) {
 // Web Push mocké au niveau de web-push : renvoie l'espion, dont les appels
 // portent l'endpoint de chaque abonnement poussé.
 function mockWebPush() {
-  return vi
-    .spyOn(webpush, "sendNotification")
-    .mockResolvedValue({ statusCode: 201, body: "", headers: {} });
+  return sendNotification.mockResolvedValue({ statusCode: 201, body: "", headers: {} });
 }
 
 // Abonnement Web Push (PWA) du destinataire. Les clés ne servent pas : l'envoi
@@ -349,8 +361,7 @@ describe("push payload size", () => {
       },
     });
     const encrypted = [];
-    const sendMock = vi
-      .spyOn(webpush, "sendNotification")
+    const sendMock = sendNotification
       .mockImplementation(async (sub, payload, options) => {
         encrypted.push(webpush.generateRequestDetails(sub, payload, options).body);
         return { statusCode: 201, body: "", headers: {} };
