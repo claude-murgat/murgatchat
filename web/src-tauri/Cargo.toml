@@ -1,6 +1,6 @@
 [package]
 name = "chat-desktop"
-version = "1.6.15"
+version = "1.6.16"
 description = "Chat desktop wrapper (Tauri)"
 edition = "2021"
 
@@ -34,6 +34,12 @@ windows = { version = "0.61", features = [
     "UI_Notifications",
     "Data_Xml_Dom",
 ] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Notifications freedesktop sur D-Bus (src/linux_notifications.rs). zbus est déjà
+# dans l'arbre via tauri-plugin-notification (notify-rust) : même version, et les
+# mêmes fonctionnalités que lui, plus l'API bloquante.
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
 
 [profile.release]
 panic = "abort"

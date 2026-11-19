@@ -4,7 +4,7 @@ Copie graphiquement inspirée de Slack avec :
 
 - **Backend** Node.js (Express + Socket.IO) + Prisma + PostgreSQL
 - **Web** React + Vite + Tailwind (thème aubergine de Slack)
-- **Desktop** Tauri 2 (Windows / macOS / Linux) — réutilise le React, ajoute system tray + notifications natives
+- **Desktop** Tauri 2 (Windows, Linux en .deb / .rpm / .AppImage) — réutilise le React, ajoute system tray + notifications natives
 - **Mobile** React Native via Expo (Android) ; **iOS** passe par la **PWA** (Safari → écran d'accueil)
 - **Docker** `docker-compose` pour DB + backend + web
 - **Fonctionnalités** : auth JWT, salons publics/privés, messages directs (+ auto-DM « notes pour soi »), *Ne pas déranger*, **messages planifiés** (créer / modifier / supprimer), réponses inline (citation cliquable), **rendu Markdown** (GFM : gras, code inline + blocs colorés, listes, liens, tables…) — le texte mis en forme collé (réponse de Claude, Word, Google Docs, mail) est traduit en Markdown, listes imbriquées comprises, **pièces jointes chiffrées at-rest** + bodies chiffrés (AES-256-GCM), recherche full-text, notifications temps réel, **notifications système** (toast Windows/macOS via Tauri ou API browser)
@@ -18,7 +18,7 @@ Copie graphiquement inspirée de Slack avec :
 └── mobile/         # app Expo (Android ; iOS = PWA)
 ```
 
-> L'installeur Windows `.exe` n'est **pas** versionné dans le dépôt : il est buildé par CI et publié dans les [GitHub Releases](../../releases) au push d'un tag `v*`, avec l'APK Android de l'appli native (mobile = PWA d'abord).
+> L'installeur Windows `.exe` et les paquets Linux (`.deb`, `.rpm`, `.AppImage`) ne sont **pas** versionnés dans le dépôt : ils sont buildés par CI et publiés dans les [GitHub Releases](../../releases) au push d'un tag `v*`, avec l'APK Android de l'appli native (mobile = PWA d'abord).
 
 ## Démarrage avec Docker
 
@@ -112,6 +112,19 @@ L'adresse du serveur se saisit **dans l'app** (écran de connexion) ; aucun serv
 
 **Installeur Windows** : téléchargez-le depuis la section **[Releases](../../releases)** du dépôt (mobile : la PWA, ou l'APK Android de l'appli native attachée à chaque release). Chaque release est buildée automatiquement par CI au push d'un tag `v*` (voir [Releases automatisées](#releases-automatisées-ci)). L'installeur NSIS est signé pour l'**auto-updater** (minisign) mais n'a pas de certificat **Authenticode** → SmartScreen avertit à la première installation. L'adresse du serveur se configure **dans l'app** (écran de connexion) ; les builds ne bakent **aucun serveur par défaut** (champ vide au premier lancement).
 
+**Paquets Linux** (x86_64), attachés aux mêmes Releases et mis à jour **dans l'app** comme sous Windows (bannière « Installer ») :
+
+| Distribution | Fichier | Installation |
+| --- | --- | --- |
+| Debian 12+, Ubuntu 22.04+, Mint 21+ | `Chat_X.Y.Z_amd64.deb` | `sudo apt install ./Chat_X.Y.Z_amd64.deb` |
+| Fedora 37+ et autres distributions RPM récentes | `Chat-X.Y.Z-1.x86_64.rpm` | `sudo dnf install ./Chat-X.Y.Z-1.x86_64.rpm` |
+| Toute autre distribution (Arch…) | `Chat_X.Y.Z_amd64.AppImage` | `chmod +x Chat_X.Y.Z_amd64.AppImage`, puis le lancer |
+
+- **Mise à jour** : chaque paquet se met à jour par le même format (`latest.json` a une entrée `linux-x86_64-deb`, `-rpm` et `-appimage`). Un `.deb` ou un `.rpm` s'installe pour toute la machine : le système demande le mot de passe administrateur (pkexec). L'AppImage se remplace elle-même, sans mot de passe, si son fichier est modifiable par l'utilisateur.
+- **Notifications** : notifications du bureau (D-Bus freedesktop), une par conversation, remplacée à chaque message et retirée une fois lue ; un clic ouvre la conversation.
+- **Tray** : sous GNOME (Fedora, Debian), l'icône n'apparaît qu'avec l'extension *AppIndicator* (présente d'office sur Ubuntu). Sans elle, fermer la fenêtre laisse Chat tourner en arrière-plan (les notifications arrivent toujours) : le relancer depuis le menu des applications ramène la fenêtre.
+- Construits sur Ubuntu 22.04 : leur glibc (2.35) est le minimum requis.
+
 **Serveur partagé (TSE/RDS)** : un administrateur installe Chat une seule fois en choisissant **« Install for anyone using this computer »**. Les mises à jour se font de même, une seule fois, depuis la bannière d'une session admin ou avec l'installeur ; Chat se ferme alors dans les autres sessions, jusqu'à sa réouverture. Les sessions qui utilisent cette copie commune n'ont ni bannière ni installation à faire. Une session qui tourne encore sur une ancienne copie privée voit une dernière bannière : un clic la rebascule sur la copie commune.
 
 Le scaffold complet est dans [web/src-tauri/](web/src-tauri/). Tauri lance Vite en dev et embarque le `dist/` en release.
@@ -145,9 +158,11 @@ En MSVC (toolchain standard, ce que fait la CI), `WebView2Loader.dll` est liée 
 
 ### Releases automatisées (CI)
 
-Le workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) se déclenche au **push d'un tag `v*`** et publie une GitHub Release avec l'**installeur Windows signé**. La distribution mobile passe d'abord par la **PWA** (« Ajouter à l'écran d'accueil ») ; l'**APK Android** de l'appli native (gelée côté fonctionnalités) est reconstruite et attachée **après** la publication ([`android.yml`](.github/workflows/android.yml)), sans pouvoir bloquer l'installeur Windows. Pas de build iOS (voir le *pivot PWA* dans [PROGRESS.md](PROGRESS.md)).
+Le workflow [`.github/workflows/release.yml`](.github/workflows/release.yml) se déclenche au **push d'un tag `v*`** et publie une GitHub Release avec l'**installeur Windows** et les **paquets Linux**, tous signés pour l'auto-updater. La distribution mobile passe d'abord par la **PWA** (« Ajouter à l'écran d'accueil ») ; l'**APK Android** de l'appli native (gelée côté fonctionnalités) est reconstruite et attachée **après** la publication ([`android.yml`](.github/workflows/android.yml)), sans pouvoir bloquer l'installeur Windows. Pas de build iOS (voir le *pivot PWA* dans [PROGRESS.md](PROGRESS.md)).
 
-Pipeline : `test` (réutilise [`tests.yml`](.github/workflows/tests.yml)) → `release` (crée une release *draft* + valide que les **3 fichiers de version == tag**) → `desktop` (`windows-latest`, MSVC, `tauri-action` : build, **signature** de l'installeur NSIS et génération de `latest.json` pour l'auto-updater) → `publish` (passe la release en *live* par un simple `PATCH draft=false`, puis vérifie que `/releases/latest` pointe sur elle — jamais sur une pré-release ; relançable sans risque).
+Pipeline : `test` (réutilise [`tests.yml`](.github/workflows/tests.yml)) → `release` (crée une release *draft* + valide que les **3 fichiers de version == tag**) → `desktop` (`windows-latest`, MSVC, `tauri-action` : build, **signature** de l'installeur NSIS et génération de `latest.json` pour l'auto-updater) → `linux` (`ubuntu-22.04`, `.deb` / `.rpm` / `.AppImage` signés, ajoutés à `latest.json` ; **après** `desktop` pour que les deux jobs n'écrasent pas `latest.json` l'un de l'autre) → `publish` (vérifie que `latest.json` annonce la version, signée, pour Windows et les trois paquets Linux ; passe la release en *live* par un simple `PATCH draft=false`, puis vérifie que `/releases/latest` pointe sur elle — jamais sur une pré-release ; relançable sans risque).
+
+Pour vérifier qu'une branche build sur les deux plateformes sans rien publier (PR Dependabot Tauri, changement dans `web/src-tauri/`) : `gh workflow run desktop-installer.yml --ref <branche>` (option `-f platform=linux` ou `windows` pour n'en construire qu'une) ; les installeurs sont téléchargeables en artefacts du run.
 
 **Versionnage — SemVer strict depuis la 1.0.0.** Le tag doit respecter
 `vMAJEUR.MINEUR.CORRECTIF` ; la CI **rejette tout tag mal formé** (`v1.0`, `v2`,
@@ -193,7 +208,7 @@ Le serveur expose `GET /version` → `{ version, downloadUrl }`, piloté par les
 | Plateforme | Action proposée |
 | --- | --- |
 | Web | **Rafraîchir** (recharge le bundle déjà servi) |
-| Desktop (Tauri) | **Télécharger** (ouvre `DOWNLOAD_URL`) |
+| Desktop (Tauri, Windows et Linux) | **Installer** (l'updater Tauri télécharge le paquet signé, l'installe et relance l'app) |
 | Android | bannière d'info seule (pas d'action) |
 
 Sans `CLIENT_VERSION`, le serveur renvoie sa propre version (basse) → aucune bannière (checker inactif). Pour tester : `CLIENT_VERSION=0.5.3 docker compose up -d server`, puis ouvrir un client plus ancien.
@@ -202,7 +217,7 @@ Sans `CLIENT_VERSION`, le serveur renvoie sa propre version (basse) → aucune b
 
 - **System tray** — icône aubergine `#` ; clic gauche bascule afficher/masquer la fenêtre, clic droit ouvre un menu *Afficher / Masquer / Quitter*.
 - **Fermer ≠ quitter** — la croix de la fenêtre la masque dans la tray, l'app continue de tourner et de recevoir les messages.
-- **Notifications natives** — quand un message arrive alors que la fenêtre n'a pas le focus, un toast Windows apparaît via le plugin [tauri-plugin-notification](https://v2.tauri.app/plugin/notification/). En navigateur classique (sans Tauri), [web/src/desktop.js](web/src/desktop.js) bascule sur l'API `Notification` du navigateur.
+- **Notifications natives** — quand un message arrive alors que la fenêtre n'a pas le focus, un toast Windows apparaît (sous Linux, une notification du bureau par D-Bus) ; un clic ouvre la conversation. En navigateur classique (sans Tauri), [web/src/desktop.js](web/src/desktop.js) bascule sur l'API `Notification` du navigateur.
 - **Permission notification** — demandée au premier login. Si elle est refusée, seul le toast in-app reste.
 
 **Auto-start au boot Windows :** placer un raccourci vers `Chat.exe` dans `shell:startup` (Win+R → `shell:startup`). Pour une intégration plus propre via le registre, on pourrait ajouter le plugin [tauri-plugin-autostart](https://v2.tauri.app/plugin/autostart/) — pas activé pour l'instant.
@@ -620,8 +635,8 @@ par thème :
   à la première installation. _(L'installeur est déjà signé pour l'**auto-updater**
   Tauri via minisign, mais ce n'est **pas** un certificat Authenticode → SmartScreen
   reste présent.)_
-- **Builds macOS / Linux** (le code Tauri est cross-platform, juste à câbler
-  les bundles).
+- **Build macOS** (le code Tauri est cross-platform, juste à câbler le bundle ;
+  il faudrait un compte Apple Developer pour la signature et la notarisation).
 
 ### Fonctionnalités
 - **E2E (chiffrement bout-en-bout) pour les DM** — empêcherait la recherche

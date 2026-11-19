@@ -5,6 +5,9 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{Emitter, Manager, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
 
+#[cfg(target_os = "linux")]
+mod linux_notifications;
+
 // AppUserModelID de l'app : DOIT être identique à l'identifiant Tauri, à l'app_id
 // de la toast Windows et à l'AUMID posé par l'installeur NSIS sur le raccourci —
 // sinon Windows ne route pas le clic de notification vers CE process (cf. setup).
@@ -162,9 +165,48 @@ fn notify_desktop(app: tauri::AppHandle, title: String, body: String, channel_id
     });
 }
 
-// Pas de toast natif hors Windows (les builds desktop sont Windows-only) ; on garde
-// la commande présente pour que l'invoke handler et l'appel front compilent partout.
-#[cfg(not(windows))]
+// Linux : notifications freedesktop sur D-Bus (src/linux_notifications.rs), une
+// connexion pour toute la session, ouverte au premier message. Un clic fait comme
+// sous Windows : il ramène la fenêtre et émet `desktop:notification-click`.
+#[cfg(target_os = "linux")]
+fn linux_notifier(app: &tauri::AppHandle) -> Option<&'static linux_notifications::Notifier> {
+    static NOTIFIER: std::sync::OnceLock<Option<linux_notifications::Notifier>> =
+        std::sync::OnceLock::new();
+    NOTIFIER
+        .get_or_init(|| {
+            let app = app.clone();
+            linux_notifications::Notifier::connect(Box::new(move |channel_id| {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+                if let Some(id) = channel_id {
+                    let _ = app.emit("desktop:notification-click", Some(id));
+                }
+            }))
+            .map_err(|e| eprintln!("[desktop] notifications unavailable (D-Bus): {e}"))
+            .ok()
+        })
+        .as_ref()
+}
+
+// Hors du thread principal (celui des commandes synchrones) : l'appel D-Bus bloque.
+#[cfg(target_os = "linux")]
+#[tauri::command]
+fn notify_desktop(app: tauri::AppHandle, title: String, body: String, channel_id: Option<String>) {
+    std::thread::spawn(move || {
+        if let Some(notifier) = linux_notifier(&app) {
+            if let Err(e) = notifier.notify(&title, &body, channel_id) {
+                eprintln!("[desktop] notification failed: {e}");
+            }
+        }
+    });
+}
+
+// Ni Windows ni Linux (macOS, jamais publié) : pas de notification native ; la
+// commande reste présente pour que l'invoke handler et l'appel front compilent.
+#[cfg(not(any(windows, target_os = "linux")))]
 #[tauri::command]
 fn notify_desktop(
     _app: tauri::AppHandle,
@@ -199,7 +241,17 @@ fn clear_desktop_notifications(app: tauri::AppHandle, channel_ids: Vec<String>) 
     });
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+#[tauri::command]
+fn clear_desktop_notifications(app: tauri::AppHandle, channel_ids: Vec<String>) {
+    std::thread::spawn(move || {
+        if let Some(notifier) = linux_notifier(&app) {
+            notifier.clear(&channel_ids);
+        }
+    });
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 #[tauri::command]
 fn clear_desktop_notifications(_app: tauri::AppHandle, _channel_ids: Vec<String>) {}
 
