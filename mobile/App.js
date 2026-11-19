@@ -53,31 +53,36 @@ function Root() {
   return (
     <NavigationContainer>
       <StatusBar style="light" />
-      {user ? (
-        <Stack.Navigator
-          screenOptions={{
-            headerStyle: { backgroundColor: colors.aubergine },
-            headerTintColor: colors.white,
-            headerTitleStyle: { color: colors.white },
-          }}
-        >
-          <Stack.Screen name="Channels" component={ChannelListScreen} options={{ title: "Conversations" }} />
-          <Stack.Screen name="Channel" component={ChannelScreen} />
-          <Stack.Screen name="Members" component={MembersScreen} options={{ title: "Membres" }} />
-          <Stack.Screen name="AddMembers" component={AddMembersScreen} options={{ title: "Ajouter des membres" }} />
-          <Stack.Screen name="NewChannel" component={NewChannelScreen} options={{ title: "Créer une conversation" }} />
-          <Stack.Screen name="NewDm" component={NewDmScreen} options={{ title: "Nouveau message" }} />
-          <Stack.Screen name="Browse" component={BrowseChannelsScreen} options={{ title: "Parcourir les salons" }} />
-          <Stack.Screen name="Dnd" component={DndScreen} options={{ title: "Ne pas déranger" }} />
-          <Stack.Screen name="AdminPanel" component={AdminPanelScreen} options={{ title: "Administration" }} />
-          <Stack.Screen name="BugReports" component={BugReportsScreen} options={{ title: "Rapports de bug" }} />
-          <Stack.Screen name="Search" component={SearchScreen} options={{ title: "Rechercher" }} />
-        </Stack.Navigator>
-      ) : (
-        <LoginScreen />
-      )}
-      <Toast />
+      {/* Les écrans au-dessus du bandeau de mise à jour, pas dessous : posé en
+          surimpression, il cachait la barre d'onglets de l'accueil et le composer. */}
+      <View style={styles.screens}>
+        {user ? (
+          <Stack.Navigator
+            screenOptions={{
+              headerStyle: { backgroundColor: colors.aubergine },
+              headerTintColor: colors.white,
+              headerTitleStyle: { color: colors.white },
+            }}
+          >
+            {/* L'accueil à onglets (Récents / Salons / Directs) : son titre suit l'onglet. */}
+            <Stack.Screen name="Channels" component={ChannelListScreen} options={{ title: "Récents" }} />
+            <Stack.Screen name="Channel" component={ChannelScreen} />
+            <Stack.Screen name="Members" component={MembersScreen} options={{ title: "Membres" }} />
+            <Stack.Screen name="AddMembers" component={AddMembersScreen} options={{ title: "Ajouter des membres" }} />
+            <Stack.Screen name="NewChannel" component={NewChannelScreen} options={{ title: "Créer une conversation" }} />
+            <Stack.Screen name="NewDm" component={NewDmScreen} options={{ title: "Nouveau message" }} />
+            <Stack.Screen name="Browse" component={BrowseChannelsScreen} options={{ title: "Parcourir les salons" }} />
+            <Stack.Screen name="Dnd" component={DndScreen} options={{ title: "Ne pas déranger" }} />
+            <Stack.Screen name="AdminPanel" component={AdminPanelScreen} options={{ title: "Administration" }} />
+            <Stack.Screen name="BugReports" component={BugReportsScreen} options={{ title: "Rapports de bug" }} />
+            <Stack.Screen name="Search" component={SearchScreen} options={{ title: "Rechercher" }} />
+          </Stack.Navigator>
+        ) : (
+          <LoginScreen />
+        )}
+      </View>
       <UpdateBanner />
+      <Toast />
     </NavigationContainer>
   );
 }
@@ -91,10 +96,12 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
+  screens: { flex: 1 },
   splash: { flex: 1, backgroundColor: colors.aubergine, alignItems: "center", justifyContent: "center" },
   toast: {
     position: "absolute",
-    bottom: 24,
+    // Au-dessus de la barre d'onglets de l'accueil et du composer d'une conversation.
+    bottom: 84,
     left: 16,
     right: 16,
     backgroundColor: colors.aubergineDark,

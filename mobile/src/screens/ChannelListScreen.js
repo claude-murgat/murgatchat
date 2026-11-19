@@ -1,57 +1,157 @@
-import { useState, useLayoutEffect } from "react";
+import { useState, useLayoutEffect, useMemo, useCallback } from "react";
 import {
   View,
   Text,
-  ScrollView,
+  SectionList,
   Pressable,
   Modal,
   Image,
+  BackHandler,
   StyleSheet,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useChat } from "../ChatContext";
-import Avatar from "../components/Avatar";
 import PresenceDot from "../components/PresenceDot";
+import ConversationRow from "../components/ConversationRow";
+import HomeTabBar from "../components/HomeTabBar";
 import InviteModal from "../components/InviteModal";
 import ProfileModal from "../components/ProfileModal";
 import BugReportModal from "../components/BugReportModal";
+import { homeLists } from "../conversations";
 import { colors } from "../theme";
 
 function dndActive(user) {
   return user?.dndUntil && new Date(user.dndUntil) > new Date();
 }
 
+// L'accueil, en trois onglets (comme les messageries mobiles) : on ouvre l'appli sur
+// les conversations récentes, non lues d'abord, plutôt que sur la liste complète des
+// salons puis des messages directs. Les deux autres onglets gardent ces listes, avec
+// leurs actions (créer, parcourir, nouveau message).
+const TABS = [
+  { key: "recent", label: "Récents", title: "Récents", icon: "time" },
+  { key: "salons", label: "Salons", title: "Salons", icon: "people" },
+  { key: "dms", label: "Directs", title: "Messages directs", icon: "chatbubbles" },
+];
+
+const EMPTY = {
+  recent: {
+    title: "Aucune conversation récente",
+    hint: "Vos salons et vos messages directs sont dans les onglets ci-dessous.",
+  },
+  salons: { title: "Aucun salon", hint: "Créez un salon, ou rejoignez un salon public." },
+  dms: { title: "Aucun message direct", hint: "Écrivez à un collègue avec « Nouveau message »." },
+};
+
 export default function ChannelListScreen({ navigation }) {
   const { user, setUser, channels, onlineUserIds, typingByChannel, markRead, logout } = useChat();
+  const [tab, setTab] = useState("recent");
   const [menu, setMenu] = useState(false);
   const [invite, setInvite] = useState(false);
   const [profile, setProfile] = useState(false);
   const [bugReport, setBugReport] = useState(false);
 
-  const groups = channels.filter((c) => !c.isDirect);
-  const dms = channels.filter((c) => c.isDirect);
+  const lists = useMemo(() => homeLists(channels, user), [channels, user]);
+  const current = TABS.find((t) => t.key === tab);
 
   useLayoutEffect(() => {
     navigation.setOptions({
+      title: current.title,
       headerRight: () => (
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           <Pressable
             onPress={() => navigation.navigate("Search")}
             style={{ paddingHorizontal: 10 }}
+            hitSlop={6}
+            accessibilityLabel="Rechercher"
           >
-            <Text style={{ color: colors.white, fontSize: 18 }}>🔍</Text>
+            <Ionicons name="search" size={21} color={colors.white} />
           </Pressable>
-          <Pressable onPress={() => setMenu(true)} style={{ paddingHorizontal: 12 }}>
-            <Text style={{ color: colors.white, fontSize: 22 }}>⋯</Text>
+          <Pressable
+            onPress={() => setMenu(true)}
+            style={{ paddingLeft: 8, paddingRight: 4 }}
+            hitSlop={6}
+            accessibilityLabel="Menu"
+          >
+            <Ionicons name="ellipsis-vertical" size={21} color={colors.white} />
           </Pressable>
         </View>
       ),
     });
-  }, [navigation]);
+  }, [navigation, current.title]);
 
-  function open(c) {
-    markRead(c.id);
-    navigation.navigate("Channel", { channelId: c.id });
-  }
+  // Bouton retour d'Android sur l'onglet Salons ou Directs : retour à Récents, comme
+  // dans les applis à onglets ; depuis Récents, il quitte l'appli comme avant.
+  useFocusEffect(
+    useCallback(() => {
+      if (tab === "recent") return undefined;
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        setTab("recent");
+        return true;
+      });
+      return () => sub.remove();
+    }, [tab])
+  );
+
+  const open = useCallback(
+    (c) => {
+      markRead(c.id);
+      navigation.navigate("Channel", { channelId: c.id });
+    },
+    [markRead, navigation]
+  );
+
+  const sections = useMemo(() => {
+    let list;
+    if (tab === "recent") {
+      const titled = lists.recentUnread.length > 0;
+      list = [
+        { key: "unread", title: "Non lus", data: lists.recentUnread },
+        { key: "read", title: titled ? "Récents" : null, data: lists.recentRead },
+      ];
+    } else if (tab === "salons") {
+      list = [
+        { key: "salons", title: lists.experts.length ? "Salons" : null, data: lists.salons },
+        { key: "experts", title: "Experts Claude", data: lists.experts },
+      ];
+    } else {
+      list = [
+        { key: "dms", title: null, data: lists.selfDm ? [lists.selfDm, ...lists.dms] : lists.dms },
+      ];
+    }
+    // Sections vides retirées : sans section du tout, SectionList affiche l'état vide.
+    return list.filter((s) => s.data.length > 0);
+  }, [tab, lists]);
+
+  const renderItem = useCallback(
+    ({ item: c }) => {
+      const other =
+        c.isDirect && c.members.length === 2 ? c.members.find((m) => m.id !== user?.id) : null;
+      return (
+        <ConversationRow
+          channel={c}
+          user={user}
+          online={!!other && !!onlineUserIds?.has(other.id)}
+          typingIds={typingByChannel?.[c.id]}
+          onPress={open}
+        />
+      );
+    },
+    [user, onlineUserIds, typingByChannel, open]
+  );
+
+  const actions =
+    tab === "salons" ? (
+      <View style={styles.actions}>
+        <ActionChip icon="add" label="Créer un salon" onPress={() => navigation.navigate("NewChannel")} />
+        <ActionChip icon="search" label="Parcourir" onPress={() => navigation.navigate("Browse")} />
+      </View>
+    ) : tab === "dms" ? (
+      <View style={styles.actions}>
+        <ActionChip icon="create-outline" label="Nouveau message" onPress={() => navigation.navigate("NewDm")} />
+      </View>
+    ) : null;
 
   return (
     <View style={styles.container}>
@@ -73,61 +173,31 @@ export default function ChannelListScreen({ navigation }) {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingVertical: 8 }}>
-        <SectionHeader
-          title="Salons"
-          onAdd={() => navigation.navigate("NewChannel")}
-          onBrowse={() => navigation.navigate("Browse")}
-        />
-        {groups.length === 0 && <Text style={styles.emptyLine}>Aucun salon</Text>}
-        {groups.map((c) => (
-          <Pressable key={c.id} style={styles.row} onPress={() => open(c)}>
-            <Text style={styles.prefix}>{c.isPrivate ? "🔒" : "#"}</Text>
-            <Text style={[styles.rowName, c.unread && styles.unreadName]} numberOfLines={1}>
-              {c.name || "salon"}
-            </Text>
-            {c.unread && <View style={styles.unreadDot} />}
-          </Pressable>
-        ))}
+      <SectionList
+        key={tab}
+        style={styles.list}
+        sections={sections}
+        keyExtractor={(c) => c.id}
+        renderItem={renderItem}
+        renderSectionHeader={({ section }) =>
+          section.title ? <Text style={styles.sectionTitle}>{section.title}</Text> : null
+        }
+        stickySectionHeadersEnabled={false}
+        ListHeaderComponent={actions}
+        ListEmptyComponent={
+          <View style={styles.empty}>
+            <Text style={styles.emptyTitle}>{EMPTY[tab].title}</Text>
+            <Text style={styles.emptyHint}>{EMPTY[tab].hint}</Text>
+          </View>
+        }
+        contentContainerStyle={{ paddingBottom: 12 }}
+      />
 
-        <SectionHeader title="Messages directs" onAdd={() => navigation.navigate("NewDm")} />
-        {dms.length === 0 && <Text style={styles.emptyLine}>Aucun DM</Text>}
-        {dms.map((c) => {
-          const other = c.members.find((m) => m.id !== user?.id) || c.members[0];
-          const isGroup = c.members.length > 2;
-          // Self-DM (notes pour soi): a single membership, that's the viewer.
-          const isSelf = c.members.length === 1 && c.members[0]?.id === user?.id;
-          const isTyping = (typingByChannel?.[c.id]?.length || 0) > 0;
-          return (
-            <Pressable key={c.id} style={styles.row} onPress={() => open(c)}>
-              {isTyping ? (
-                <View style={styles.typingBadge}>
-                  <Text style={styles.typingDots}>…</Text>
-                </View>
-              ) : isSelf ? (
-                <View style={styles.groupBadge}>
-                  <Text style={styles.groupCount}>📝</Text>
-                </View>
-              ) : isGroup ? (
-                <View style={styles.groupBadge}>
-                  <Text style={styles.groupCount}>{c.members.length}</Text>
-                </View>
-              ) : (
-                <Avatar user={other} size={32} />
-              )}
-              {!isGroup && !isSelf && (
-                <View style={{ position: "absolute", left: 34, top: 30 }}>
-                  <PresenceDot online={onlineUserIds?.has(other?.id)} size={10} />
-                </View>
-              )}
-              <Text style={[styles.rowName, { marginLeft: 10 }, c.unread && styles.unreadName]} numberOfLines={1}>
-                {c.displayName || "DM"}
-              </Text>
-              {c.unread && <View style={styles.unreadDot} />}
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      <HomeTabBar
+        tabs={TABS.map((t) => ({ ...t, badge: lists.counts[t.key] }))}
+        active={tab}
+        onChange={setTab}
+      />
 
       <Modal visible={menu} transparent animationType="fade" onRequestClose={() => setMenu(false)}>
         <Pressable style={styles.menuBackdrop} onPress={() => setMenu(false)}>
@@ -219,21 +289,16 @@ export default function ChannelListScreen({ navigation }) {
   );
 }
 
-function SectionHeader({ title, onAdd, onBrowse }) {
+function ActionChip({ icon, label, onPress }) {
   return (
-    <View style={styles.sectionHeader}>
-      <Text style={styles.sectionTitle}>{title}</Text>
-      <View style={{ flexDirection: "row", gap: 14 }}>
-        {onBrowse && (
-          <Pressable onPress={onBrowse}>
-            <Text style={styles.sectionAction}>🔍</Text>
-          </Pressable>
-        )}
-        <Pressable onPress={onAdd}>
-          <Text style={styles.sectionAction}>＋</Text>
-        </Pressable>
-      </View>
-    </View>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}
+      accessibilityRole="button"
+    >
+      <Ionicons name={icon} size={17} color={colors.aubergine} />
+      <Text style={styles.chipText}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -252,33 +317,34 @@ const styles = StyleSheet.create({
   wsUserRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
   wsUser: { color: colors.aubergineMuted },
   dndLine: { color: "#FFC857", marginTop: 2, fontSize: 12 },
-  sectionHeader: {
+  list: { flex: 1 },
+  actions: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 16, paddingVertical: 10 },
+  chip: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.aubergineMuted,
+    backgroundColor: colors.white,
+  },
+  chipPressed: { backgroundColor: colors.aubergineTint },
+  chipText: { color: colors.aubergine, fontWeight: "600", fontSize: 14 },
+  sectionTitle: {
+    textTransform: "uppercase",
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.5,
     paddingHorizontal: 16,
     paddingTop: 14,
-    paddingBottom: 4,
+    paddingBottom: 6,
   },
-  sectionTitle: { textTransform: "uppercase", color: colors.textMuted, fontSize: 12, fontWeight: "700", letterSpacing: 0.5 },
-  sectionAction: { fontSize: 16, color: colors.textMuted },
-  emptyLine: { paddingHorizontal: 16, paddingVertical: 6, color: colors.textMuted, fontSize: 13 },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  prefix: { width: 24, color: colors.textMuted, fontSize: 15 },
-  rowName: { flex: 1, color: colors.text, fontSize: 15 },
-  unreadName: { fontWeight: "700" },
-  unreadDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.aubergine },
-  groupBadge: { width: 32, height: 32, borderRadius: 6, backgroundColor: colors.aubergineLight, alignItems: "center", justifyContent: "center" },
-  groupCount: { color: colors.white, fontWeight: "700", fontSize: 13 },
-  typingBadge: { width: 32, height: 32, borderRadius: 6, backgroundColor: colors.aubergineLight, alignItems: "center", justifyContent: "center" },
-  typingDots: { color: colors.white, fontWeight: "700", fontSize: 16 },
+  empty: { paddingHorizontal: 32, paddingVertical: 48, alignItems: "center", gap: 6 },
+  emptyTitle: { color: colors.text, fontSize: 16, fontWeight: "700", textAlign: "center" },
+  emptyHint: { color: colors.textMuted, fontSize: 14, textAlign: "center" },
   menuBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.2)" },
   menu: { position: "absolute", top: 6, right: 8, backgroundColor: colors.white, borderRadius: 10, paddingVertical: 4, minWidth: 200, elevation: 6, shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } },
   menuItem: { paddingVertical: 12, paddingHorizontal: 16 },

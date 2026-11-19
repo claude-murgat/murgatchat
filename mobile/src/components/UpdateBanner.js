@@ -80,11 +80,9 @@ export default function UpdateBanner() {
 }
 
 const styles = StyleSheet.create({
+  // Dans le flux, sous les écrans (App.js) : il les raccourcit au lieu de couvrir
+  // la barre d'onglets de l'accueil ou le composer.
   banner: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
