@@ -430,9 +430,11 @@ pour les secrets) :
   `CLAUDE_HELPER_TOKEN`) relaie le tour à la VM qui l'exécute via le SDK sur
   l'abonnement Claude ; il prime sur la clé API. Quota partagé avec l'expert.
   `SUPPORT_NOTIFY_TOKEN` (+ `SUPPORT_NOTIFY_CHANNEL`, défaut `support-dev`) pour la
-  notification in-app ; vide ⇒ endpoints `/support/notify` et `/support/disk-alert`
-  désactivés. Le second reçoit les alertes de disque presque plein du serveur TSE
-  (script [`ops/alerte-disque.ps1`](ops/README.md)).
+  notification in-app ; vide ⇒ endpoints `/support/notify`, `/support/disk-alert` et
+  `/support/deploy` désactivés. Le deuxième reçoit les alertes de disque presque plein du
+  serveur TSE (script [`ops/alerte-disque.ps1`](ops/README.md)) ; le troisième celles de la
+  plateforme de déploiement des petites apps (app en ligne, échec, relecture à faire),
+  envoyées par son serveur (dépôt Murgat-Ingenierie/deployer).
   `CLAUDE_HELPER_URL` + `CLAUDE_HELPER_TOKEN` + `CLAUDE_CALLBACK_TOKEN` pour
   les experts Claude de la section CLAUDE (pont vers le service
   [`claude-helper/`](claude-helper/) sur sa VM) ; l'un vide ⇒ section inerte.

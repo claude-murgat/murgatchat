@@ -361,3 +361,77 @@ describe("POST /support/disk-alert", () => {
     expect(msgs[1].searchableBody).toMatch(/^🧪 Test de l'alerte disque — Disque C: du serveur TSE01/);
   });
 });
+
+describe("POST /support/deploy", () => {
+  const enLigne = {
+    event: "en-ligne",
+    app: "heure-beaufort",
+    version: "0047caf",
+    appUrl: "https://heure-beaufort.apps.charlesmurgat.com",
+    repoUrl: "https://github.com/claude-murgat/heure-beaufort",
+    dashboardUrl: "https://tableau.apps.charlesmurgat.com/#/apps/heure-beaufort",
+  };
+
+  afterEach(() => {
+    delete process.env.SUPPORT_NOTIFY_TOKEN;
+  });
+
+  it("503 sans secret configuré, 401 sur un mauvais secret", async () => {
+    let res = await request(app).post("/support/deploy").send(enLigne);
+    expect(res.status).toBe(503);
+
+    process.env.SUPPORT_NOTIFY_TOKEN = "s3cret";
+    res = await request(app).post("/support/deploy").set("Authorization", "Bearer nope").send(enLigne);
+    expect(res.status).toBe(401);
+  });
+
+  it("400 sur un nom, un lien, un événement ou une raison invalides", async () => {
+    process.env.SUPPORT_NOTIFY_TOKEN = "s3cret";
+    for (const bad of [
+      { ...enLigne, app: "Heure Beaufort" },
+      { ...enLigne, appUrl: "http://heure-beaufort.apps.charlesmurgat.com" },
+      { ...enLigne, event: "publiee" },
+      { ...enLigne, version: "pas-un-commit" },
+      { ...enLigne, event: "echec", reason: "inventee" },
+    ]) {
+      const res = await request(app).post("/support/deploy").set("Authorization", "Bearer s3cret").send(bad);
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it("poste dans support-dev les messages composés par le serveur", async () => {
+    process.env.SUPPORT_NOTIFY_TOKEN = "s3cret";
+    const echec = {
+      event: "echec",
+      app: "meteo",
+      reason: "construction",
+      detailUrl: "https://github.com/Murgat-Ingenierie/deployer/actions/runs/1",
+      dashboardUrl: "https://tableau.apps.charlesmurgat.com/#/apps/meteo",
+    };
+    for (const corps of [enLigne, echec, { event: "relecture", app: "conges", test: true }]) {
+      const res = await request(app).post("/support/deploy").set("Authorization", "Bearer s3cret").send(corps);
+      expect(res.status).toBe(200);
+    }
+
+    const msgs = await prisma.message.findMany({
+      where: { channel: { name: "support-dev", isPrivate: true } },
+      orderBy: { createdAt: "asc" },
+      select: { searchableBody: true, author: { select: { username: true } } },
+    });
+    expect(msgs.map((m) => m.author.username)).toEqual(["claude", "claude", "claude"]);
+    expect(msgs[0].searchableBody).toBe(
+      "🚀 heure-beaufort est en ligne (version 0047caf).\n" +
+        "https://heure-beaufort.apps.charlesmurgat.com\n" +
+        "Code : https://github.com/claude-murgat/heure-beaufort\n" +
+        "Tableau de bord : https://tableau.apps.charlesmurgat.com/#/apps/heure-beaufort"
+    );
+    expect(msgs[1].searchableBody).toBe(
+      "❌ Déploiement de meteo en échec : le serveur n'a pas pu construire l'app.\n" +
+        "Détail : https://github.com/Murgat-Ingenierie/deployer/actions/runs/1\n" +
+        "Tableau de bord : https://tableau.apps.charlesmurgat.com/#/apps/meteo"
+    );
+    expect(msgs[2].searchableBody).toBe(
+      "🧪 Test — 👀 conges attend la relecture d'un référent avant sa mise en ligne."
+    );
+  });
+});
