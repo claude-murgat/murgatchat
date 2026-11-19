@@ -1,0 +1,114 @@
+name: desktop-build
+
+# Build de l'appli desktop (Tauri), Windows et Linux EN PARALLÈLE (une matrice).
+# Workflow réutilisable, appelé par :
+#  - release.yml : les installeurs sont envoyés sur le brouillon de la release ;
+#  - desktop-installer.yml : à la main (artefacts du run), et sur main pour garder
+#    les caches chauds (voir plus bas).
+#
+# latest.json n'est PAS écrit ici (uploadUpdaterJson: false) : tauri-action le
+# complète par lecture-modification-écriture, et deux jobs en parallèle
+# s'écraseraient l'un l'autre. release.yml le compose une seule fois, dans
+# `publish`, à partir des signatures envoyées par les deux jobs.
+#
+# Caches (Rust : swatinem/rust-cache ; npm : setup-node). Un cache créé par un run
+# sur un tag n'est lisible que par ce tag : chaque release repartait de zéro. Les
+# caches sont donc écrits depuis main seulement (desktop-installer.yml, au push et
+# chaque semaine) et lus par les tags, qui y ont accès. `shared-key` : la même clé
+# quel que soit le workflow appelant.
+#
+# Pas de `permissions` ici : un workflow appelé hérite de celles de l'appelant
+# (contents: write pour release.yml, read sinon).
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: "all, windows ou linux"
+        type: string
+        default: all
+      tag:
+        description: "Tag de la release à alimenter (vide : build seul)"
+        type: string
+        default: ""
+      release-id:
+        description: "Id du brouillon de release (vide : build seul)"
+        type: string
+        default: ""
+      artifacts:
+        description: "Joindre les installeurs aux artefacts du run"
+        type: boolean
+        default: false
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: true
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: false
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      # Ubuntu 22.04 et non ubuntu-latest : un binaire exige au minimum la glibc de
+      # la machine qui l'a construit. Celle de la 22.04 (2.35) garde installables
+      # Debian 12+, Ubuntu 22.04+, Mint 21+ et Fedora 37+.
+      matrix:
+        include: ${{ fromJSON(inputs.platform == 'windows' && '[{"platform":"windows","os":"windows-latest","bundles":"nsis"}]' || inputs.platform == 'linux' && '[{"platform":"linux","os":"ubuntu-22.04","bundles":"deb,rpm,appimage"}]' || '[{"platform":"windows","os":"windows-latest","bundles":"nsis"},{"platform":"linux","os":"ubuntu-22.04","bundles":"deb,rpm,appimage"}]') }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # WebKitGTK 4.1 (le webview), ayatana-appindicator (le tray, aussi copié dans
+      # l'AppImage et déclaré en dépendance des paquets), librsvg, xdo (menus).
+      # man-db reconstruit son index après chaque paquet installé : sans lui,
+      # l'étape passe d'environ 2 min 30 à moins d'une minute.
+      - name: Dépendances système (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          sudo rm -f /var/lib/man-db/auto-update
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev patchelf
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: stable
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: web/src-tauri
+          shared-key: tauri-${{ matrix.platform }}
+          # Écrire depuis un tag ne sert à rien (cache illisible ailleurs) et
+          # coûtait une minute à la fin du job Windows.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: npm ci
+        working-directory: web
+      # NOTE: VITE_API_URL is deliberately NOT set → the desktop build ships with
+      # NO baked server (web/src/api.js prod default is ""). tauri-action runs
+      # beforeBuildCommand (npm run build) and bundles. createUpdaterArtifacts=true
+      # → each installer is signed (.sig) with the updater key, uploaded next to it.
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: web
+          args: --bundles ${{ matrix.bundles }}
+          tagName: ${{ inputs.tag }}
+          releaseId: ${{ inputs.release-id }}
+          uploadUpdaterJson: false
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: inputs.artifacts
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: |
+            web/src-tauri/target/release/bundle/nsis/*-setup.exe*
+            web/src-tauri/target/release/bundle/deb/*.deb*
+            web/src-tauri/target/release/bundle/rpm/*.rpm*
+            web/src-tauri/target/release/bundle/appimage/*.AppImage
+            web/src-tauri/target/release/bundle/appimage/*.AppImage.sig
+          if-no-files-found: error
+          retention-days: 7

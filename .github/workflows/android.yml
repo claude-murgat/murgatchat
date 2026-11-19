@@ -7,16 +7,31 @@ name: android
 # installer (l'appli compare sa version à celle du serveur).
 #
 # - pull_request touchant mobile/ : construit l'APK, en artefact du run (contrôle) ;
-# - release.yml (workflow_call), APRÈS `publish` : l'APK signée est attachée à la
-#   release du tag. Après, et non avant : un échec du build Android ne doit jamais
-#   retenir l'installeur Windows ni l'auto-update desktop. Relancer le job suffit ;
+# - release.yml (workflow_call), en parallèle des builds desktop : l'APK signée et
+#   son manifeste android.json sont attachés à la release du tag. `publish` ne
+#   l'attend pas : un échec du build Android ne retient jamais l'installeur Windows
+#   ni l'auto-update desktop. Relancer le job suffit ;
 # - à la main (workflow_dispatch) : reconstruire l'APK depuis la branche choisie et
-#   l'attacher à une release existante.
+#   l'attacher à une release existante ;
+# - sur main (push touchant mobile/, et chaque vendredi) : écrire le cache Gradle et
+#   npm que lisent les builds des tags (un cache écrit par un tag n'est lisible que
+#   par ce tag).
+#
+# Mise à jour in-app : l'appli lit releases/latest/download/android.json
+# ({ version, versionCode, url, size, sha256, md5 }), télécharge l'APK et ouvre
+# l'installeur d'Android (permission REQUEST_INSTALL_PACKAGES, contrôlée ici).
 on:
   pull_request:
     paths:
       - "mobile/**"
       - ".github/workflows/android.yml"
+  push:
+    branches: [main]
+    paths:
+      - "mobile/**"
+      - ".github/workflows/android.yml"
+  schedule:
+    - cron: "37 3 * * 5"
   workflow_call:
     inputs:
       tag:
@@ -65,6 +80,12 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+      # Cache de ~/.gradle (dépendances, wrapper, caches de build), écrit sur main
+      # seulement (défaut de l'action), lu partout. `basic` : l'implémentation
+      # libre sur le cache GitHub, pas le service commercial (`enhanced`, défaut).
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-provider: basic
       - run: npm ci # postinstall → patch-package
         working-directory: mobile
 
@@ -123,7 +144,10 @@ jobs:
           elif [ -n "$TAG" ]; then
             echo "::error::Clé de signature absente : pas d'APK de release sans elle."; exit 1
           fi
-          ./gradlew :app:assembleRelease --no-daemon
+          # ARM seulement (32 et 64 bits) : les téléphones. x86/x86_64 ne servaient
+          # qu'aux émulateurs ; les retirer divise le temps de compilation native
+          # et la taille de l'APK que l'appli télécharge pour se mettre à jour.
+          ./gradlew :app:assembleRelease --no-daemon -PreactNativeArchitectures=armeabi-v7a,arm64-v8a
 
       - id: apk
         shell: bash
@@ -148,6 +172,11 @@ jobs:
           for r in mipmap/ic_launcher_foreground drawable/notification_icon; do
             grep -qx "$r" <<< "$RES" || { echo "::error::$r absente de l'APK"; exit 1; }
           done
+          # Sans cette permission, Android refuse d'ouvrir l'installeur depuis l'appli
+          # et la mise à jour in-app échoue.
+          "$BT/aapt2" dump permissions "$APK" | grep -q "android.permission.REQUEST_INSTALL_PACKAGES" \
+            || { echo "::error::permission REQUEST_INSTALL_PACKAGES absente de l'APK"; exit 1; }
+          echo "ABI : $(unzip -l "$APK" | grep -oE 'lib/[^/]+/' | sort -u | tr '\n' ' ')"
           # Même certificat que la dernière APK publiée (0.6.1) : sinon, l'APK ne
           # s'installe pas par-dessus et il faudrait désinstaller l'ancienne.
           if [ -f app/upload.keystore ]; then
@@ -160,6 +189,13 @@ jobs:
               || { echo "::error::certificat différent de celui de l'APK 0.6.1"; exit 1; }
           fi
           echo "path=mobile/android/$APK" >> "$GITHUB_OUTPUT"
+          # Manifeste lu par l'appli pour se mettre à jour (mobile/src/version.js).
+          jq -n --arg version "${{ steps.vc.outputs.name }}" --argjson versionCode "${{ steps.vc.outputs.code }}" \
+            --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$APK" \
+            --argjson size "$(stat -c %s "$APK")" \
+            --arg sha256 "$(sha256sum "$APK" | cut -d' ' -f1)" --arg md5 "$(md5sum "$APK" | cut -d' ' -f1)" \
+            '{version: $version, versionCode: $versionCode, url: $url, size: $size, sha256: $sha256, md5: $md5}' > android.json
+          cat android.json
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -167,8 +203,12 @@ jobs:
           path: ${{ steps.apk.outputs.path }}
           retention-days: 14
 
-      - name: Attacher l'APK à la release
+      # APK d'abord, manifeste ensuite : l'appli ne voit jamais un android.json qui
+      # pointerait vers une APK pas encore envoyée.
+      - name: Attacher l'APK et android.json à la release
         if: ${{ inputs.tag != '' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$TAG" "${{ steps.apk.outputs.path }}" --clobber --repo "$GITHUB_REPOSITORY"
+        run: |
+          gh release upload "$TAG" "${{ steps.apk.outputs.path }}" --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload "$TAG" mobile/android/android.json --clobber --repo "$GITHUB_REPOSITORY"

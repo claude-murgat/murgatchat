@@ -14,6 +14,7 @@
     "android": {
       "package": "com.charlesmurgat.chat",
       "versionCode": 8,
+      "permissions": ["android.permission.REQUEST_INSTALL_PACKAGES"],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "monochromeImage": "./assets/adaptive-icon.png",

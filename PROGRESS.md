@@ -1966,6 +1966,36 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      par pièce, espacés de 300 ms : un navigateur n'en garderait qu'un sinon). Test : e2e
      `attachments-download-all.spec.js`.
 
+## Itération 2026-11-19 (suite) — une release en quelques minutes, l'APK qui se met à jour
+
+174. **Release plus rapide** — la 1.6.16 a pris 30 min (22 jusqu'à la publication) :
+     tests → Windows → Linux → publication → APK, en série, et les deux builds desktop
+     **sans cache** (« No cache found ») : un cache écrit par un run de tag n'est lisible
+     que par ce tag, et rien n'en écrivait sur main. Désormais `release` crée le
+     brouillon tout de suite ; tests, builds desktop (`desktop-build.yml`, matrice
+     Windows + Linux) et APK tournent **en parallèle** ; `publish` n'attend que les tests
+     et le desktop, et **compose `latest.json` lui-même** (tauri-action :
+     `uploadUpdaterJson: false`), ce qui supprime la course entre les deux builds
+     (même contenu que tauri-action, vérifié sur les assets de la 1.6.16). Caches Rust
+     (`shared-key`), npm et Gradle (`setup-gradle`, `basic`) écrits depuis main :
+     `desktop-installer.yml` et `android.yml` tournent au push qui touche le Rust /
+     `mobile/`, et le vendredi (lendemain des sorties de Rust stable, avant les 7 jours
+     d'inactivité qui effacent un cache) ; les tags ne font que lire (plus d'une minute
+     d'écriture inutile à la fin du job Windows). Linux : man-db désactivé pendant
+     l'`apt-get install` (≈ 2 min 30 → < 1 min). APK : ARM seulement (armeabi-v7a,
+     arm64-v8a), x86/x86_64 ne servant qu'aux émulateurs.
+175. **Mise à jour in-app de l'APK** — `android.yml` attache à chaque release, après
+     l'APK, `android.json` (`version`, `versionCode`, `url`, `size`, `sha256`, `md5`).
+     L'appli (`mobile/src/version.js`) lit `releases/latest/download/android.json` ;
+     si l'APK est plus récente, la bannière propose **Installer** : téléchargement dans
+     le cache (progression), contrôle MD5, puis installeur d'Android par un intent
+     `VIEW` sur une URI `content://` (`expo-intent-launcher` ~11.0.1, permission
+     `REQUEST_INSTALL_PACKAGES`, contrôlée dans l'APK par la CI). Android n'accepte
+     que la même signature (clé d'upload de la 0.6.1). Seules les URL des releases du
+     dépôt sont suivies. Si le serveur annonce une version dont l'APK n'est pas
+     encore publiée, la bannière reste informative. Les APK déjà installées
+     (≤ 1.6.16) n'ont pas ce code : il faut installer la suivante une fois à la main.
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier

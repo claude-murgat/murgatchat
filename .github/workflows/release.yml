@@ -1,10 +1,13 @@
 name: release
 
-# Push a tag like v0.6.2 → run the full test suite, then build the Windows
-# desktop installer (Tauri/MSVC) and the Linux packages (.deb, .rpm, .AppImage)
-# and publish them to a GitHub Release. Version comes from the tag. Once
-# published, the Android APK of the native app is built and attached too
-# (android.yml) — after, so it can never block desktop.
+# Push a tag like v0.6.2 → a draft GitHub Release is created at once, then IN
+# PARALLEL: the full test suite, the Windows installer + Linux packages
+# (desktop-build.yml) and the Android APK (android.yml). `publish` waits for the
+# tests and the desktop builds only, writes latest.json and publishes. Version
+# comes from the tag.
+#
+# Une release dont les tests échouent reste un brouillon (installeurs attachés,
+# invisible des postes) : la supprimer, corriger, et taguer la version suivante.
 on:
   push:
     tags: ["v*"]
@@ -17,9 +20,9 @@ jobs:
   test:
     uses: ./.github/workflows/tests.yml
 
-  # Create ONE draft Release for the tag; the build job attaches its asset.
+  # Create ONE draft Release for the tag; the build jobs attach their assets.
+  # Sans attendre les tests : un brouillon n'est vu par aucun poste.
   release:
-    needs: test
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.ver.outputs.version }}
@@ -84,106 +87,89 @@ jobs:
           prerelease: ${{ steps.ver.outputs.prerelease == 'true' }}
           generate_release_notes: true
 
-  # Windows installer via the official Tauri action (MSVC toolchain).
+  # Windows (NSIS) et Linux (.deb, .rpm, .AppImage) EN PARALLÈLE, et en même
+  # temps que les tests (desktop-build.yml) : seule la publication attend les
+  # tests. Chaque installeur est signé et envoyé sur le brouillon avec sa .sig ;
+  # latest.json est composé ensuite, une seule fois, par `publish`.
   desktop:
-    needs: [test, release]
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
-        with:
-          toolchain: stable
-      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          workspaces: web/src-tauri
-      - run: npm ci
-        working-directory: web
-      # NOTE: VITE_API_URL is deliberately NOT set → the desktop build ships
-      # with NO baked server (web/src/api.js prod default is ""). tauri-action
-      # runs beforeBuildCommand (npm run build), bundles the NSIS installer, and
-      # uploads Chat_<version>_x64-setup.exe to the draft release.
-      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Updater signing: with createUpdaterArtifacts=true, Tauri signs the
-          # installer and tauri-action generates + uploads latest.json (the
-          # updater endpoint). These secrets MUST be set in the repo.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          projectPath: web
-          args: --bundles nsis
-          tagName: ${{ github.ref_name }}
-          releaseId: ${{ needs.release.outputs.id }}
+    needs: release
+    uses: ./.github/workflows/desktop-build.yml
+    with:
+      tag: ${{ github.ref_name }}
+      release-id: ${{ needs.release.outputs.id }}
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
-  # Paquets Linux : .deb (Debian, Ubuntu, Mint…), .rpm (Fedora, RHEL, openSUSE…)
-  # et .AppImage (toute autre distribution, Arch compris). Chacun est signé et
-  # ajouté à latest.json sous sa propre clé (linux-x86_64-deb, -rpm, -appimage) :
-  # l'updater lit le type de paquet inscrit dans le binaire par le bundler, donc
-  # un poste installé par .deb se met à jour par .deb (pkexec dpkg -i), par .rpm
-  # avec rpm -U, et une AppImage se remplace elle-même.
-  #
-  # APRÈS `desktop`, pas en parallèle : tauri-action complète latest.json en le
-  # relisant, en y ajoutant ses plateformes puis en supprimant et renvoyant le
-  # fichier. Deux jobs en même temps pourraient s'écraser l'un l'autre, et
-  # l'updater perdrait Windows ou Linux.
-  #
-  # Ubuntu 22.04 et non ubuntu-latest : un binaire exige la glibc de la machine
-  # qui l'a construit, au minimum. Celle de la 22.04 (2.35) garde installables
-  # Debian 12+, Ubuntu 22.04+, Mint 21+ et Fedora 37+. Construire sur une Ubuntu
-  # plus récente exclurait ces versions.
-  linux:
-    needs: [release, desktop]
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # WebKitGTK 4.1 (le webview), ayatana-appindicator (le tray, aussi copié dans
-      # l'AppImage et déclaré en dépendance des paquets), librsvg, xdo (menus).
-      - name: Dépendances système
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libxdo-dev libssl-dev patchelf
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
-        with:
-          toolchain: stable
-      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          workspaces: web/src-tauri
-      - run: npm ci
-        working-directory: web
-      # Même build que Windows (aucun serveur figé, VITE_API_URL absent), mêmes
-      # clés de signature de l'updater.
-      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        with:
-          projectPath: web
-          args: --bundles deb,rpm,appimage
-          tagName: ${{ github.ref_name }}
-          releaseId: ${{ needs.release.outputs.id }}
+  # APK Android de l'appli native (voir android.yml), en parallèle elle aussi.
+  # `publish` ne l'attend pas : un échec du build Android ne retient jamais
+  # l'installeur Windows ni l'auto-update desktop. Si elle finit après la
+  # publication, elle s'attache à la release publiée. Relancer ce job suffit.
+  android:
+    needs: release
+    uses: ./.github/workflows/android.yml
+    with:
+      tag: ${{ github.ref_name }}
+    # Uniquement ce que le build Android utilise (signature, FCM), jamais `inherit`.
+    secrets:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
 
   # Flip the draft to a published release once the installers are attached.
   publish:
-    needs: [desktop, linux, release]
+    needs: [test, release, desktop]
     runs-on: ubuntu-latest
     steps:
-      # latest.json est ce que lit l'auto-updater : avant de publier, on vérifie
-      # qu'il annonce bien cette version, signée, pour chaque type de poste. Un
-      # job desktop ou linux qui aurait perdu l'écriture de l'autre se voit ici,
-      # tant que la release est encore un brouillon.
+      # latest.json, ce que lit l'auto-updater, composé ici une seule fois à partir
+      # des installeurs et de leurs .sig (même format que tauri-action) : URL d'API
+      # de l'asset, que l'updater télécharge en application/octet-stream, et
+      # contenu de la signature. Chaque paquet a sa clé ; linux-x86_64 (sans type)
+      # sert aux updaters qui ne connaissent pas leur type de paquet : l'AppImage,
+      # comme le faisait tauri-action. Seulement tant que c'est un brouillon : une
+      # release déjà publiée (job relancé) n'est que revérifiée.
+      - name: Composer latest.json
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ID: ${{ needs.release.outputs.id }}
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          R="repos/$GITHUB_REPOSITORY/releases"
+          if [ "$(gh api "$R/$ID" --jq .draft)" != true ]; then
+            echo "Release déjà publiée : latest.json n'est pas réécrit."; exit 0
+          fi
+          gh api "$R/$ID/assets?per_page=100" > assets.json
+          id_of() { jq -r --arg n "$1" '.[] | select(.name == $n) | .id' assets.json; }
+          # Entrée d'un paquet : le seul asset qui finit par ce suffixe, et sa .sig.
+          # (`|| return 1` partout : set -e ne s'applique pas dans un $(…).)
+          entry() {
+            local name sig_id sig
+            name=$(jq -r --arg s "$1" '[.[] | select(.name | endswith($s))] | if length == 1 then .[0].name else error("\(length) assets en \($s)") end' assets.json) || return 1
+            sig_id=$(id_of "$name.sig")
+            [ -n "$sig_id" ] || { echo "::error::$name.sig absent de la release" >&2; return 1; }
+            sig=$(gh api -H 'Accept: application/octet-stream' "$R/assets/$sig_id") || return 1
+            jq -n --arg url "https://api.github.com/$R/assets/$(id_of "$name")" --arg sig "$sig" \
+                  '{signature: $sig, url: $url}'
+          }
+          WIN=$(entry "_x64-setup.exe")
+          DEB=$(entry "_amd64.deb")
+          RPM=$(entry ".x86_64.rpm")
+          APP=$(entry "_amd64.AppImage")
+          jq -n --arg v "$VERSION" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson win "$WIN" --argjson deb "$DEB" --argjson rpm "$RPM" --argjson app "$APP" \
+            '{version: $v, notes: "", pub_date: $date, platforms: {
+               "windows-x86_64": $win, "windows-x86_64-nsis": $win,
+               "linux-x86_64": $app, "linux-x86_64-appimage": $app,
+               "linux-x86_64-deb": $deb, "linux-x86_64-rpm": $rpm}}' > latest.json
+          OLD=$(id_of latest.json)
+          [ -z "$OLD" ] || gh api -X DELETE "$R/assets/$OLD"
+          gh api -X POST "https://uploads.github.com/$R/$ID/assets?name=latest.json" \
+            -H "Content-Type: application/json" --input latest.json --jq '"Envoyé : \(.name) (\(.size) octets)"'
+      # Avant de publier, relire latest.json tel que les postes le liront : il doit
+      # annoncer cette version, signée, pour chaque type de poste.
       - name: Vérifier latest.json (Windows et Linux)
         shell: bash
         env:
@@ -266,19 +252,3 @@ jobs:
             exit 1
           fi
           echo "« latest » : $L"
-
-  # APK Android de l'appli native (voir android.yml), attachée à la release APRÈS
-  # sa publication : un échec du build Android ne retient jamais l'installeur
-  # Windows ni l'auto-update desktop. Relancer ce job suffit à la rattacher.
-  android:
-    needs: publish
-    uses: ./.github/workflows/android.yml
-    with:
-      tag: ${{ github.ref_name }}
-    # Uniquement ce que le build Android utilise (signature, FCM), jamais `inherit`.
-    secrets:
-      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-      GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
