@@ -11,7 +11,12 @@ import DownloadIcon from "./DownloadIcon.tsx";
 import ForwardMessageModal from "./ForwardMessageModal.tsx";
 import type { DetailsTab } from "./ChannelDetailsModal.tsx";
 import { canManageMembers, isSalon, salonLabel } from "../channelRules.ts";
-import { api, attachmentUrl, downloadAttachment } from "../api.ts";
+import {
+  api,
+  attachmentUrl,
+  downloadAllAttachments,
+  downloadAttachment,
+} from "../api.ts";
 import { extOf, fileIcon } from "../fileIcon.ts";
 import { isWindowFocused } from "../desktop.ts";
 import { pasteAsMarkdown } from "../pasteMarkdown.ts";
@@ -290,6 +295,19 @@ function Attachments({ attachments }: AttachmentsProps) {
           );
         })}
       </div>
+      {/* Issue #479 : dès qu'un message comporte plusieurs pièces jointes, un
+          bouton « Tout télécharger » les enregistre toutes en une seule action,
+          sans devoir cliquer sur chaque bouton individuel. */}
+      {attachments.length > 1 && (
+        <button
+          type="button"
+          onClick={() => downloadAllAttachments(attachments)}
+          className="mt-1.5 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-aubergine-700 transition-colors hover:bg-slate-100 hover:text-aubergine-800 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-aubergine-400"
+        >
+          <DownloadIcon className="size-4" />
+          Tout télécharger ({attachments.length})
+        </button>
+      )}
       {selected && (
         <AttachmentModal attachment={selected} onClose={() => setSelected(null)} />
       )}
