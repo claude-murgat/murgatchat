@@ -10,6 +10,7 @@ import { ownedUnlinkedAttachments, MAX_ATTACHMENTS } from "./uploads.ts";
 import { notifyEnabled, tokenMatches, postPipelineMessage } from "../notify.ts";
 import { notifyMembers } from "../socket.ts";
 import { remoteDiskAlertText } from "../diskAlert.ts";
+import { DEPLOY_EVENTS, DEPLOY_REASONS, deployAlertText, type DeployReason } from "../deployAlert.ts";
 
 const router = Router();
 
@@ -335,6 +336,27 @@ router.post("/disk-alert", requireNotifyToken, async (req, res) => {
   const parsed = diskAlertSchema.safeParse(req.body || {});
   if (!parsed.success) return res.status(400).json({ error: "invalid_payload" });
   await postToTeam(req, res, remoteDiskAlertText(parsed.data));
+});
+
+// Plateforme de déploiement des petites apps (dépôt Murgat-Ingenierie/deployer) : app en ligne,
+// déploiement en échec, attente de relecture. Des champs vérifiés : le message est composé ici.
+const httpsUrl = z.string().url().max(500).regex(/^https:\/\//);
+const deploySchema = z.object({
+  event: z.enum(DEPLOY_EVENTS),
+  app: z.string().regex(/^[a-z0-9][a-z0-9-]{0,40}$/),
+  version: z.string().regex(/^[0-9a-f]{7,40}$/).optional(),
+  reason: z.enum(Object.keys(DEPLOY_REASONS) as [DeployReason, ...DeployReason[]]).optional(),
+  appUrl: httpsUrl.optional(),
+  repoUrl: httpsUrl.optional(),
+  dashboardUrl: httpsUrl.optional(),
+  detailUrl: httpsUrl.optional(),
+  test: z.boolean().optional(),
+});
+
+router.post("/deploy", requireNotifyToken, async (req, res) => {
+  const parsed = deploySchema.safeParse(req.body || {});
+  if (!parsed.success) return res.status(400).json({ error: "invalid_payload" });
+  await postToTeam(req, res, deployAlertText(parsed.data));
 });
 
 export default router;
