@@ -1,6 +1,6 @@
 [package]
 name = "chat-desktop"
-version = "1.6.17"
+version = "1.6.18"
 description = "Client du chat d'entreprise"
 edition = "2021"
 
