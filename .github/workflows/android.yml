@@ -80,12 +80,6 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
-      # Cache de ~/.gradle (dépendances, wrapper, caches de build), écrit sur main
-      # seulement (défaut de l'action), lu partout. `basic` : l'implémentation
-      # libre sur le cache GitHub, pas le service commercial (`enhanced`, défaut).
-      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
-        with:
-          cache-provider: basic
       - run: npm ci # postinstall → patch-package
         working-directory: mobile
 
@@ -121,6 +115,14 @@ jobs:
           APP_VERSION: ${{ steps.vc.outputs.name }}
           ANDROID_VERSION_CODE: ${{ steps.vc.outputs.code }}
         run: npx expo prebuild -p android --no-install
+
+      # Cache de ~/.gradle (dépendances, wrapper, caches de build), écrit sur main
+      # seulement (défaut de l'action), lu partout. `basic` : l'implémentation
+      # libre sur le cache GitHub, pas le service commercial (`enhanced`, défaut).
+      # Après prebuild : la clé du cache vient des fichiers Gradle qu'il génère.
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-provider: basic
 
       # Signée avec la clé d'upload des APK précédentes, sinon Android refuse de
       # l'installer par-dessus. Sans le secret (PR depuis un fork), APK signée en
