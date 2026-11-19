@@ -19,6 +19,10 @@ name: desktop-build
 #
 # Pas de `permissions` ici : un workflow appelé hérite de celles de l'appelant
 # (contents: write pour release.yml, read sinon).
+#
+# Adresse du serveur par défaut (VITE_API_URL) : le serveur de l'entreprise, pré-
+# rempli à la connexion et toujours modifiable (gardé dans le localStorage). Le
+# même que celui de la PWA de prod.
 on:
   workflow_call:
     inputs:
@@ -44,6 +48,9 @@ on:
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
         required: false
 
+env:
+  DEFAULT_SERVER_URL: https://serveur-chat.charlesmurgat.com
+
 jobs:
   build:
     name: ${{ matrix.platform }}
@@ -59,15 +66,55 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # WebKitGTK 4.1 (le webview), ayatana-appindicator (le tray, aussi copié dans
       # l'AppImage et déclaré en dépendance des paquets), librsvg, xdo (menus).
-      # man-db reconstruit son index après chaque paquet installé : sans lui,
-      # l'étape passe d'environ 2 min 30 à moins d'une minute.
+      # Selon le miroir Ubuntu de GitHub, apt prenait de 40 s à plus de 5 min
+      # (v1.6.17), presque tout en `update` et téléchargements (l'installation
+      # elle-même : ~15 s). Les .deb sont donc gardés en cache : hors de main, ils
+      # sont installés directement (dpkg, sans le miroir), contrôlés, et apt ne sert
+      # qu'en repli ; sur main, apt les renouvelle (une clé par semaine). man-db
+      # coupé : il reconstruit son index après chaque paquet.
+      - name: Clé du cache apt (Linux)
+        if: matrix.platform == 'linux'
+        id: apt-key
+        run: echo "key=apt-${{ matrix.os }}-tauri-v1-$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+      - name: Paquets apt (cache)
+        if: matrix.platform == 'linux'
+        id: apt-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-archives
+          key: ${{ steps.apt-key.outputs.key }}
+          restore-keys: apt-${{ matrix.os }}-tauri-v1-
       - name: Dépendances système (Linux)
         if: matrix.platform == 'linux'
         run: |
           sudo rm -f /var/lib/man-db/auto-update
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libxdo-dev libssl-dev patchelf
+          PKGS=(libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf)
+          installed() { dpkg -s "${PKGS[@]}" >/dev/null 2>&1 && pkg-config --exists webkit2gtk-4.1 ayatana-appindicator3-0.1 librsvg-2.0; }
+          if [ "$GITHUB_REF" != refs/heads/main ] && compgen -G ~/apt-archives/'*.deb' >/dev/null; then
+            # --refuse-downgrade : un paquet plus récent déjà sur le runner est gardé.
+            # (Le journal est écrit par l'utilisateur du runner, pas par sudo : voulu.)
+            # shellcheck disable=SC2024
+            if sudo dpkg -i --refuse-downgrade ~/apt-archives/*.deb > /tmp/dpkg.log 2>&1 && installed; then
+              echo "Installés depuis le cache ($(find ~/apt-archives -name '*.deb' | wc -l) .deb), sans le miroir"
+              exit 0
+            fi
+            echo "::warning::Cache apt inutilisable, installation par apt"; tail -5 /tmp/dpkg.log
+          fi
+          if compgen -G ~/apt-archives/'*.deb' >/dev/null; then
+            sudo cp ~/apt-archives/*.deb /var/cache/apt/archives/
+          fi
+          APT_OPTS=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30)
+          sudo apt-get update -qq "${APT_OPTS[@]}"
+          sudo apt-get install -y -qq -f "${APT_OPTS[@]}" "${PKGS[@]}"
+          installed || { echo "::error::dépendances système absentes après apt"; exit 1; }
+          mkdir -p ~/apt-archives
+          cp /var/cache/apt/archives/*.deb ~/apt-archives/ 2>/dev/null || true
+          echo "$(find ~/apt-archives -name '*.deb' | wc -l) paquets en cache"
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: matrix.platform == 'linux' && github.ref == 'refs/heads/main' && steps.apt-cache.outputs.cache-hit != 'true'
+        with:
+          path: ~/apt-archives
+          key: ${{ steps.apt-key.outputs.key }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
@@ -85,12 +132,12 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: npm ci
         working-directory: web
-      # NOTE: VITE_API_URL is deliberately NOT set → the desktop build ships with
-      # NO baked server (web/src/api.js prod default is ""). tauri-action runs
-      # beforeBuildCommand (npm run build) and bundles. createUpdaterArtifacts=true
+      # tauri-action runs beforeBuildCommand (npm run build, which bakes
+      # VITE_API_URL as the default server) and bundles. createUpdaterArtifacts=true
       # → each installer is signed (.sig) with the updater key, uploaded next to it.
       - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
+          VITE_API_URL: ${{ env.DEFAULT_SERVER_URL }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -100,6 +147,12 @@ jobs:
           tagName: ${{ inputs.tag }}
           releaseId: ${{ inputs.release-id }}
           uploadUpdaterJson: false
+      - name: Vérifier le serveur par défaut
+        shell: bash
+        run: |
+          grep -qlF "$DEFAULT_SERVER_URL" web/dist/assets/*.js \
+            || { echo "::error::$DEFAULT_SERVER_URL absent du bundle : serveur par défaut non figé"; exit 1; }
+          echo "Serveur par défaut : $DEFAULT_SERVER_URL ✓"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: inputs.artifacts
         with:

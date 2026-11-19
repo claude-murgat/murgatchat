@@ -31,7 +31,7 @@
       }
     },
     "extra": {
-      "API_URL": "",
+      "API_URL": "https://serveur-chat.charlesmurgat.com",
       "eas": {
         "projectId": "a237ea85-6e71-4e59-879b-8eb0e641938b"
       }
@@ -56,7 +56,7 @@
         }
       ],
       "./plugins/withReleaseSigning",
-      "./plugins/withArmOnly"
+      "./plugins/withLeanRelease"
     ]
   }
 }

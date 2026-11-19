@@ -3,10 +3,9 @@ import Constants from "expo-constants";
 import { logEvent } from "./logbuffer";
 
 // The server address is configured at runtime from the login screen and stored
-// in AsyncStorage, so the SAME build can target any server. Crucially, the
-// public Store build ships WITHOUT a baked server (empty default): a random
-// downloader can't reach our server without knowing and typing its address.
-// EXPO_PUBLIC_API_URL (or app.json extra.API_URL) only provides a DEV default.
+// in AsyncStorage, so the SAME build can target any server. Its default is the
+// company server (app.json extra.API_URL, checked in the APK by android.yml),
+// pre-filled on the login screen; EXPO_PUBLIC_API_URL overrides it in dev.
 const ENV_DEFAULT =
   process.env.EXPO_PUBLIC_API_URL || Constants.expoConfig?.extra?.API_URL || "";
 const BASE_KEY = "chat_api_base";

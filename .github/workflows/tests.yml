@@ -2,19 +2,29 @@ name: tests
 
 on:
   pull_request:
-  # No `push` trigger: a PR's checks already validate the code, so re-running the
-  # full suite on push to main after a merge is redundant. release.yml still calls
-  # this (workflow_call) as a gate before building/publishing a release.
+  # Sur main : surtout pour ÉCRIRE les caches (npm, navigateurs Playwright, couches
+  # Docker de la stack e2e) que lisent les PR et les tags. Un cache écrit par une PR
+  # ou un tag n'est lisible que par elle ou lui ; ceux de main le sont par tous.
+  push:
+    branches: [main]
+  # release.yml appelle ce workflow (workflow_call) en parallèle des builds :
+  # la publication attend qu'il passe.
   workflow_call:
 
 jobs:
   # Chaque job porte un `timeout-minutes` (environ 5× sa durée habituelle) : sans
   # lui, une étape bloquée occupe le job jusqu'à la limite GitHub de 6 h. Vu le
   # 2026-10-08 : `playwright install --with-deps` figé au lieu de ses 23 s.
+  # Découpé en 2 jobs (vitest --shard), chacun avec sa propre base : les fichiers
+  # de test tournent l'un après l'autre (base partagée), c'était le plus long.
   backend:
-    name: backend (vitest)
+    name: backend (vitest ${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     services:
       postgres:
         image: postgres:16-alpine
@@ -48,16 +58,38 @@ jobs:
       - name: Install shared contracts deps
         run: npm ci --prefix ../shared
       - run: npx prisma generate
-      - run: npm test
+      - run: npm test -- --shard=${{ matrix.shard }}/2
 
+  # Découpé en 2 jobs (playwright --shard), chacun avec sa propre stack : les
+  # specs tournent l'une après l'autre (workers: 1, base remise à zéro par spec).
   e2e:
-    name: e2e (playwright)
+    name: e2e (playwright ${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # Images de la stack e2e construites avec le cache de couches de GitHub (lu
+      # partout, écrit depuis main seulement : un cache de PR ou de tag ne
+      # resservirait pas et prendrait la place des autres), puis chargées dans
+      # Docker sous les noms de docker-compose.e2e.yml.
+      - name: Build isolated stack images
+        uses: docker/bake-action@59cb1203cd42bcefd40a1b6d73b589e48c86040e # v7.5.0
+        with:
+          source: .
+          files: docker-compose.e2e.yml
+          load: true
+          set: |
+            server-e2e.cache-from=type=gha,scope=e2e-server
+            web-e2e.cache-from=type=gha,scope=e2e-web
+            ${{ github.ref == 'refs/heads/main' && 'server-e2e.cache-to=type=gha,mode=max,scope=e2e-server' || '' }}
+            ${{ github.ref == 'refs/heads/main' && 'web-e2e.cache-to=type=gha,mode=max,scope=e2e-web' || '' }}
       - name: Start isolated stack
-        run: docker compose -f docker-compose.e2e.yml up -d --build
+        run: docker compose -f docker-compose.e2e.yml up -d --no-build
       - name: Wait for stack
         run: |
           for i in $(seq 1 60); do
@@ -74,9 +106,23 @@ jobs:
           cache-dependency-path: e2e/package-lock.json
       - run: npm ci
         working-directory: e2e
-      - run: npx playwright install --with-deps chromium
+      # Chromium de Playwright en cache (écrit depuis main). Sans --with-deps : les
+      # bibliothèques système de Chromium sont déjà sur le runner (Google Chrome y
+      # est installé), et leur apt-get prenait jusqu'à 1 min 30.
+      - name: Navigateurs Playwright (cache)
+        id: pw-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('e2e/package-lock.json') }}
+      - run: npx playwright install chromium
         working-directory: e2e
-      - run: npm test
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: github.ref == 'refs/heads/main' && steps.pw-cache.outputs.cache-hit != 'true'
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ steps.pw-cache.outputs.cache-primary-key }}
+      - run: npm test -- --shard=${{ matrix.shard }}/2
         working-directory: e2e
         env:
           E2E_BASE_URL: http://localhost:5174
@@ -87,7 +133,7 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.shard }}
           path: e2e/playwright-report
           retention-days: 7
 
@@ -169,8 +215,24 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      # Images de la stack e2e construites avec le cache de couches de GitHub (lu
+      # partout, écrit depuis main seulement : un cache de PR ou de tag ne
+      # resservirait pas et prendrait la place des autres), puis chargées dans
+      # Docker sous les noms de docker-compose.e2e.yml.
+      - name: Build isolated stack images
+        uses: docker/bake-action@59cb1203cd42bcefd40a1b6d73b589e48c86040e # v7.5.0
+        with:
+          source: .
+          files: docker-compose.e2e.yml
+          load: true
+          set: |
+            server-e2e.cache-from=type=gha,scope=e2e-server
+            web-e2e.cache-from=type=gha,scope=e2e-web
+            ${{ github.ref == 'refs/heads/main' && 'server-e2e.cache-to=type=gha,mode=max,scope=e2e-server' || '' }}
+            ${{ github.ref == 'refs/heads/main' && 'web-e2e.cache-to=type=gha,mode=max,scope=e2e-web' || '' }}
       - name: Start isolated stack
-        run: docker compose -f docker-compose.e2e.yml up -d --build
+        run: docker compose -f docker-compose.e2e.yml up -d --no-build
       - name: Wait for stack
         run: |
           for i in $(seq 1 60); do
