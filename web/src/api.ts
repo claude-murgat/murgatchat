@@ -185,6 +185,20 @@ export function downloadAttachment(attachment: Attachment) {
   document.body.removeChild(a);
 }
 
+// Issue #479 : télécharge en une seule action toutes les pièces jointes d'un
+// message qui en comporte plusieurs, au lieu de les enregistrer une par une. On
+// réutilise `downloadAttachment` (un seul comportement, y compris sous Tauri),
+// mais on espace les déclenchements : les navigateurs bloquent les
+// téléchargements programmatiques trop rapprochés et n'en garderaient qu'un.
+export async function downloadAllAttachments(attachments: Attachment[]) {
+  for (let i = 0; i < attachments.length; i++) {
+    downloadAttachment(attachments[i]);
+    if (i < attachments.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  }
+}
+
 // Vérif non-bloquante d'un contrat de données à une frontière : valide `data`,
 // journalise un avertissement compact en cas d'écart (capté par le ring buffer de
 // diagnostic), et RENVOIE toujours `data` tel quel — un décalage de schéma ne doit
