@@ -96,9 +96,10 @@ async function setup({ recipientToken = true } = {}) {
 const send = (socket, payload) =>
   new Promise((resolve) => socket.emit("message:send", payload, resolve));
 
-// La présence a été retirée : un message concernant un membre est poussé vers
-// TOUS ses appareils, qu'il soit en train de regarder l'app ou non. Seuls DnD,
-// le niveau du salon, un compte désactivé et l'exclusion de l'auteur suppriment.
+// Un message concernant un membre est poussé vers TOUS ses appareils, qu'il soit
+// en train de regarder l'app ou non (#387 : pas de présence). Seuls DnD, le niveau
+// du salon, un compte désactivé, l'exclusion de l'auteur suppriment… et son appli
+// desktop ouverte, qui affiche la notification à la place du téléphone.
 describe("push notifications (notifyMembers)", () => {
   it("pushes to a recipient who isn't in DnD", async () => {
     const fetchMock = mockExpo();
@@ -128,6 +129,54 @@ describe("push notifications (notifyMembers)", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.map((m) => m.to)).toContain(pushToken);
+  });
+
+  it("holds every push (native and web) while the recipient's desktop app is open", async () => {
+    const fetchMock = mockExpo();
+    const sendMock = mockWebPush();
+    const { author, recipient, channelId } = await setup();
+    await subscribeWebPush(recipient.user.id);
+    const dSock = await ready(recipient.token, channelId, "desktop");
+    const aSock = await ready(author.token, channelId);
+
+    // L'appli desktop reçoit la notification (elle l'affiche) ; rien ne part au téléphone.
+    const onDesktop = waitForEvent(dSock, "notification", (n) => n.channelId === channelId);
+    await send(aSock, { channelId, body: "vu sur le PC" });
+    await onDesktop;
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it("pushes again once the recipient's desktop app is closed", async () => {
+    const fetchMock = mockExpo();
+    const { author, recipient, channelId, pushToken } = await setup();
+    const dSock = await ready(recipient.token, channelId, "desktop");
+    const aSock = await ready(author.token, channelId);
+    dSock.disconnect();
+    // Le serveur traite la déconnexion de son côté : attendre que la room se vide.
+    const room = `desktop:${recipient.user.id}`;
+    for (let i = 0; i < 60 && srv.io.sockets.adapter.rooms.get(room); i++) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(srv.io.sockets.adapter.rooms.get(room)).toBeUndefined();
+
+    await send(aSock, { channelId, body: "PC fermé" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).map((m) => m.to)).toContain(pushToken);
+  });
+
+  it("someone else's desktop app holds nothing: the recipient is still pushed", async () => {
+    const fetchMock = mockExpo();
+    const { author, channelId, pushToken } = await setup();
+    // L'auteur écrit depuis son appli desktop ; le destinataire n'en a pas d'ouverte.
+    const aSock = await ready(author.token, channelId, "desktop");
+
+    await send(aSock, { channelId, body: "depuis mon PC" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).map((m) => m.to)).toContain(pushToken);
   });
 
   it("pushes to the recipient's web push subscription", async () => {

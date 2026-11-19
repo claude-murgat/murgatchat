@@ -77,10 +77,25 @@ type NotifiableMessage = {
   createdAt?: string | Date | null;
 };
 
+// Room des sockets de l'appli desktop d'un utilisateur (cf. la connexion). Socket.IO
+// en retire une socket à sa déconnexion : une appli quittée, ou un PC en veille
+// (détecté au plus tard au délai de ping, ~45 s), rend les pushs au téléphone.
+const desktopRoom = (userId: string) => `desktop:${userId}`;
+
+function hasDesktopOpen(io: Server, userId: string) {
+  return (io.sockets.adapter.rooms.get(desktopRoom(userId))?.size ?? 0) > 0;
+}
+
 // Notify channel members (except author) who aren't in DnD: in-app "notification"
 // event, plus a push (Expo for native, Web Push for browser PWAs) to every one of
 // their devices. Web push is the iOS distribution channel since the PWA pivot (no
 // TestFlight build).
+//
+// Appli desktop ouverte : pas de push. Tant qu'une appli desktop (Tauri : Windows,
+// Linux) du membre est connectée, c'est elle qui affiche la notification ; son
+// téléphone (APK ou PWA) ne sonne pas en plus. Seule l'appli desktop compte : un
+// onglet web ouvert sur un poste ne retient rien (cf. #387, qui avait retiré la
+// retenue des pushs par présence). Appli desktop fermée → push comme avant.
 //
 // Chaque membre choisit son niveau par channel (Membership.notifyLevel) : "none"
 // coupe toute notification (le badge non-lu reste, façon Slack/Discord), "mentions"
@@ -96,7 +111,8 @@ export async function notifyMembers(
     where: { channelId },
     include: { user: true },
   });
-  const recipientIds: string[] = [];
+  const pushIds: string[] = [];
+  let heldByDesktop = 0;
   // Frontière serveur : on valide le payload de notification contre le contrat
   // partagé (non bloquant), une seule fois — il est identique pour tous les membres.
   const notifPayload = { channelId, message: serialized };
@@ -110,7 +126,11 @@ export async function notifyMembers(
     if (cm.notifyLevel === "mentions" && !isMentioned(cm.user, serialized.body)) continue;
     if (isUserDnd(cm.user)) continue;
     io.to(`user:${cm.userId}`).emit("notification", notifPayload);
-    recipientIds.push(cm.userId);
+    if (hasDesktopOpen(io, cm.userId)) heldByDesktop++;
+    else pushIds.push(cm.userId);
+  }
+  if (heldByDesktop) {
+    console.log(`[push] held for ${heldByDesktop} user(s): desktop app open`);
   }
   const push: PushContent = {
     channelId,
@@ -119,8 +139,9 @@ export async function notifyMembers(
     sentAt: serialized.createdAt ? new Date(serialized.createdAt).getTime() : Date.now(),
     messageId: serialized.id,
   };
-  await pushToUsers(recipientIds, push);
+  await pushToUsers(pushIds, push);
 }
+
 
 // `sentAt` : horodatage (ms) du message, comparé à `lastReadAt` (cf. pushReadToken.ts).
 type PushContent = {
@@ -346,6 +367,9 @@ export function setupSocket(httpServer: HttpServer, corsOrigin?: string) {
   io.on("connection", async (socket) => {
     const userId = socket.data.userId;
     socket.join(`user:${userId}`);
+    // Appli desktop (le client web sous Tauri s'annonce `platform: "desktop"`) :
+    // tant qu'elle est connectée, ses notifications remplacent les pushs.
+    if (socket.data.platform === "desktop") socket.join(desktopRoom(userId));
 
     // Statut relu APRÈS l'entrée dans la room `user:` : un compte désactivé
     // entre la poignée de main et cette ligne a échappé à revokeUserSessions
