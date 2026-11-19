@@ -24,6 +24,9 @@ services:
       retries: 10
 
   server-e2e:
+    # Nom fixe : la CI construit les images à part (docker/bake-action, avec cache)
+    # puis lance la stack sans rebuild (`up --no-build`).
+    image: murgatchat-e2e-server:local
     build:
       context: .
       dockerfile: server/Dockerfile
@@ -44,6 +47,7 @@ services:
       - "4001:4000"
 
   web-e2e:
+    image: murgatchat-e2e-web:local
     build:
       context: .
       dockerfile: web/Dockerfile

@@ -1997,6 +1997,33 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      encore publiée, la bannière reste informative. Les APK déjà installées
      (≤ 1.6.16) n'ont pas ce code : il faut installer la suivante une fois à la main.
 
+## Itération 2026-11-19 (fin) — CI encore plus courte, serveur par défaut, description du paquet
+
+176. **CI/CD encore plus courte** — la 1.6.17 a mis 9 min 42 (publication à 9 min 40) :
+     Linux attendait un `apt-get install` de 5 min 25 (miroir Ubuntu lent : 42 s la
+     fois d'avant), puis l'e2e (5 min 27) devenait le chemin critique. Desktop : paquets
+     apt en cache (`awalsh128/cache-apt-pkgs-action`, restaurés sans téléchargement),
+     LTO « thin » et unités de compilation par défaut (la passe LTO globale sur un fil
+     était l'essentiel d'un build avec dépendances en cache). Tests : backend et e2e
+     découpés en 2 jobs chacun (`--shard`, une base / une stack par job), images de la
+     stack e2e construites avec le cache de couches GitHub (`docker/bake-action`,
+     `docker compose up --no-build`, noms d'image fixés dans `docker-compose.e2e.yml`),
+     Chromium de Playwright en cache et plus d'`apt-get` (`--with-deps` retiré : les
+     bibliothèques de Chrome sont déjà sur le runner). `tests.yml` tourne aussi sur main,
+     pour écrire ces caches. Android : `--build-cache --parallel` (sorties des tâches
+     reprises du cache Gradle de main), pas de « lint vital » en release
+     (`mobile/plugins/withLeanRelease.js`, qui remplace `withArmOnly.js`).
+177. **Serveur par défaut** — les builds desktop et l'APK ne figeaient volontairement
+     aucun serveur (champ vide au premier lancement). Ils pré-remplissent maintenant
+     `https://serveur-chat.charlesmurgat.com`, toujours modifiable à la connexion :
+     `VITE_API_URL` dans `desktop-build.yml` (vérifié dans le bundle), `extra.API_URL`
+     dans `mobile/app.json` (vérifié dans l'APK à la place de l'ancien contrôle « API_URL
+     vide »). Les installations existantes gardent l'adresse déjà enregistrée.
+178. **Description du paquet** — « Client du chat d'entreprise » (Cargo `description`,
+     `bundle.shortDescription` / `longDescription`) : description des .deb / .rpm et
+     commentaire de l'entrée du menu des applications. Sous Windows, le nom affiché
+     reste « Chat » (FileDescription = productName).
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier

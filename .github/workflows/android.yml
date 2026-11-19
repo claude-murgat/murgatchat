@@ -147,8 +147,13 @@ jobs:
             echo "::error::Clé de signature absente : pas d'APK de release sans elle."; exit 1
           fi
           # Ne compiler le code natif que pour l'ARM (32 et 64 bits) : les téléphones.
-          # x86/x86_64 ne servaient qu'aux émulateurs (voir aussi withArmOnly.js).
-          ./gradlew :app:assembleRelease --no-daemon -PreactNativeArchitectures=armeabi-v7a,arm64-v8a
+          # x86/x86_64 ne servaient qu'aux émulateurs (voir aussi withLeanRelease.js).
+          # --build-cache : les sorties des tâches (Kotlin/Java des modules Expo, dex…)
+          # sont reprises du cache Gradle écrit sur main ; --parallel : les modules
+          # en même temps, avec la mémoire pour (le runner a 16 Go).
+          ./gradlew :app:assembleRelease --no-daemon --build-cache --parallel \
+            -Dorg.gradle.jvmargs="-Xmx6g -XX:MaxMetaspaceSize=1g" \
+            -PreactNativeArchitectures=armeabi-v7a,arm64-v8a
 
       - id: apk
         shell: bash
@@ -158,11 +163,13 @@ jobs:
         run: |
           APK="Chat_${{ steps.vc.outputs.name }}.apk"
           cp app/build/outputs/apk/release/app-release.apk "$APK"
-          # Aucun serveur ne doit être figé dans l'APK.
-          if unzip -p "$APK" assets/app.config | grep -q '"API_URL":""'; then
-            echo "app.config : API_URL vide ✓"
+          # Serveur par défaut : celui de l'entreprise (app.json extra.API_URL), pré-
+          # rempli à la connexion et modifiable.
+          WANT=$(jq -r .expo.extra.API_URL ../app.json)
+          if [ -n "$WANT" ] && unzip -p "$APK" assets/app.config | grep -qF "\"API_URL\":\"$WANT\""; then
+            echo "app.config : API_URL = $WANT ✓"
           else
-            echo "::error::app.config : API_URL non vide, un serveur a été figé dans l'APK"; exit 1
+            echo "::error::app.config : API_URL différent de « $WANT » (app.json)"; exit 1
           fi
           # Les icônes de l'appli sont bien embarquées (sinon : icône Expo par défaut).
           # En release, AGP raccourcit les chemins des fichiers (res/mipmap-…/ic_launcher.webp
@@ -177,7 +184,7 @@ jobs:
           # et la mise à jour in-app échoue.
           "$BT/aapt2" dump permissions "$APK" | grep -q "android.permission.REQUEST_INSTALL_PACKAGES" \
             || { echo "::error::permission REQUEST_INSTALL_PACKAGES absente de l'APK"; exit 1; }
-          # ARM seulement (plugin mobile/plugins/withArmOnly.js) : l'APK téléchargée par
+          # ARM seulement (plugin mobile/plugins/withLeanRelease.js) : l'APK téléchargée par
           # la mise à jour in-app reste petite.
           ABIS=$(unzip -l "$APK" | grep -oE 'lib/[^/]+/' | sort -u | tr '\n' ' ')
           echo "ABI : $ABIS ($(( $(stat -c %s "$APK") / 1048576 )) Mo)"

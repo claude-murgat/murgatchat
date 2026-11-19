@@ -30,6 +30,8 @@
     "active": true,
     "targets": "all",
     "category": "SocialNetworking",
+    "shortDescription": "Client du chat d'entreprise",
+    "longDescription": "Client du chat d'entreprise.",
     "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",

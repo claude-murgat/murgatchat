@@ -1,7 +1,7 @@
 [package]
 name = "chat-desktop"
 version = "1.6.17"
-description = "Chat desktop wrapper (Tauri)"
+description = "Client du chat d'entreprise"
 edition = "2021"
 
 [build-dependencies]
@@ -43,7 +43,10 @@ zbus = { version = "5", default-features = false, features = ["async-io", "block
 
 [profile.release]
 panic = "abort"
-codegen-units = 1
-lto = true
+# LTO « thin » et unités de compilation par défaut (16) plutôt que `lto = true` +
+# `codegen-units = 1` : la passe LTO globale, sur un seul fil, était l'essentiel du
+# build d'une release une fois les dépendances en cache. L'exécutable grossit un peu
+# (c'est surtout un webview), sans effet notable sur l'appli.
+lto = "thin"
 opt-level = "s"
 strip = true

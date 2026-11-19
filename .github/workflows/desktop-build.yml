@@ -19,6 +19,10 @@ name: desktop-build
 #
 # Pas de `permissions` ici : un workflow appelé hérite de celles de l'appelant
 # (contents: write pour release.yml, read sinon).
+#
+# Adresse du serveur par défaut (VITE_API_URL) : le serveur de l'entreprise, pré-
+# rempli à la connexion et toujours modifiable (gardé dans le localStorage). Le
+# même que celui de la PWA de prod.
 on:
   workflow_call:
     inputs:
@@ -44,6 +48,9 @@ on:
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
         required: false
 
+env:
+  DEFAULT_SERVER_URL: https://serveur-chat.charlesmurgat.com
+
 jobs:
   build:
     name: ${{ matrix.platform }}
@@ -59,15 +66,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # WebKitGTK 4.1 (le webview), ayatana-appindicator (le tray, aussi copié dans
       # l'AppImage et déclaré en dépendance des paquets), librsvg, xdo (menus).
-      # man-db reconstruit son index après chaque paquet installé : sans lui,
-      # l'étape passe d'environ 2 min 30 à moins d'une minute.
+      # Paquets en cache (restaurés sans les retélécharger) : selon le miroir
+      # Ubuntu, l'installation prenait de 40 s à plus de 5 min (v1.6.17). man-db
+      # coupé : il reconstruit son index après chaque paquet. `version` : à changer
+      # pour forcer une réinstallation.
+      - name: Couper man-db (Linux)
+        if: matrix.platform == 'linux'
+        run: sudo rm -f /var/lib/man-db/auto-update
       - name: Dépendances système (Linux)
         if: matrix.platform == 'linux'
-        run: |
-          sudo rm -f /var/lib/man-db/auto-update
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libxdo-dev libssl-dev patchelf
+        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
+        with:
+          packages: libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf
+          version: tauri-1
+          execute_install_scripts: true
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
@@ -85,12 +97,12 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: npm ci
         working-directory: web
-      # NOTE: VITE_API_URL is deliberately NOT set → the desktop build ships with
-      # NO baked server (web/src/api.js prod default is ""). tauri-action runs
-      # beforeBuildCommand (npm run build) and bundles. createUpdaterArtifacts=true
+      # tauri-action runs beforeBuildCommand (npm run build, which bakes
+      # VITE_API_URL as the default server) and bundles. createUpdaterArtifacts=true
       # → each installer is signed (.sig) with the updater key, uploaded next to it.
       - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
+          VITE_API_URL: ${{ env.DEFAULT_SERVER_URL }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -100,6 +112,12 @@ jobs:
           tagName: ${{ inputs.tag }}
           releaseId: ${{ inputs.release-id }}
           uploadUpdaterJson: false
+      - name: Vérifier le serveur par défaut
+        shell: bash
+        run: |
+          grep -qlF "$DEFAULT_SERVER_URL" web/dist/assets/*.js \
+            || { echo "::error::$DEFAULT_SERVER_URL absent du bundle : serveur par défaut non figé"; exit 1; }
+          echo "Serveur par défaut : $DEFAULT_SERVER_URL ✓"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: inputs.artifacts
         with:

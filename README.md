@@ -106,11 +106,11 @@ npm install
 npx expo start
 ```
 
-L'adresse du serveur se saisit **dans l'app** (écran de connexion) ; aucun serveur n'est baké (`extra.API_URL=""`). Pour l'émulateur Android, l'hôte est `http://10.0.2.2:4000` (alias émulateur → machine) ; pour un device physique, l'IP LAN de ta machine. Le code RN reste cross-platform (un simulateur iOS tourne en dev via `expo run:ios`), mais la **distribution iOS passe par la PWA** — pas de build natif iOS (voir le pivot PWA).
+L'adresse du serveur se saisit **dans l'app** (écran de connexion), pré-remplie avec le serveur de l'entreprise (`extra.API_URL` dans `app.json`, contrôlé dans l'APK par la CI). Pour l'émulateur Android, l'hôte est `http://10.0.2.2:4000` (alias émulateur → machine) ; pour un device physique, l'IP LAN de ta machine. Le code RN reste cross-platform (un simulateur iOS tourne en dev via `expo run:ios`), mais la **distribution iOS passe par la PWA** — pas de build natif iOS (voir le pivot PWA).
 
 ### Desktop (Tauri — Windows / macOS / Linux)
 
-**Installeur Windows** : téléchargez-le depuis la section **[Releases](../../releases)** du dépôt (mobile : la PWA, ou l'APK Android de l'appli native attachée à chaque release). Chaque release est buildée automatiquement par CI au push d'un tag `v*` (voir [Releases automatisées](#releases-automatisées-ci)). L'installeur NSIS est signé pour l'**auto-updater** (minisign) mais n'a pas de certificat **Authenticode** → SmartScreen avertit à la première installation. L'adresse du serveur se configure **dans l'app** (écran de connexion) ; les builds ne bakent **aucun serveur par défaut** (champ vide au premier lancement).
+**Installeur Windows** : téléchargez-le depuis la section **[Releases](../../releases)** du dépôt (mobile : la PWA, ou l'APK Android de l'appli native attachée à chaque release). Chaque release est buildée automatiquement par CI au push d'un tag `v*` (voir [Releases automatisées](#releases-automatisées-ci)). L'installeur NSIS est signé pour l'**auto-updater** (minisign) mais n'a pas de certificat **Authenticode** → SmartScreen avertit à la première installation. L'adresse du serveur est **pré-remplie** avec celle de l'entreprise (`https://serveur-chat.charlesmurgat.com`) et reste modifiable sur l'écran de connexion.
 
 **Paquets Linux** (x86_64), attachés aux mêmes Releases et mis à jour **dans l'app** comme sous Windows (bannière « Installer ») :
 
@@ -192,7 +192,7 @@ git tag v1.0.0 && git push origin v1.0.0
 # …ou, pour valider sans exposer les postes :
 git tag v1.0.0-rc.1 && git push origin v1.0.0-rc.1
 ```
-Le build desktop ne bake **aucun serveur** (pas de `VITE_API_URL` → l'adresse du serveur se configure sur l'écran de login).
+Le build desktop fige le serveur de l'entreprise comme adresse **par défaut** (`VITE_API_URL`, défini dans [`desktop-build.yml`](.github/workflows/desktop-build.yml) et vérifié dans le bundle), modifiable sur l'écran de login.
 
 **Secret requis** (Settings → Secrets and variables → Actions) — l'installeur est signé pour l'auto-updater Tauri (`createUpdaterArtifacts`), donc la clé est nécessaire à **chaque** build desktop :
 
