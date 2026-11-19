@@ -55,7 +55,8 @@
           }
         }
       ],
-      "./plugins/withReleaseSigning"
+      "./plugins/withReleaseSigning",
+      "./plugins/withArmOnly"
     ]
   }
 }

@@ -1983,7 +1983,8 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      d'inactivité qui effacent un cache) ; les tags ne font que lire (plus d'une minute
      d'écriture inutile à la fin du job Windows). Linux : man-db désactivé pendant
      l'`apt-get install` (≈ 2 min 30 → < 1 min). APK : ARM seulement (armeabi-v7a,
-     arm64-v8a), x86/x86_64 ne servant qu'aux émulateurs.
+     arm64-v8a ; `mobile/plugins/withArmOnly.js` + `-PreactNativeArchitectures`), x86/x86_64 ne
+     servant qu'aux émulateurs : moins de compilation native, APK plus légère à télécharger.
 175. **Mise à jour in-app de l'APK** — `android.yml` attache à chaque release, après
      l'APK, `android.json` (`version`, `versionCode`, `url`, `size`, `sha256`, `md5`).
      L'appli (`mobile/src/version.js`) lit `releases/latest/download/android.json` ;

@@ -146,9 +146,8 @@ jobs:
           elif [ -n "$TAG" ]; then
             echo "::error::Clé de signature absente : pas d'APK de release sans elle."; exit 1
           fi
-          # ARM seulement (32 et 64 bits) : les téléphones. x86/x86_64 ne servaient
-          # qu'aux émulateurs ; les retirer divise le temps de compilation native
-          # et la taille de l'APK que l'appli télécharge pour se mettre à jour.
+          # Ne compiler le code natif que pour l'ARM (32 et 64 bits) : les téléphones.
+          # x86/x86_64 ne servaient qu'aux émulateurs (voir aussi withArmOnly.js).
           ./gradlew :app:assembleRelease --no-daemon -PreactNativeArchitectures=armeabi-v7a,arm64-v8a
 
       - id: apk
@@ -178,7 +177,12 @@ jobs:
           # et la mise à jour in-app échoue.
           "$BT/aapt2" dump permissions "$APK" | grep -q "android.permission.REQUEST_INSTALL_PACKAGES" \
             || { echo "::error::permission REQUEST_INSTALL_PACKAGES absente de l'APK"; exit 1; }
-          echo "ABI : $(unzip -l "$APK" | grep -oE 'lib/[^/]+/' | sort -u | tr '\n' ' ')"
+          # ARM seulement (plugin mobile/plugins/withArmOnly.js) : l'APK téléchargée par
+          # la mise à jour in-app reste petite.
+          ABIS=$(unzip -l "$APK" | grep -oE 'lib/[^/]+/' | sort -u | tr '\n' ' ')
+          echo "ABI : $ABIS ($(( $(stat -c %s "$APK") / 1048576 )) Mo)"
+          [ "$ABIS" = "lib/arm64-v8a/ lib/armeabi-v7a/ " ] \
+            || { echo "::error::ABI inattendues dans l'APK : $ABIS"; exit 1; }
           # Même certificat que la dernière APK publiée (0.6.1) : sinon, l'APK ne
           # s'installe pas par-dessus et il faudrait désinstaller l'ancienne.
           if [ -f app/upload.keystore ]; then
