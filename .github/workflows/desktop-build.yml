@@ -66,20 +66,42 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # WebKitGTK 4.1 (le webview), ayatana-appindicator (le tray, aussi copié dans
       # l'AppImage et déclaré en dépendance des paquets), librsvg, xdo (menus).
-      # Paquets en cache (restaurés sans les retélécharger) : selon le miroir
-      # Ubuntu, l'installation prenait de 40 s à plus de 5 min (v1.6.17). man-db
-      # coupé : il reconstruit son index après chaque paquet. `version` : à changer
-      # pour forcer une réinstallation.
-      - name: Couper man-db (Linux)
+      # Selon le miroir Ubuntu de GitHub, l'installation prenait de 40 s à plus de
+      # 5 min (v1.6.17) : les .deb téléchargés sont gardés en cache (écrit depuis main,
+      # renouvelé chaque semaine) et apt ne télécharge que ce qui a changé depuis.
+      # `apt-get update` reste systématique : des listes périmées donnent des 404.
+      # man-db coupé : il reconstruit son index après chaque paquet.
+      - name: Clé du cache apt (Linux)
         if: matrix.platform == 'linux'
-        run: sudo rm -f /var/lib/man-db/auto-update
+        id: apt-key
+        run: echo "key=apt-${{ matrix.os }}-tauri-v1-$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+      - name: Paquets apt (cache)
+        if: matrix.platform == 'linux'
+        id: apt-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/apt-archives
+          key: ${{ steps.apt-key.outputs.key }}
+          restore-keys: apt-${{ matrix.os }}-tauri-v1-
       - name: Dépendances système (Linux)
         if: matrix.platform == 'linux'
-        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
+        run: |
+          sudo rm -f /var/lib/man-db/auto-update
+          if compgen -G ~/apt-archives/'*.deb' >/dev/null; then
+            sudo cp ~/apt-archives/*.deb /var/cache/apt/archives/
+          fi
+          APT_OPTS=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30)
+          sudo apt-get update -qq "${APT_OPTS[@]}"
+          sudo apt-get install -y -qq "${APT_OPTS[@]}" libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev patchelf
+          mkdir -p ~/apt-archives
+          cp /var/cache/apt/archives/*.deb ~/apt-archives/ 2>/dev/null || true
+          echo "$(find ~/apt-archives -name '*.deb' | wc -l) paquets en cache"
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: matrix.platform == 'linux' && github.ref == 'refs/heads/main' && steps.apt-cache.outputs.cache-hit != 'true'
         with:
-          packages: libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf
-          version: tauri-1
-          execute_install_scripts: true
+          path: ~/apt-archives
+          key: ${{ steps.apt-key.outputs.key }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
