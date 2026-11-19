@@ -91,8 +91,16 @@ jobs:
           if [ -n "$TAG" ]; then V="${TAG#v}"; else V="$(node -p 'require("./web/package.json").version')"; fi
           BASE="${V%%-*}" # sans le suffixe -rc.N
           IFS=. read -r MAJ MIN PAT <<< "$BASE"
-          echo "code=$(( MAJ*10000 + MIN*100 + PAT ))" >> "$GITHUB_OUTPUT"
+          CODE=$(( MAJ*10000 + MIN*100 + PAT ))
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "name=$V" >> "$GITHUB_OUTPUT"
+          # Lues par mobile/app.config.js, pour TOUTES les étapes suivantes : la config
+          # Expo est évaluée au prebuild (versionName/versionCode natifs) ET de nouveau
+          # pendant le build Gradle (assets/app.config, que l'appli lit pour connaître
+          # sa version). Posées sur le seul prebuild, l'APK 1.6.18 annonçait 0.6.1 à
+          # l'appli, qui se croyait toujours en retard : bandeau de mise à jour sans fin.
+          echo "APP_VERSION=$V" >> "$GITHUB_ENV"
+          echo "ANDROID_VERSION_CODE=$CODE" >> "$GITHUB_ENV"
 
       # google-services.json (FCM, notifications push) depuis un secret ; sans lui,
       # l'APK se construit sans push.
@@ -111,9 +119,6 @@ jobs:
       # écran de démarrage, icône de notification compris).
       - name: Expo prebuild (android)
         working-directory: mobile
-        env:
-          APP_VERSION: ${{ steps.vc.outputs.name }}
-          ANDROID_VERSION_CODE: ${{ steps.vc.outputs.code }}
         run: npx expo prebuild -p android --no-install
 
       # Cache de ~/.gradle (dépendances, wrapper, caches de build), écrit sur main
@@ -163,6 +168,14 @@ jobs:
         run: |
           APK="Chat_${{ steps.vc.outputs.name }}.apk"
           cp app/build/outputs/apk/release/app-release.apk "$APK"
+          # La version que l'appli lit (assets/app.config) doit être celle de l'APK :
+          # c'est elle que la mise à jour in-app compare à android.json.
+          GOT=$(unzip -p "$APK" assets/app.config | jq -r '"\(.version) \(.android.versionCode)"')
+          if [ "$GOT" = "${{ steps.vc.outputs.name }} ${{ steps.vc.outputs.code }}" ]; then
+            echo "app.config : version $GOT ✓"
+          else
+            echo "::error::app.config : version « $GOT », attendu « ${{ steps.vc.outputs.name }} ${{ steps.vc.outputs.code }} »"; exit 1
+          fi
           # Serveur par défaut : celui de l'entreprise (app.json extra.API_URL), pré-
           # rempli à la connexion et modifiable.
           WANT=$(jq -r .expo.extra.API_URL ../app.json)
