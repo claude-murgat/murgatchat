@@ -1,21 +1,30 @@
 name: desktop-installer
 
-# Manually build ONLY the Windows desktop installer (Tauri / MSVC) and upload it
-# as a downloadable artifact — no release, no tag, no APK. Use it to hotfix the
-# installer attached to an existing release: dispatch this, download the artifact,
-# then replace the asset on the release by hand.
+# Manually build ONLY the desktop installers (Windows NSIS, Linux .deb/.rpm/
+# .AppImage) and upload them as downloadable artifacts — no release, no tag, no
+# APK. Use it to check a branch builds on both platforms (Tauri Dependabot PRs,
+# changes to web/src-tauri), or to hotfix an installer attached to an existing
+# release: dispatch this, download the artifact, then replace the asset on the
+# release by hand.
 #
 # Runs against whatever ref you dispatch it on (default: main). Version comes from
 # the committed files (web/src-tauri/tauri.conf.json), so the asset is named after
 # the current version, e.g. Chat_0.5.5_x64-setup.exe.
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: "Plateforme à construire"
+        type: choice
+        options: [all, windows, linux]
+        default: all
 
 permissions:
   contents: read
 
 jobs:
   desktop:
+    if: inputs.platform != 'linux'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -48,5 +57,46 @@ jobs:
         with:
           name: desktop-installer
           path: web/src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 7
+
+  # Même build Linux que release.yml (Ubuntu 22.04 pour la glibc, voir là-bas).
+  linux:
+    if: inputs.platform != 'windows'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Dépendances système
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev patchelf
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: stable
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: web/src-tauri
+      - run: npm ci
+        working-directory: web
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: web
+          args: --bundles deb,rpm,appimage
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-packages
+          path: |
+            web/src-tauri/target/release/bundle/deb/*.deb*
+            web/src-tauri/target/release/bundle/rpm/*.rpm*
+            web/src-tauri/target/release/bundle/appimage/*.AppImage*
           if-no-files-found: error
           retention-days: 7

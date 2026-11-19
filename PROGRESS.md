@@ -1938,6 +1938,28 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      Vite 8.3.8 (serveur et web) ; plugins Tauri notification 2.8.1 et opener 2.7.3 ;
      typescript-eslint 8.72.2 ; claude-code-action 1.0.271 (#487–#492).
 
+## Itération 2026-11-19 — l'appli desktop sous Linux
+
+172. **Paquets Linux, mis à jour dans l'app** — chaque release porte en plus de
+     l'installeur Windows un `.deb` (Debian 12+, Ubuntu 22.04+, Mint 21+), un `.rpm`
+     (Fedora 37+) et une `.AppImage` (toute autre distribution), x86_64. Job `linux` de
+     `release.yml` sur `ubuntu-22.04` (glibc 2.35 = minimum requis), **après** `desktop` :
+     tauri-action complète `latest.json` en le relisant puis en le remplaçant, deux jobs
+     en parallèle pourraient s'écraser. Chaque paquet a sa clé (`linux-x86_64-deb`,
+     `-rpm`, `-appimage`) ; le bundler inscrit le type de paquet dans le binaire, donc un
+     poste `.deb` se met à jour par `.deb` (pkexec dpkg -i, mot de passe admin), `.rpm`
+     par rpm -U, l'AppImage se remplace elle-même. `publish` vérifie avant de publier
+     que `latest.json` annonce la version, signée, pour Windows et les trois paquets.
+     Les dépendances du tray (ayatana-appindicator) sont déclarées par le bundler.
+     **Notifications** : jusqu'ici `notify_desktop` ne faisait rien hors Windows.
+     `web/src-tauri/src/linux_notifications.rs` parle au serveur de notifications
+     freedesktop par D-Bus (zbus, déjà dans l'arbre) : une seule connexion, une
+     notification par conversation remplacée à chaque message, fermée une fois lue, clic
+     → fenêtre + conversation (comme le toast Windows). Testé contre un faux serveur
+     D-Bus. GNOME sans l'extension AppIndicator n'affiche pas le tray : relancer Chat
+     ramène la fenêtre (single-instance). `desktop-installer.yml` construit aussi Linux
+     (`-f platform=linux|windows|all`).
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
