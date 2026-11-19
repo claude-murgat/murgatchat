@@ -2039,6 +2039,21 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      Les téléphones en 1.6.18 proposeront la 1.6.19, qui règle le problème une fois
      installée.
 
+## Itération 2026-11-19 (nuit) — appli desktop ouverte, téléphone silencieux
+
+180. **Pas de push au téléphone quand l'appli desktop est ouverte** — à la demande :
+     avec l'appli ouverte sur le PC (Windows, Linux Mint, Fedora…), la notification
+     s'affichait sur le PC ET sonnait sur le téléphone (APK). Désormais une socket
+     `platform: "desktop"` (le client web sous Tauri s'annonçait déjà ainsi) rejoint
+     la room `desktop:<userId>` ; `notifyMembers` n'envoie **aucun push** (Expo ni Web
+     Push) à un membre qui en a une, et journalise `[push] held for N user(s)`.
+     L'événement in-app `notification` part toujours vers toutes ses sockets (c'est lui
+     que le desktop affiche). Appli quittée, ou PC en veille / éteint (socket coupée, au
+     plus ~45 s de délai de ping), → pushs comme avant. Plus étroit que le gating de
+     présence retiré en 1.4.6 (#387) : un onglet web ne retient rien. Contrepartie
+     assumée : appli laissée ouverte sur un PC allumé loin de soi = téléphone muet.
+     Tests : `server/test/socket/push.test.js`.
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier

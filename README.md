@@ -218,6 +218,7 @@ Sans `CLIENT_VERSION`, le serveur renvoie sa propre version (basse) → aucune b
 - **System tray** — icône aubergine `#` ; clic gauche bascule afficher/masquer la fenêtre, clic droit ouvre un menu *Afficher / Masquer / Quitter*.
 - **Fermer ≠ quitter** — la croix de la fenêtre la masque dans la tray, l'app continue de tourner et de recevoir les messages.
 - **Notifications natives** — quand un message arrive alors que la fenêtre n'a pas le focus, un toast Windows apparaît (sous Linux, une notification du bureau par D-Bus) ; un clic ouvre la conversation. En navigateur classique (sans Tauri), [web/src/desktop.js](web/src/desktop.js) bascule sur l'API `Notification` du navigateur.
+- **Pas de double notification avec le téléphone** — tant que l'appli desktop est ouverte (même réduite dans la tray), le serveur n'envoie aucun push au téléphone (APK ou PWA) : c'est le desktop qui notifie. Appli quittée (menu *Quitter*) ou PC éteint / en veille : le téléphone reçoit de nouveau les pushs (une veille est détectée en ~45 s au plus). Un onglet web ouvert sur un poste ne retient rien.
 - **Permission notification** — demandée au premier login. Si elle est refusée, seul le toast in-app reste.
 
 **Auto-start au boot Windows :** placer un raccourci vers `Chat.exe` dans `shell:startup` (Win+R → `shell:startup`). Pour une intégration plus propre via le registre, on pourrait ajouter le plugin [tauri-plugin-autostart](https://v2.tauri.app/plugin/autostart/) — pas activé pour l'instant.

@@ -56,8 +56,9 @@ npm test -- test/http/auth.test.js   # un fichier
   niveau de `web-push` (`vi.spyOn(webpush, "sendNotification")`) : aucun appel
   réseau, gating déterministe. Un message concernant un membre est poussé vers
   tous ses appareils (plus de détection de présence) ; seuls DnD, le niveau du
-  salon (`none`/`mentions`), un compte désactivé et l'exclusion de l'auteur
-  suppriment le push.
+  salon (`none`/`mentions`), un compte désactivé, l'exclusion de l'auteur et
+  **son appli desktop connectée** (socket `platform: "desktop"`, qui affiche la
+  notification à la place du téléphone) suppriment le push.
 
 ### Couverture
 - `test/unit/` — crypto (round-trip `enc1:`, fallback clair, déchiffrement KO),
@@ -103,7 +104,9 @@ npm test -- test/http/auth.test.js   # un fichier
   diffusé aux seuls membres),
   `reaction:update`, `presence`, `typing`, `channel:read`, événements de membres,
   handshake `auth.platform`, et les **notifications push** (`notifyMembers` :
-  membre non-DND → push vers tous ses appareils, même connecté/actif ; natif +
+  membre non-DND → push vers tous ses appareils, même connecté/actif, sauf si son
+  appli desktop est ouverte (aucun push, la notification arrive au desktop ;
+  appli fermée → push de nouveau ; le desktop d'un autre ne retient rien) ; natif +
   web poussés ensemble ; DND → rien ; `notifyLevel=none`/`mentions` → suppression ;
   compte désactivé → rien ; auteur exclu ; purge `DeviceNotRegistered` ;
   **message très long** → extrait tronqué, Web Push chiffré et message Expo sous 4 Ko ;
