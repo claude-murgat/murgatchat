@@ -3,6 +3,8 @@ export const colors = {
   aubergineDark: "#19171D",
   aubergineLight: "#522653",
   aubergineMuted: "#BCABBC",
+  // Fond pâle de l'aubergine : onglet actif, icône des salons.
+  aubergineTint: "#F1E8F1",
   white: "#FFFFFF",
   blue: "#1264A3",
   green: "#007a5a",

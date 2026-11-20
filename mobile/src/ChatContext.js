@@ -203,6 +203,13 @@ export function ChatProvider({ children }) {
           prev.map((c) => (c.id === channelId ? { ...c, unread: false } : c))
         );
 
+      // Conversation directe masquée (ou rouverte) depuis un autre appareil : l'accueil
+      // la retire de ses listes jusqu'au prochain message, comme le web.
+      const onHidden = ({ channelId, hiddenAt }) =>
+        setChannels((prev) =>
+          prev.map((c) => (c.id === channelId ? { ...c, hiddenAt } : c))
+        );
+
       s.on("message:new", onNew);
       s.on("channel:created", onCreated);
       s.on("channel:removed", onRemoved);
@@ -214,6 +221,7 @@ export function ChatProvider({ children }) {
       s.on("typing:update", onTyping);
       s.on("notification", onNotif);
       s.on("channel:read", onRead);
+      s.on("channel:hidden", onHidden);
 
       s._detach = () => {
         s.off("message:new", onNew);
@@ -227,6 +235,7 @@ export function ChatProvider({ children }) {
         s.off("typing:update", onTyping);
         s.off("notification", onNotif);
         s.off("channel:read", onRead);
+        s.off("channel:hidden", onHidden);
       };
     })();
 

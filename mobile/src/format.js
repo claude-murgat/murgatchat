@@ -16,6 +16,26 @@ export function dayLabel(d) {
   return date.toLocaleDateString();
 }
 
+const WEEKDAYS = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."];
+const pad2 = (n) => String(n).padStart(2, "0");
+
+// Moment du dernier message d'une conversation, en tête de ligne de l'accueil :
+// l'heure aujourd'hui, « Hier », le jour de la semaine jusqu'à 6 jours, puis la
+// date (jj/mm, avec l'année si ce n'est pas l'année en cours).
+export function shortWhen(d, now = new Date()) {
+  const date = new Date(d);
+  if (Number.isNaN(date.getTime())) return "";
+  const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((startOf(now) - startOf(date)) / 86400000);
+  if (days <= 0) return formatTime(date);
+  if (days === 1) return "Hier";
+  if (days < 7) return WEEKDAYS[date.getDay()];
+  const dm = `${pad2(date.getDate())}/${pad2(date.getMonth() + 1)}`;
+  return date.getFullYear() === now.getFullYear()
+    ? dm
+    : `${dm}/${String(date.getFullYear()).slice(-2)}`;
+}
+
 export function reactionLabel(users) {
   const names = (users || []).map((u) => u.displayName || "Quelqu'un");
   if (names.length === 0) return "";

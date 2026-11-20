@@ -2054,6 +2054,33 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      assumée : appli laissée ouverte sur un PC allumé loin de soi = téléphone muet.
      Tests : `server/test/socket/push.test.js`.
 
+## Itération 2026-11-19 (nuit, suite) — l'appli Android s'ouvre sur les conversations récentes
+
+181. **Accueil à onglets dans l'appli Android** (`mobile/`) — « c'est pas super pratique
+     de tomber direct sur la liste des salons et utilisateurs » : l'appli s'ouvrait sur
+     deux sections fixes (Salons, puis Messages directs, dans l'ordre du serveur, sans
+     extrait ni heure). Parmi trois options proposées (une liste « non lus d'abord »,
+     des onglets, rouvrir la dernière conversation), l'utilisateur a choisi les onglets :
+     barre en bas **Récents / Salons / Directs**, avec le nombre de conversations non
+     lues sur chaque onglet. *Récents* (l'onglet d'ouverture) : toutes les conversations
+     qui ont un message, « Non lus » en tête puis par activité. *Salons* : ordre
+     alphabétique comme sur le web, experts Claude à part, boutons « Créer un salon » et
+     « Parcourir ». *Directs* : « Mes notes » épinglée puis par activité, bouton
+     « Nouveau message ». Chaque ligne montre l'extrait du dernier message (« Vous : »,
+     « Prénom : » dans un salon ou un groupe, Markdown retiré), son heure (« Hier »,
+     jour de la semaine, date) et « … est en train d'écrire… ». Le retour d'Android
+     ramène à Récents avant de quitter l'appli. Comme sur le web, une conversation
+     directe masquée disparaît jusqu'au prochain message (`channel:hidden` écouté).
+     Le bandeau de mise à jour n'est plus posé par-dessus les écrans (il cachait la
+     barre d'onglets, et déjà le composer) : il les raccourcit. Rangement dans
+     `mobile/src/conversations.js` (fonctions pures), lignes dans
+     `components/ConversationRow.js`, barre dans `components/HomeTabBar.js` (icônes
+     Ionicons de `@expo/vector-icons`, déjà installé par Expo, désormais déclaré).
+     Aucun changement serveur. Vérifié : bundle Android (Hermes) et web exportés,
+     fonctions de rangement testées, captures de l'export web dans Chromium avec un
+     faux serveur ; pas d'émulateur ni de téléphone (gestes, bouton retour, police des
+     icônes sur l'APK non vus).
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
