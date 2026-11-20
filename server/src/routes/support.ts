@@ -339,13 +339,15 @@ router.post("/disk-alert", requireNotifyToken, async (req, res) => {
 });
 
 // Plateforme de déploiement des petites apps (dépôt Murgat-Ingenierie/deployer) : app en ligne,
-// déploiement en échec, attente de relecture. Des champs vérifiés : le message est composé ici.
+// déploiement en échec, attente de relecture, publication arrêtée puis repartie. Des champs
+// vérifiés : le message est composé ici.
 const httpsUrl = z.string().url().max(500).regex(/^https:\/\//);
 const deploySchema = z.object({
   event: z.enum(DEPLOY_EVENTS),
   app: z.string().regex(/^[a-z0-9][a-z0-9-]{0,40}$/),
   version: z.string().regex(/^[0-9a-f]{7,40}$/).optional(),
   reason: z.enum(Object.keys(DEPLOY_REASONS) as [DeployReason, ...DeployReason[]]).optional(),
+  minutes: z.number().int().positive().max(1_000_000).optional(),
   appUrl: httpsUrl.optional(),
   repoUrl: httpsUrl.optional(),
   dashboardUrl: httpsUrl.optional(),
