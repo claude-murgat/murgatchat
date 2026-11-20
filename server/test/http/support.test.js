@@ -434,4 +434,32 @@ describe("POST /support/deploy", () => {
       "🧪 Test — 👀 conges attend la relecture d'un référent avant sa mise en ligne."
     );
   });
+
+  it("annonce l'arrêt puis la reprise de la publication automatique", async () => {
+    process.env.SUPPORT_NOTIFY_TOKEN = "s3cret";
+    const tableau = "https://tableau.apps.charlesmurgat.com/#/serveur";
+    for (const corps of [
+      { event: "arret", app: "plateforme", minutes: 25, dashboardUrl: tableau },
+      { event: "reprise", app: "plateforme" },
+    ]) {
+      const res = await request(app).post("/support/deploy").set("Authorization", "Bearer s3cret").send(corps);
+      expect(res.status).toBe(200);
+    }
+    const res = await request(app)
+      .post("/support/deploy")
+      .set("Authorization", "Bearer s3cret")
+      .send({ event: "arret", app: "plateforme", minutes: -1 });
+    expect(res.status).toBe(400);
+
+    const msgs = await prisma.message.findMany({
+      where: { channel: { name: "support-dev", isPrivate: true } },
+      orderBy: { createdAt: "asc" },
+      select: { searchableBody: true },
+    });
+    expect(msgs.map((m) => m.searchableBody)).toEqual([
+      "⛔ La publication automatique des apps est arrêtée depuis 25 minutes : plus aucune mise en ligne ni mise à jour n'aboutit.\n" +
+        "Tableau de bord : https://tableau.apps.charlesmurgat.com/#/serveur",
+      "✅ La publication automatique des apps a repris.",
+    ]);
+  });
 });

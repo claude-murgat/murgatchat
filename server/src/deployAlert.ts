@@ -2,7 +2,9 @@
 // envoyées par son serveur via POST /support/deploy. Comme pour le disque du serveur TSE, le texte
 // est composé ici à partir de champs vérifiés, jamais d'un texte libre.
 
-export const DEPLOY_EVENTS = ["en-ligne", "echec", "relecture"] as const;
+// « arret » / « reprise » : la publication automatique elle-même ne tourne plus, puis repart ;
+// le champ app est alors ignoré (la plateforme envoie « plateforme »).
+export const DEPLOY_EVENTS = ["en-ligne", "echec", "relecture", "arret", "reprise"] as const;
 
 export const DEPLOY_REASONS = {
   secret: "un secret (clé, mot de passe) est écrit dans le code",
@@ -21,6 +23,7 @@ export function deployAlertText(a: {
   app: string;
   version?: string;
   reason?: DeployReason;
+  minutes?: number;
   appUrl?: string;
   repoUrl?: string;
   dashboardUrl?: string;
@@ -28,18 +31,33 @@ export function deployAlertText(a: {
   test?: boolean;
 }) {
   const test = a.test ? "🧪 Test — " : "";
-  const lignes: (string | undefined)[] =
-    a.event === "en-ligne"
-      ? [`${test}🚀 ${a.app} est en ligne${a.version ? ` (version ${a.version})` : ""}.`, a.appUrl]
-      : a.event === "echec"
-        ? [
-            `${test}❌ Déploiement de ${a.app} en échec : ${DEPLOY_REASONS[a.reason ?? "autre"]}.`,
-            a.detailUrl && `Détail : ${a.detailUrl}`,
-          ]
-        : [
-            `${test}👀 ${a.app} attend la relecture d'un référent avant sa mise en ligne.`,
-            a.detailUrl && `À relire : ${a.detailUrl}`,
-          ];
+  let lignes: (string | undefined)[];
+  switch (a.event) {
+    case "en-ligne":
+      lignes = [`${test}🚀 ${a.app} est en ligne${a.version ? ` (version ${a.version})` : ""}.`, a.appUrl];
+      break;
+    case "echec":
+      lignes = [
+        `${test}❌ Déploiement de ${a.app} en échec : ${DEPLOY_REASONS[a.reason ?? "autre"]}.`,
+        a.detailUrl && `Détail : ${a.detailUrl}`,
+      ];
+      break;
+    case "relecture":
+      lignes = [
+        `${test}👀 ${a.app} attend la relecture d'un référent avant sa mise en ligne.`,
+        a.detailUrl && `À relire : ${a.detailUrl}`,
+      ];
+      break;
+    case "arret":
+      lignes = [
+        `${test}⛔ La publication automatique des apps est arrêtée${a.minutes ? ` depuis ${a.minutes} minutes` : ""} : ` +
+          "plus aucune mise en ligne ni mise à jour n'aboutit.",
+      ];
+      break;
+    case "reprise":
+      lignes = [`${test}✅ La publication automatique des apps a repris.`];
+      break;
+  }
   lignes.push(a.repoUrl && `Code : ${a.repoUrl}`, a.dashboardUrl && `Tableau de bord : ${a.dashboardUrl}`);
   return lignes.filter(Boolean).join("\n");
 }

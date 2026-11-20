@@ -434,7 +434,8 @@ pour les secrets) :
   notification in-app ; vide ⇒ endpoints `/support/notify`, `/support/disk-alert` et
   `/support/deploy` désactivés. Le deuxième reçoit les alertes de disque presque plein du
   serveur TSE (script [`ops/alerte-disque.ps1`](ops/README.md)) ; le troisième celles de la
-  plateforme de déploiement des petites apps (app en ligne, échec, relecture à faire),
+  plateforme de déploiement des petites apps (app en ligne, échec, relecture à faire,
+  publication automatique arrêtée puis repartie),
   envoyées par son serveur (dépôt Murgat-Ingenierie/deployer).
   `CLAUDE_HELPER_URL` + `CLAUDE_HELPER_TOKEN` + `CLAUDE_CALLBACK_TOKEN` pour
   les experts Claude de la section CLAUDE (pont vers le service
