@@ -68,6 +68,8 @@ interface ComposerProps {
   currentUser?: User | null;
   initialDraft?: Draft | null;
   onDraftChange?: (draft: Draft) => void;
+  /** Ouvre la création d'un sondage (salons seulement : absent ailleurs, pas de bouton). */
+  onCreatePoll?: () => void;
 }
 
 function formatLocalIso(dt: Date) {
@@ -167,6 +169,7 @@ function Composer(
     // uploadées) + rappel pour le remonter au parent — voir #165.
     initialDraft,
     onDraftChange,
+    onCreatePoll,
   }: ComposerProps,
   ref: ForwardedRef<ComposerHandle>
 ) {
@@ -731,6 +734,20 @@ function Composer(
           >
             {gifBusy ? "…" : "GIF"}
           </button>
+          {onCreatePoll && (
+            <button
+              onClick={onCreatePoll}
+              className="text-slate-500 hover:text-slate-800 px-2 py-1 text-sm flex items-center gap-1"
+              title="Créer un sondage"
+              aria-label="Créer un sondage"
+            >
+              {/* Trois barres de résultat, comme un graphique de vote. */}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+                <path d="M6 20v-7M12 20V5M18 20v-10M3.5 20h17" />
+              </svg>
+              <span className="hidden sm:inline">Sondage</span>
+            </button>
+          )}
           {allowSchedule && (
             <button
               onClick={() => setShowSchedule((v) => !v)}

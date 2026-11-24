@@ -2092,6 +2092,32 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      Timothée) ; Dependabot : read-excel-file 9.3.15 (aperçu Excel du web) et
      @eslint-react/eslint-plugin 5.30.2 (#503/#504).
 
+## Itération 2026-11-24 — les sondages dans les salons
+
+183. **Sondages dans les salons** (web, PWA, appli Windows, appli Android) — « une personne
+     pose une question, choisit choix multiple ou pas, et si d'autres peuvent ajouter une
+     réponse ». Bouton « Sondage » du composer, dans les salons seulement (ni message direct,
+     ni « Mes notes », ni expert Claude) : question (300 caractères), 2 à 20 réponses (100
+     caractères, doublons refusés sans tenir compte de la casse), « Plusieurs réponses
+     possibles », « Les membres peuvent ajouter des réponses » (l'auteur le peut toujours).
+     Dans le fil, une carte remplace le texte : chaque réponse avec sa barre, son nombre de
+     voix, son pourcentage et qui a voté ; un clic vote (choix unique : un second clic retire
+     le vote ; multiple : coche ou décoche). Clôture par l'auteur, un admin du salon ou un
+     admin du chat membre du salon : plus de vote ni d'ajout, résultats conservés.
+     Serveur : modèles `Poll` / `PollOption` / `PollVote` (migration `20261124000000_polls`,
+     additive), routes `server/src/routes/polls.ts` (`POST /polls`, `PUT /polls/:id/votes` qui
+     remplace la sélection de l'appelant, `POST /polls/:id/options`, `POST /polls/:id/close`),
+     verrou de ligne sur le sondage (double clic, ajouts simultanés, vote après clôture).
+     Le sondage est porté par un message ordinaire : notifié, non lu, cherchable (question et
+     réponses dans `searchableBody`), supprimé avec lui, jamais modifiable ; question et
+     réponses chiffrées au repos comme les messages. Son texte de repli (« 📊 Sondage :
+     <question> ») sert aux notifications, à l'aperçu, aux citations et aux clients antérieurs.
+     Temps réel : `poll:update` vers la room du salon, donc aux seuls membres (un salon privé
+     reste invisible à l'admin du chat). Contrat partagé : `PollSchema`, `message.poll`
+     (null hors sondage). Appli Android (`mobile/`) : même carte et même création, appui long
+     sur une réponse pour la liste complète des votants. Tests : `server/test/http/polls.test.js`
+     (14), `poll:update` dans `test/socket/realtime.test.js`, e2e `polls.spec.js` (3).
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier

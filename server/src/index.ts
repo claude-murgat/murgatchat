@@ -18,6 +18,7 @@ import bugReportsRouter from "./routes/bugReports.ts";
 import supportRouter from "./routes/support.ts";
 import gifsRouter from "./routes/gifs.ts";
 import claudeRouter from "./routes/claude.ts";
+import pollsRouter from "./routes/polls.ts";
 import { setupSocket, dispatchScheduledMessages } from "./socket.ts";
 import { prisma } from "./db.ts";
 import { sweepOrphanAttachments } from "./sweep.ts";
@@ -96,6 +97,7 @@ export function createServer() {
   app.use("/auth", authRouter);
   app.use("/users", usersRouter);
   app.use("/channels", channelsRouter);
+  app.use("/polls", pollsRouter);
   app.use("/uploads", uploadsRouter);
   app.use("/search", searchRouter);
   app.use("/bug-reports", bugReportsRouter);

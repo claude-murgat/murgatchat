@@ -94,7 +94,13 @@ npm test -- test/http/auth.test.js   # un fichier
   idempotent, réservé aux membres), planifiés (list/patch/delete +
   dispatch, auteur désactivé ou plus membre), pièces jointes (réservées aux membres du salon, auteur
   compris ; onglet *Stockage* `GET /uploads/storage` réservé aux admins, sans nom des fichiers
-  privés), réactions (toggle/agrégation), non-lus.
+  privés), réactions (toggle/agrégation), non-lus, **sondages** (`polls.test.js` : création
+  dans un salon seulement, texte de repli et chiffrement au repos, bornes 2–20 réponses /
+  300 et 100 caractères, doublons insensibles à la casse ; vote qui remplace la sélection,
+  choix unique ou multiple, votants comptés une fois ; ajout de réponse permis ou réservé à
+  l'auteur, 21e réponse et ajouts simultanés du même texte refusés ; clôture par l'auteur ou un
+  admin du salon, plus rien ensuite ; message non modifiable, suppression en cascade ; salon
+  privé fermé à l'admin du chat non membre).
 - `test/socket/` — accès aux salons privés (`channel:join` et `typing` refusés à un non-membre,
   membre retiré sorti de la room, admin rétrogradé sorti du salon du pipeline), `message:new`/`updated`/`deleted`, `message:hidden` (aux seuls appareils de celui qui masque), `thread:reply`,
   salons gérés par leurs membres (`salons.test.js` : retrait annoncé avec son auteur, message de
@@ -102,7 +108,8 @@ npm test -- test/http/auth.test.js   # un fichier
   de service refusée, `channel:hidden` vers les autres appareils et retour d'une conversation masquée
   au message suivant, « marquer non lu » ignoré pour un non-membre, relais d'un admin désactivé
   diffusé aux seuls membres),
-  `reaction:update`, `presence`, `typing`, `channel:read`, événements de membres,
+  `reaction:update`, `poll:update` (sondage publié en `message:new` + notification, votes
+  diffusés aux seuls membres), `presence`, `typing`, `channel:read`, événements de membres,
   handshake `auth.platform`, et les **notifications push** (`notifyMembers` :
   membre non-DND → push vers tous ses appareils, même connecté/actif, sauf si son
   appli desktop est ouverte (aucun push, la notification arrive au desktop ;
@@ -155,6 +162,12 @@ rajouter ; le salon survit et son membre réactivé le reprend.
 `/favicon.svg` (servi en `image/svg+xml`, avec sa variante sombre) ; l'icône iOS fait 180 px,
 chaque icône du manifest est servie à la taille annoncée, le badge des notifications fait 72 px ;
 le logo blanc, chargé, fait 40 px à gauche de « Murgat Chat ».
+`polls.spec.js` : Alice crée un sondage dans un salon (Entrée sur la dernière réponse en ouvre
+une autre, qui prend aussitôt le focus ; un doublon bloque la publication), Bob le voit sans
+recharger, vote, change son vote (choix unique), ajoute une réponse ; Alice voit tout en direct,
+clôture (Bob, lui, ne peut pas), et le sondage ne propose pas « Modifier » ; choix multiple
+au toucher sur téléphone sans débordement de la page ; pas de bouton « Créer un sondage » dans
+un message direct.
 `paste-markdown.spec.js` : une liste copiée (vrai Ctrl+C dans Chromium, dont le texte brut
 n'a ni puces ni retraits) puis collée (Ctrl+V) arrive en Markdown dans le composer, Ctrl+Z
 l'annule d'un coup, et le message envoyé s'affiche en liste imbriquée ; listes Word / Outlook

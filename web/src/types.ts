@@ -14,6 +14,9 @@ export type {
   MessagesResponse,
   MessageRead,
   NotificationEvent,
+  Poll,
+  PollOption,
+  PollUpdateEvent,
 } from "../../shared/contracts.ts";
 
 /** Utilisateur tel qu'exposé par l'API (publicUser). */

@@ -2,16 +2,27 @@ import { useState } from "react";
 import { View, Text, TextInput, Pressable, StyleSheet, Alert } from "react-native";
 import EmojiPicker from "./EmojiPicker";
 import GifPicker from "./GifPicker";
+import PollModal from "./PollModal";
 import { api } from "../api";
 import { colors } from "../theme";
 
-export default function Composer({ onSend, onTyping, placeholder, allowSchedule = true }) {
+// `pollChannelId` : salon où l'on peut publier un sondage (bouton 📊), absent
+// ailleurs ; `onPollCreated` reçoit le message du sondage publié.
+export default function Composer({
+  onSend,
+  onTyping,
+  placeholder,
+  allowSchedule = true,
+  pollChannelId,
+  onPollCreated,
+}) {
   const [text, setText] = useState("");
   const [showEmoji, setShowEmoji] = useState(false);
   const [showGif, setShowGif] = useState(false);
   const [gifBusy, setGifBusy] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [minutes, setMinutes] = useState("");
+  const [showPoll, setShowPoll] = useState(false);
 
   // Picking a GIF imports it (re-hosted, encrypted) and sends it immediately as
   // its own message — the typical GIF UX, and it leaves any in-progress text alone.
@@ -75,6 +86,15 @@ export default function Composer({ onSend, onTyping, placeholder, allowSchedule 
             <Text style={styles.icon}>⏰</Text>
           </Pressable>
         )}
+        {!!pollChannelId && (
+          <Pressable
+            style={styles.iconBtn}
+            onPress={() => setShowPoll(true)}
+            accessibilityLabel="Sondage"
+          >
+            <Text style={styles.icon}>📊</Text>
+          </Pressable>
+        )}
         <TextInput
           style={styles.input}
           placeholder={placeholder || "Écrire un message…"}
@@ -103,6 +123,14 @@ export default function Composer({ onSend, onTyping, placeholder, allowSchedule 
         onSelect={onGifSelect}
         onClose={() => setShowGif(false)}
       />
+      {!!pollChannelId && (
+        <PollModal
+          visible={showPoll}
+          channelId={pollChannelId}
+          onClose={() => setShowPoll(false)}
+          onCreated={onPollCreated}
+        />
+      )}
     </View>
   );
 }

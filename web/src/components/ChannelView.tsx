@@ -9,8 +9,10 @@ import MessageMarkdown from "./MessageMarkdown.tsx";
 import AttachmentModal from "./AttachmentModal.tsx";
 import DownloadIcon from "./DownloadIcon.tsx";
 import ForwardMessageModal from "./ForwardMessageModal.tsx";
+import PollCard from "./PollCard.tsx";
+import PollModal from "./PollModal.tsx";
 import type { DetailsTab } from "./ChannelDetailsModal.tsx";
-import { canManageMembers, isSalon, salonLabel } from "../channelRules.ts";
+import { canManageMembers, isSalon, isSalonAdmin, salonLabel } from "../channelRules.ts";
 import {
   api,
   attachmentUrl,
@@ -29,6 +31,7 @@ import type {
   MessageRead,
   MessagesResponse,
   NotifyLevel,
+  Poll,
   User,
 } from "../types.ts";
 
@@ -119,6 +122,7 @@ type LiveEvent =
   | { type: "deleted"; id: string }
   | { type: "hidden"; id: string }
   | { type: "reaction"; messageId: string; reactions: Reaction[] }
+  | { type: "poll"; messageId: string; poll: Poll }
   | { type: "userDeleted"; userId: string };
 
 // Efface d'un message les traces d'un compte supprimé : ses réactions, et la
@@ -127,14 +131,28 @@ type LiveEvent =
 function withoutUser(m: Message, userId: string): Message {
   const quoted = m.parent?.author?.id === userId;
   const reacted = m.reactions.some((r) => r.users.some((u) => u.id === userId));
-  if (!quoted && !reacted) return m;
+  const voted = !!m.poll?.options.some((o) => o.voters.some((v) => v.id === userId));
+  if (!quoted && !reacted && !voted) return m;
   const reactions = m.reactions
     .map((r) => {
       const users = r.users.filter((u) => u.id !== userId);
       return { ...r, users, count: users.length };
     })
     .filter((r) => r.count > 0);
-  return quoted ? { ...m, reactions, parentId: null, parent: null } : { ...m, reactions };
+  // Ses votes disparaissent avec lui (cascade côté serveur).
+  const poll = voted && m.poll ? pollWithoutVoter(m.poll, userId) : m.poll;
+  return quoted
+    ? { ...m, reactions, poll, parentId: null, parent: null }
+    : { ...m, reactions, poll };
+}
+
+function pollWithoutVoter(poll: Poll, userId: string): Poll {
+  const options = poll.options.map((o) => {
+    const voters = o.voters.filter((v) => v.id !== userId);
+    return { ...o, voters, count: voters.length };
+  });
+  const voterCount = new Set(options.flatMap((o) => o.voters.map((v) => v.id))).size;
+  return { ...poll, options, voterCount };
 }
 
 function applyLiveEvent(messages: Message[], ev: LiveEvent): Message[] {
@@ -153,6 +171,14 @@ function applyLiveEvent(messages: Message[], ev: LiveEvent): Message[] {
         .map((m) => (m.parent?.id === ev.id ? { ...m, parentId: null, parent: null } : m));
     case "reaction":
       return messages.map((m) => (m.id === ev.messageId ? { ...m, reactions: ev.reactions } : m));
+    // Un état plus ancien que celui affiché (réponse HTTP doublée par le
+    // `poll:update` d'un vote suivant) est ignoré.
+    case "poll":
+      return messages.map((m) =>
+        m.id === ev.messageId && !(m.poll && m.poll.version > ev.poll.version)
+          ? { ...m, poll: ev.poll }
+          : m
+      );
     case "userDeleted":
       return messages
         .filter((m) => m.author?.id !== ev.userId)
@@ -543,6 +569,11 @@ export default function ChannelView({
   // Message en cours de transfert vers une autre conversation (#124). Ouvre la
   // modale de sélection de destination ; null = modale fermée.
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
+  // Salon pour lequel la création d'un sondage est ouverte : la fenêtre ne suit
+  // pas un changement de conversation (notification cliquée, retrait du salon),
+  // un sondage ne part donc jamais ailleurs que là où il a été commencé.
+  const [pollChannelId, setPollChannelId] = useState<string | null>(null);
+  if (pollChannelId && pollChannelId !== channel?.id) setPollChannelId(null);
   const [typingUserIds, setTypingUserIds] = useState<string[]>([]);
   // Étape en cours de l'expert Claude (event claude:progress), affichée sous
   // l'indicateur de saisie à la place du générique « Claude est en train
@@ -828,6 +859,10 @@ export default function ChannelView({
     }) {
       live({ type: "reaction", messageId, reactions });
     }
+    // Sondage : un vote, une réponse ajoutée ou la clôture.
+    function onPoll({ messageId, poll }: { messageId: string; poll: Poll }) {
+      live({ type: "poll", messageId, poll });
+    }
     // Compte supprimé par un admin : tout ce qu'il a publié a disparu côté serveur.
     function onUserDeleted({ userId }: { userId: string }) {
       live({ type: "userDeleted", userId });
@@ -859,6 +894,7 @@ export default function ChannelView({
     socket.on("message:deleted", onDeleted);
     socket.on("message:hidden", onHidden);
     socket.on("reaction:update", onReaction);
+    socket.on("poll:update", onPoll);
     socket.on("user:deleted", onUserDeleted);
     socket.on("typing:update", onTyping);
     socket.on("channel:seen", onSeen);
@@ -870,6 +906,7 @@ export default function ChannelView({
       socket.off("message:deleted", onDeleted);
       socket.off("message:hidden", onHidden);
       socket.off("reaction:update", onReaction);
+      socket.off("poll:update", onPoll);
       socket.off("user:deleted", onUserDeleted);
       socket.off("typing:update", onTyping);
       socket.off("channel:seen", onSeen);
@@ -1215,6 +1252,17 @@ export default function ChannelView({
     }
   }
 
+  // Réponse du serveur à une de nos actions sur un sondage (vote, ajout,
+  // clôture) : appliquée tout de suite, sans attendre `poll:update`.
+  // Clôturer le sondage d'un autre : admin du salon ou admin du chat (le serveur
+  // accepte aussi l'auteur, que PollCard reconnaît seul).
+  const canModeratePolls =
+    !!channel && !!currentUser && (!!currentUser.isAdmin || isSalonAdmin(channel, currentUser));
+
+  function applyPoll(messageId: string, poll: Poll) {
+    setTimeline((t) => applyToTimeline(t, activeChannelId, { type: "poll", messageId, poll }));
+  }
+
   async function reactToMessage(messageId: string, emoji: string) {
     try {
       await api.react(messageId, emoji);
@@ -1517,6 +1565,8 @@ export default function ChannelView({
                   onForward={() => setForwardingMessage(m)}
                   onReact={reactToMessage}
                   onJumpToParent={jumpToMessage}
+                  canModeratePolls={canModeratePolls}
+                  onPollChange={applyPoll}
                 />
               )}
               {readers && <ReadMarkers users={readers} />}
@@ -1589,6 +1639,7 @@ export default function ChannelView({
           }}
           onSend={send}
           onTyping={notifyTyping}
+          onCreatePoll={isSalon(channel) ? () => setPollChannelId(channel.id) : undefined}
           members={channel.members}
           currentUser={currentUser}
           placeholder={
@@ -1598,6 +1649,17 @@ export default function ChannelView({
           }
         />
       </div>
+
+      {pollChannelId === channel.id && (
+        <PollModal
+          channelId={channel.id}
+          channelName={channel.name}
+          onClose={() => setPollChannelId(null)}
+          onCreated={(message) =>
+            setTimeline((t) => applyToTimeline(t, channel.id, { type: "new", message }))
+          }
+        />
+      )}
 
       {forwardingMessage && (
         <ForwardMessageModal
@@ -1846,6 +1908,9 @@ interface MessageRowProps {
   onForward?: () => void;
   onReact?: (messageId: string, emoji: string) => void;
   onJumpToParent?: (id: string) => void;
+  /** Admin du salon ou du chat : peut clôturer le sondage d'un autre membre. */
+  canModeratePolls?: boolean;
+  onPollChange?: (messageId: string, poll: Poll) => void;
 }
 
 function MessageRow({
@@ -1860,6 +1925,8 @@ function MessageRow({
   onForward,
   onReact,
   onJumpToParent,
+  canModeratePolls = false,
+  onPollChange,
 }: MessageRowProps) {
   const isOwn = message.author?.id === currentUser?.id;
   const [editing, setEditing] = useState(false);
@@ -1994,6 +2061,14 @@ function MessageRow({
         <span className="text-slate-400">Entrée pour enregistrer · Échap pour annuler</span>
       </div>
     </div>
+  ) : message.poll ? (
+    <PollCard
+      poll={message.poll}
+      authorId={message.author?.id}
+      currentUserId={currentUser?.id}
+      canModerate={canModeratePolls}
+      onChange={(poll) => onPollChange?.(message.id, poll)}
+    />
   ) : (
     message.body && (
       <div className="text-slate-900 wrap-break-word">
@@ -2097,7 +2172,8 @@ function MessageRow({
             Transférer
           </button>
         )}
-        {isOwn && (
+        {/* Un sondage ne se modifie pas : son texte n'est que le repli de la question. */}
+        {isOwn && !message.poll && (
           <button
             onClick={() => {
               closeMenu();

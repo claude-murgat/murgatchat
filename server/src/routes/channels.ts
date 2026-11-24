@@ -16,6 +16,7 @@ import { publicUser } from "./auth.ts";
 import { encryptBody, decryptBody } from "../crypto.ts";
 import { safeUnlink } from "../storage.ts";
 import { BOT_USERNAME, supportChannelName } from "../notify.ts";
+import { POLL_INCLUDE, serializePoll, type PollWithRelations } from "../polls.ts";
 
 // Formes « hydratées » renvoyées par nos requêtes Prisma. Les relations sont
 // déclarées OPTIONNELLES parce que chaque appelant choisit son `include` : un
@@ -28,6 +29,8 @@ type MessageWithRelations = Message & {
   attachments?: Attachment[] | null;
   reactions?: ReactionWithUser[] | null;
   parent?: (Message & { author?: User | null }) | null;
+  // Sondage porté par le message (routes/polls.ts), quand la requête l'a chargé.
+  poll?: PollWithRelations | null;
 };
 
 type ChannelWithRelations = Channel & {
@@ -681,6 +684,7 @@ router.get("/:id/messages", requireAuth, async (req, res) => {
       author: true,
       attachments: true,
       reactions: { include: { user: true } },
+      poll: { include: POLL_INCLUDE },
       // Hydrate the parent (author + body for the quote bubble). Cheap because
       // we only ever go one level deep — replies-to-replies are rejected at
       // send time.
@@ -836,6 +840,11 @@ router.patch("/messages/:messageId", requireAuth, async (req, res) => {
 
   const trimmed = typeof body === "string" ? body.trim() : "";
   if (!trimmed) return res.status(400).json({ error: "empty_body" });
+  // Le texte d'un sondage n'est que son repli (« 📊 Sondage : … ») : la question
+  // et les réponses ne se modifient pas après coup, les votes portent sur elles.
+  if (await prisma.poll.findUnique({ where: { messageId }, select: { id: true } })) {
+    return res.status(400).json({ error: "poll_not_editable" });
+  }
 
   const updated = await prisma.message.update({
     where: { id: messageId },
@@ -1425,6 +1434,9 @@ export function serializeMessage(m: MessageWithRelations) {
     reactions: groupReactions(m.reactions),
     author: m.author ? publicUser(m.author) : { id: m.authorId },
     attachments: (m.attachments || []).map(serializeAttachment),
+    // Sondage porté par le message (null sinon). Un client antérieur l'ignore
+    // et affiche le corps, son texte de repli.
+    poll: m.poll ? serializePoll(m.poll) : null,
   };
 }
 

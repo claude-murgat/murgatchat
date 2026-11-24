@@ -18,6 +18,7 @@ import Composer from "../components/Composer";
 import PresenceDot from "../components/PresenceDot";
 import { colors } from "../theme";
 import { dayLabel, typingLabel } from "../format";
+import { canPollIn } from "../polls";
 
 export default function ChannelScreen({ route, navigation }) {
   const { channelId } = route.params;
@@ -74,6 +75,9 @@ export default function ChannelScreen({ route, navigation }) {
     ? channel.members.find((m) => m.id !== user?.id) || channel.members[0]
     : null;
   const isGroup = channel?.isDirect && channel.members.length > 2;
+  // Sondages : salons seulement ; un admin du salon ou du chat clôture ceux des autres.
+  const pollsAllowed = canPollIn(channel);
+  const canModeratePolls = !!user?.isAdmin || !!channel?.adminIds?.includes(user?.id);
   const title = channel?.isDirect ? channel.displayName : `# ${channel?.name || ""}`;
 
   useLayoutEffect(() => {
@@ -166,6 +170,9 @@ export default function ChannelScreen({ route, navigation }) {
     function onReaction({ messageId, reactions }) {
       setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, reactions } : m)));
     }
+    function onPoll(update) {
+      if (update?.channelId === channelId) applyPoll(update);
+    }
     function onTyping({ channelId: cid, userId }) {
       if (cid !== channelId || userId === user?.id) return;
       setTypingUserIds((prev) => (prev.includes(userId) ? prev : [...prev, userId]));
@@ -179,12 +186,14 @@ export default function ChannelScreen({ route, navigation }) {
     socket.on("message:updated", onUpdated);
     socket.on("message:deleted", onDeleted);
     socket.on("reaction:update", onReaction);
+    socket.on("poll:update", onPoll);
     socket.on("typing:update", onTyping);
     return () => {
       socket.off("message:new", onNew);
       socket.off("message:updated", onUpdated);
       socket.off("message:deleted", onDeleted);
       socket.off("reaction:update", onReaction);
+      socket.off("poll:update", onPoll);
       socket.off("typing:update", onTyping);
       Object.values(typingTimers.current).forEach(clearTimeout);
       typingTimers.current = {};
@@ -232,6 +241,23 @@ export default function ChannelScreen({ route, navigation }) {
       await api.react(messageId, emoji);
     } catch {}
   }
+  // Sondage à jour, qu'il vienne de `poll:update` ou de la réponse HTTP d'un vote,
+  // d'un ajout de réponse ou d'une clôture (même forme { messageId, poll }).
+  function applyPoll({ messageId, poll }) {
+    if (!messageId || !poll) return;
+    // Un état plus ancien que celui affiché (réponse HTTP doublée par le
+    // `poll:update` d'un vote suivant) est ignoré.
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId && !((m.poll?.version ?? -1) > (poll.version ?? 0)) ? { ...m, poll } : m
+      )
+    );
+  }
+  // Sondage publié : il arrive aussi par `message:new`, d'où le dédoublonnage.
+  function addPublishedMessage(msg) {
+    if (!msg || msg.channelId !== channelId) return;
+    setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+  }
   async function cancelScheduled(id) {
     await api.deleteScheduled(id);
     setScheduled((prev) => prev.filter((m) => m.id !== id));
@@ -278,6 +304,8 @@ export default function ChannelScreen({ route, navigation }) {
                 onEdit={editMessage}
                 onDelete={deleteMessage}
                 onJumpToParent={jumpToMessage}
+                canModeratePolls={canModeratePolls}
+                onPollUpdate={applyPoll}
               />
             </View>
           );
@@ -309,6 +337,8 @@ export default function ChannelScreen({ route, navigation }) {
         onSend={send}
         onTyping={notifyTyping}
         placeholder={channel?.isDirect ? `Message à ${title}` : `Message dans ${title}`}
+        pollChannelId={pollsAllowed ? channelId : null}
+        onPollCreated={addPublishedMessage}
       />
 
       <Modal visible={showScheduled} transparent animationType="slide" onRequestClose={() => setShowScheduled(false)}>
