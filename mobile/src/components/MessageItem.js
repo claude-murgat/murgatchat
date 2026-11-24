@@ -12,6 +12,7 @@ import Avatar from "./Avatar";
 import MessageMarkdown from "./MessageMarkdown";
 import EmojiPicker from "./EmojiPicker";
 import AttachmentModal from "./AttachmentModal";
+import PollCard from "./PollCard";
 import { colors } from "../theme";
 import { formatTime, reactionLabel, fmtBytes } from "../format";
 import { attachmentUrl } from "../api";
@@ -80,6 +81,10 @@ export default function MessageItem({
   onEdit,
   onDelete,
   onJumpToParent,
+  // Sondages : admin du salon ou du chat (peut clôturer celui d'un autre), et
+  // sondage à jour renvoyé par une action ({ messageId, channelId, poll }).
+  canModeratePolls,
+  onPollUpdate,
 }) {
   const isOwn = message.author?.id === currentUser?.id;
   const [menu, setMenu] = useState(false);
@@ -131,6 +136,14 @@ export default function MessageItem({
             </Pressable>
           </View>
         </View>
+      ) : message.poll ? (
+        // Le corps d'un sondage n'est que son texte de repli : la carte le remplace.
+        <PollCard
+          message={message}
+          currentUser={currentUser}
+          canModerate={canModeratePolls}
+          onPollUpdate={onPollUpdate}
+        />
       ) : (
         !!message.body && (
           <View>
@@ -210,7 +223,8 @@ export default function MessageItem({
                     }}
                   />
                 )}
-                {isOwn && (
+                {/* Un sondage ne se modifie pas (poll_not_editable) : les votes portent sur lui. */}
+                {isOwn && !message.poll && (
                   <MenuItem
                     label="✏️  Modifier"
                     onPress={() => {

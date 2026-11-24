@@ -50,6 +50,7 @@ export function authed(app, token) {
   return {
     get: wrap("get"),
     post: wrap("post"),
+    put: wrap("put"),
     patch: wrap("patch"),
     delete: wrap("delete"),
   };

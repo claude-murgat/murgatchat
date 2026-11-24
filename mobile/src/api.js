@@ -235,6 +235,24 @@ export const api = {
   editMessage: (id, body) =>
     request(`/channels/messages/${id}`, { method: "PATCH", body: { body } }),
   deleteMessage: (id) => request(`/channels/messages/${id}`, { method: "DELETE" }),
+  // Sondages (salons seulement). La création renvoie { message } ; les trois
+  // autres renvoient { messageId, channelId, poll }, comme l'évènement
+  // `poll:update` diffusé au salon.
+  createPoll: ({ channelId, question, options, multiple, allowAddOptions }) =>
+    request("/polls", {
+      method: "POST",
+      body: { channelId, question, options, multiple, allowAddOptions },
+    }),
+  // Remplace les votes de l'appelant par `optionIds` (vide : retire son vote).
+  votePoll: (pollId, optionIds) =>
+    request(`/polls/${encodeURIComponent(pollId)}/votes`, {
+      method: "PUT",
+      body: { optionIds },
+    }),
+  addPollOption: (pollId, text) =>
+    request(`/polls/${encodeURIComponent(pollId)}/options`, { method: "POST", body: { text } }),
+  closePoll: (pollId) =>
+    request(`/polls/${encodeURIComponent(pollId)}/close`, { method: "POST" }),
   scheduled: (channelId) => request(`/channels/${channelId}/scheduled`),
   deleteScheduled: (id) => request(`/channels/scheduled/${id}`, { method: "DELETE" }),
   updateScheduled: (id, body) =>

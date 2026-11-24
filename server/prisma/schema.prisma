@@ -36,6 +36,8 @@ model User {
   passwordResets PasswordReset[]
   bugReports  BugReport[]
   supportConversations SupportConversation[]
+  pollOptionsAdded PollOption[]
+  pollVotes   PollVote[]
 }
 
 model Channel {
@@ -124,6 +126,7 @@ model Message {
   replies     Message[]    @relation("MessageThread")
   reactions   Reaction[]
   hiddenBy    HiddenMessage[]
+  poll        Poll?
 
   @@index([channelId, createdAt])
   @@index([scheduledAt, delivered])
@@ -172,6 +175,60 @@ model Reaction {
 
   @@unique([messageId, userId, emoji])
   @@index([messageId])
+}
+
+// Sondage posté dans un salon (routes/polls.ts). Il est porté par un message
+// ordinaire (kind "user") : notifié, compté comme non lu et cherchable comme les
+// autres, et un client qui ne connaît pas les sondages en affiche le texte de
+// repli (« 📊 Sondage : … »). Supprimer le message emporte le sondage.
+// Question et réponses sont chiffrées comme le corps des messages (encryptBody).
+model Poll {
+  id              String    @id @default(cuid())
+  messageId       String    @unique
+  question        String
+  // Plusieurs réponses par votant, ou une seule.
+  multiple        Boolean   @default(false)
+  // Les membres peuvent proposer de nouvelles réponses (sinon : l'auteur seul).
+  allowAddOptions Boolean   @default(false)
+  // Clôturé par son auteur ou un admin du salon : plus de vote ni d'ajout.
+  closedAt        DateTime?
+  // +1 à chaque vote, réponse ajoutée ou clôture (sous le verrou du sondage) :
+  // un client n'applique jamais un état plus ancien que celui qu'il affiche
+  // (réponse HTTP arrivée après le `poll:update` d'un vote suivant).
+  version         Int       @default(0)
+  createdAt       DateTime  @default(now())
+
+  message Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  options PollOption[]
+}
+
+model PollOption {
+  id        String   @id @default(cuid())
+  pollId    String
+  text      String
+  position  Int
+  // Membre qui a proposé la réponse (null : à la création, ou compte supprimé).
+  addedById String?
+  createdAt DateTime @default(now())
+
+  poll    Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  addedBy User?      @relation(fields: [addedById], references: [id], onDelete: SetNull)
+  votes   PollVote[]
+
+  @@index([pollId])
+}
+
+model PollVote {
+  id        String   @id @default(cuid())
+  optionId  String
+  userId    String
+  createdAt DateTime @default(now())
+
+  option PollOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([optionId, userId])
+  @@index([userId])
 }
 
 // « Supprimer pour moi » : un message masqué pour un seul utilisateur. Le

@@ -335,6 +335,36 @@ describe("message edit / delete / reactions over the socket", () => {
     const evt = await reactEvent;
     expect(evt.reactions.find((r) => r.emoji === "🔥").count).toBe(1);
   });
+
+  it("diffuse un sondage (message:new + notification) puis ses votes (poll:update), aux seuls membres", async () => {
+    const { alice, bob, channelId } = await pairInChannel();
+    const outsider = await registerUser(srv.app);
+    const aSock = await ready(alice.token, channelId);
+    const bSock = await ready(bob.token, channelId);
+    const oSock = track(await connectSocket(srv.url, outsider.token));
+
+    const created = waitForEvent(bSock, "message:new", (m) => m.channelId === channelId && !!m.poll);
+    const notified = waitForEvent(bSock, "notification", (e) => e.channelId === channelId);
+    const outsiderSilent = expectNoEvent(oSock, "message:new", 800);
+    const res = await authed(srv.app, alice.token)
+      .post("/polls")
+      .send({ channelId, question: "Réunion lundi ?", options: ["Oui", "Non"] });
+    expect(res.status).toBe(201);
+    const msg = await created;
+    expect(msg.poll.question).toBe("Réunion lundi ?");
+    expect((await notified).message.body).toBe("📊 Sondage : Réunion lundi ?");
+    await outsiderSilent;
+
+    const update = waitForEvent(aSock, "poll:update", (e) => e.messageId === msg.id);
+    const outsiderNoUpdate = expectNoEvent(oSock, "poll:update", 800);
+    await authed(srv.app, bob.token)
+      .put(`/polls/${msg.poll.id}/votes`)
+      .send({ optionIds: [msg.poll.options[0].id] });
+    const evt = await update;
+    expect(evt.channelId).toBe(channelId);
+    expect(evt.poll.options[0].voters.map((v) => v.id)).toEqual([bob.user.id]);
+    await outsiderNoUpdate;
+  });
 });
 
 describe("typing + channel:read", () => {

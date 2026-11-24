@@ -59,6 +59,34 @@ const ReactionGroupSchema = z.object({
   users: z.array(z.object({ id: zId, displayName: z.string().optional() })),
 });
 
+// Sondage porté par un message (POST /polls ; serializePoll côté serveur).
+// `voters` : qui a voté pour la réponse, comme les réactions ; `voterCount` :
+// votants distincts (en choix multiple, une personne compte sur plusieurs
+// réponses).
+const PollOptionSchema = z.object({
+  id: zId,
+  text: z.string(),
+  addedById: zId.nullable(),
+  count: z.number(),
+  voters: z.array(z.object({ id: zId, displayName: z.string().optional() })),
+});
+const PollBase = z.object({
+  id: zId,
+  question: z.string(),
+  multiple: z.boolean(),
+  allowAddOptions: z.boolean(),
+  closedAt: zDate.nullable(),
+  // Croît à chaque changement : un client n'applique pas un état plus ancien.
+  version: z.number(),
+  voterCount: z.number(),
+  options: z.array(PollOptionSchema),
+});
+export const PollSchema = PollBase.passthrough();
+
+// Évènement socket "poll:update" : un vote, une réponse ajoutée ou la clôture.
+const PollUpdateEventBase = z.object({ messageId: zId, channelId: zId, poll: PollBase });
+export const PollUpdateEventSchema = PollUpdateEventBase.extend({ poll: PollSchema }).passthrough();
+
 const MessageBase = z.object({
   id: zId,
   channelId: zId,
@@ -75,6 +103,9 @@ const MessageBase = z.object({
   reactions: z.array(ReactionGroupSchema),
   author: UserRefSchema,
   attachments: z.array(AttachmentSchema),
+  // Sondage porté par le message, null sinon. Optionnel : un serveur antérieur
+  // aux sondages ne l'envoie pas.
+  poll: PollBase.nullable().optional(),
 });
 export const MessageSchema = MessageBase.passthrough();
 
@@ -125,3 +156,6 @@ export type Message = z.infer<typeof MessageBase>;
 export type MessagesResponse = z.infer<typeof MessagesResponseBase>;
 export type MessageRead = z.infer<typeof MessageReadSchema>;
 export type NotificationEvent = z.infer<typeof NotificationEventBase>;
+export type Poll = z.infer<typeof PollBase>;
+export type PollOption = z.infer<typeof PollOptionSchema>;
+export type PollUpdateEvent = z.infer<typeof PollUpdateEventBase>;

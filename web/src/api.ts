@@ -1,5 +1,13 @@
 import type { ZodType } from "zod";
-import type { Attachment, Channel, NotifyLevel, SalonRole, SearchResult } from "./types.ts";
+import type {
+  Attachment,
+  Channel,
+  Message,
+  NotifyLevel,
+  PollUpdateEvent,
+  SalonRole,
+  SearchResult,
+} from "./types.ts";
 import { isTauri, openExternal } from "./desktop.ts";
 import { logEvent } from "./logbuffer.ts";
 import { MessagesResponseSchema } from "../../shared/contracts.ts";
@@ -323,6 +331,21 @@ export const api = {
     ).then((d) => checkContract(MessagesResponseSchema, d, "GET /channels/:id/messages")),
   react: (id: string, emoji: string) =>
     request(`/channels/messages/${id}/reactions`, { method: "POST", body: { emoji } }),
+  // Sondages (salons seulement, voir server/src/routes/polls.ts). Vote : la
+  // sélection voulue REMPLACE les votes de l'appelant (vide = retirer son vote).
+  createPoll: (body: {
+    channelId: string;
+    question: string;
+    options: string[];
+    multiple: boolean;
+    allowAddOptions: boolean;
+  }): Promise<{ message: Message }> => request("/polls", { method: "POST", body }),
+  votePoll: (pollId: string, optionIds: string[]): Promise<PollUpdateEvent> =>
+    request(`/polls/${encodeURIComponent(pollId)}/votes`, { method: "PUT", body: { optionIds } }),
+  addPollOption: (pollId: string, text: string): Promise<PollUpdateEvent> =>
+    request(`/polls/${encodeURIComponent(pollId)}/options`, { method: "POST", body: { text } }),
+  closePoll: (pollId: string): Promise<PollUpdateEvent> =>
+    request(`/polls/${encodeURIComponent(pollId)}/close`, { method: "POST" }),
   editMessage: (id: string, body: string) =>
     request(`/channels/messages/${id}`, { method: "PATCH", body: { body } }),
   deleteMessage: (id: string) =>
