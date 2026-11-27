@@ -393,6 +393,7 @@ describe("POST /support/deploy", () => {
       { ...enLigne, event: "publiee" },
       { ...enLigne, version: "pas-un-commit" },
       { ...enLigne, event: "echec", reason: "inventee" },
+      { ...enLigne, event: "echec", reason: "verification", detail: "x".repeat(401) },
     ]) {
       const res = await request(app).post("/support/deploy").set("Authorization", "Bearer s3cret").send(bad);
       expect(res.status).toBe(400);
@@ -405,6 +406,7 @@ describe("POST /support/deploy", () => {
       event: "echec",
       app: "meteo",
       reason: "construction",
+      detail: "construction de l'image impossible :\n npm ERR! missing script: build\r",
       detailUrl: "https://github.com/Murgat-Ingenierie/deployer/actions/runs/1",
       dashboardUrl: "https://tableau.apps.charlesmurgat.com/#/apps/meteo",
     };
@@ -427,6 +429,7 @@ describe("POST /support/deploy", () => {
     );
     expect(msgs[1].searchableBody).toBe(
       "❌ Déploiement de meteo en échec : le serveur n'a pas pu construire l'app.\n" +
+        "Raison : construction de l'image impossible : npm ERR! missing script: build\n" +
         "Détail : https://github.com/Murgat-Ingenierie/deployer/actions/runs/1\n" +
         "Tableau de bord : https://tableau.apps.charlesmurgat.com/#/apps/meteo"
     );
