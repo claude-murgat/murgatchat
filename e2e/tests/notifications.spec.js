@@ -155,7 +155,7 @@ const clearedChannels = (page) =>
 const forgetCalls = (page) => page.evaluate(() => (window.__calls = []));
 // Valeurs successives du point rouge du tray, et de celui de la barre des tâches.
 const trayDots = (page) =>
-  page.evaluate(() => window.__calls.filter((c) => c.cmd === "set_tray_badge").map((c) => c.args.unread));
+  page.evaluate(() => window.__calls.filter((c) => c.cmd === "set_tray_badge").map((c) => c.args.count > 0));
 const taskbarDots = (page) =>
   page.evaluate(() =>
     window.__calls.filter((c) => c.cmd === "plugin:window|set_overlay_icon").map((c) => c.args.value != null)

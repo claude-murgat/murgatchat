@@ -146,7 +146,7 @@ export default function NewDmModal({
             onChange={(e) => setQ(e.target.value)}
           />
           <p className="text-xs text-slate-500 mt-1">
-            Une personne pour un message direct, plusieurs pour créer un salon privé avec elles.
+            Une personne pour un message direct, plusieurs pour créer un groupe privé avec elles.
           </p>
         </div>
         <div className="px-2 pb-2 overflow-y-auto flex-1 min-h-0">
@@ -198,7 +198,7 @@ export default function NewDmModal({
           {isGroup && (
             <div className="px-4 pt-3 space-y-2">
               <label className="block">
-                <span className="text-sm font-semibold">Nom du salon privé</span>
+                <span className="text-sm font-semibold">Nom du groupe privé</span>
                 <input
                   className="mt-1 w-full border rounded-md px-3 py-2"
                   value={name}
@@ -237,8 +237,8 @@ export default function NewDmModal({
             >
               {isGroup
                 ? existing
-                  ? "Créer un autre salon"
-                  : `Créer le salon privé (${others.length + 1})`
+                  ? "Créer un autre groupe"
+                  : `Créer le groupe privé (${others.length + 1})`
                 : "Démarrer"}
             </button>
           </div>

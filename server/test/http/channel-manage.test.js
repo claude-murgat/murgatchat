@@ -109,7 +109,7 @@ describe("PATCH /channels/:id — tout membre renomme, la visibilité revient au
       .send({ name: " equipe-2 ", description: "nouvelle desc" });
     expect(ok.status).toBe(200);
     expect(ok.body.channel).toMatchObject({ name: "equipe-2", description: "nouvelle desc" });
-    expect(await systemTexts(creator, ch.id)).toEqual(["a renommé le salon en « equipe-2 »"]);
+    expect(await systemTexts(creator, ch.id)).toEqual(["a renommé le groupe en « equipe-2 »"]);
 
     // Même nom : rien à tracer.
     await authed(app, memberTok).patch(`/channels/${ch.id}`).send({ name: "equipe-2" });
@@ -145,8 +145,8 @@ describe("PATCH /channels/:id — tout membre renomme, la visibilité revient au
       (await authed(app, creator).patch(`/channels/${ch.id}`).send({ isPrivate: false })).status
     ).toBe(200);
     expect(await systemTexts(creator, ch.id)).toEqual([
-      "a rendu le salon privé",
-      "a rendu le salon public",
+      "a rendu le groupe privé",
+      "a rendu le groupe public",
     ]);
   });
 
@@ -167,8 +167,8 @@ describe("PATCH /channels/:id — tout membre renomme, la visibilité revient au
     expect(madePrivate.body.channel.isPrivate).toBe(true);
     expect(madePrivate.body.channel.adminIds).toHaveLength(1);
     expect(await systemTexts(creator, ch.id)).toEqual([
-      "a rejoint le salon",
-      "a rendu le salon privé",
+      "a rejoint le groupe",
+      "a rendu le groupe privé",
     ]);
   });
 
@@ -274,7 +274,7 @@ describe("membres : ajouter, retirer, quitter, rejoindre", () => {
     expect(res.body.channel.members.map((m) => m.id).sort()).toEqual(
       [creatorUser.id, b.id].sort()
     );
-    expect(await systemTexts(creator, ch.id)).toEqual(["a ajouté Bérénice au salon"]);
+    expect(await systemTexts(creator, ch.id)).toEqual(["a ajouté Bérénice au groupe"]);
 
     // Déjà membre : personne n'est ajouté, aucune trace de plus.
     await authed(app, creator).post(`/channels/${ch.id}/members`).send({ userIds: [b.id] });
@@ -318,8 +318,8 @@ describe("membres : ajouter, retirer, quitter, rejoindre", () => {
 
     expect((await authed(app, bTok).delete(`/channels/${ch.id}/members/${b.id}`)).status).toBe(200);
     expect(await systemTexts(creator, ch.id)).toEqual([
-      "a retiré Chloé du salon",
-      "a quitté le salon",
+      "a retiré Chloé du groupe",
+      "a quitté le groupe",
     ]);
   });
 
@@ -389,7 +389,7 @@ describe("membres : ajouter, retirer, quitter, rejoindre", () => {
     const pub = await create(creator, { name: "libre" });
     await authed(app, bTok).post(`/channels/${pub.id}/join`);
     await authed(app, bTok).post(`/channels/${pub.id}/join`);
-    expect(await systemTexts(creator, pub.id)).toEqual(["a rejoint le salon"]);
+    expect(await systemTexts(creator, pub.id)).toEqual(["a rejoint le groupe"]);
   });
 });
 
@@ -539,7 +539,7 @@ describe("purge d'un compte", () => {
     await purgeUser(io, victim.id, admin.id);
     expect(await adminsOf(shared.id)).toEqual([c.id]);
     expect(await systemLog(bTok, shared.id)).toEqual([
-      { body: "est maintenant admin du salon", authorId: c.id },
+      { body: "est maintenant admin du groupe", authorId: c.id },
     ]);
     expect(await adminsOf(other.id)).toEqual([b.id]);
     expect(await systemTexts(bTok, other.id)).toEqual([]);
@@ -693,7 +693,7 @@ describe("PATCH /channels/:id/members/:userId — nommer et retirer les admins d
     expect(res.body.channel.adminIds.sort()).toEqual([creatorUser.id, b.id].sort());
     expect(await adminsOf(ch.id)).toEqual([creatorUser.id, b.id].sort());
     expect(await systemLog(bTok, ch.id)).toEqual([
-      { body: "a nommé Bob admin du salon", authorId: creatorUser.id },
+      { body: "a nommé Bob admin du groupe", authorId: creatorUser.id },
     ]);
 
     // Déjà admin : 200, ni diffusion ni trace.
@@ -788,8 +788,8 @@ describe("PATCH /channels/:id/members/:userId — nommer et retirer les admins d
     // Bob est désormais le dernier.
     expect((await setRole(bTok, ch.id, b.id, "member")).body.error).toBe("last_admin");
     expect(await systemLog(bTok, ch.id)).toEqual([
-      { body: "a nommé Bob admin du salon", authorId: creatorUser.id },
-      { body: "n'est plus admin du salon", authorId: creatorUser.id },
+      { body: "a nommé Bob admin du groupe", authorId: creatorUser.id },
+      { body: "n'est plus admin du groupe", authorId: creatorUser.id },
     ]);
     // Redevenu simple membre, il n'administre plus rien.
     expect((await authed(app, creator).delete(`/channels/${ch.id}`)).body.error).toBe("admin_only");
@@ -808,7 +808,7 @@ describe("PATCH /channels/:id/members/:userId — nommer et retirer les admins d
     const again = await setRole(creator, ch.id, b.id, "member");
     expect(again.status).toBe(200);
     expect(await systemTexts(bTok, ch.id)).toEqual([
-      "a nommé Bob admin du salon",
+      "a nommé Bob admin du groupe",
       "a retiré le rôle d'admin à Bob",
     ]);
   });
@@ -832,9 +832,9 @@ describe("PATCH /channels/:id/members/:userId — nommer et retirer les admins d
       [creatorUser.id, b.id, chatAdminUser.id].sort()
     );
     expect(await systemLog(creator, ch.id)).toEqual([
-      { body: "a nommé Bob admin du salon", authorId: chatAdminUser.id },
-      { body: "a rejoint le salon", authorId: chatAdminUser.id },
-      { body: "est maintenant admin du salon", authorId: chatAdminUser.id },
+      { body: "a nommé Bob admin du groupe", authorId: chatAdminUser.id },
+      { body: "a rejoint le groupe", authorId: chatAdminUser.id },
+      { body: "est maintenant admin du groupe", authorId: chatAdminUser.id },
     ]);
   });
 
@@ -892,9 +892,9 @@ describe("départs : retirer un admin, le dernier admin qui part, un salon vide 
     );
     expect(await adminsOf(ch.id)).toEqual([creatorUser.id]);
     expect(await systemTexts(creator, ch.id)).toEqual([
-      "a nommé Bob admin du salon",
-      "a retiré Dan du salon",
-      "a retiré Bob du salon",
+      "a nommé Bob admin du groupe",
+      "a retiré Dan du groupe",
+      "a retiré Bob du groupe",
     ]);
   });
 
@@ -913,9 +913,9 @@ describe("départs : retirer un admin, le dernier admin qui part, un salon vide 
     expect(res.status).toBe(200);
     expect(await adminIdsSeenBy(bTok, ch.id)).toEqual([b.id]);
     expect(await systemLog(bTok, ch.id)).toEqual([
-      { body: "a rejoint le salon", authorId: chatAdminUser.id },
-      { body: "a retiré Charles du salon", authorId: chatAdminUser.id },
-      { body: "est maintenant admin du salon", authorId: b.id },
+      { body: "a rejoint le groupe", authorId: chatAdminUser.id },
+      { body: "a retiré Charles du groupe", authorId: chatAdminUser.id },
+      { body: "est maintenant admin du groupe", authorId: b.id },
     ]);
   });
 
@@ -942,8 +942,8 @@ describe("départs : retirer un admin, le dernier admin qui part, un salon vide 
     expect((await authed(app, creator).post(`/channels/${ch.id}/leave`)).status).toBe(200);
     expect(await adminIdsSeenBy(bTok, ch.id)).toEqual([b.id]);
     expect(await systemLog(bTok, ch.id)).toEqual([
-      { body: "a quitté le salon", authorId: creatorUser.id },
-      { body: "est maintenant admin du salon", authorId: b.id },
+      { body: "a quitté le groupe", authorId: creatorUser.id },
+      { body: "est maintenant admin du groupe", authorId: b.id },
     ]);
   });
 
@@ -970,8 +970,8 @@ describe("départs : retirer un admin, le dernier admin qui part, un salon vide 
     await authed(app, creator).post(`/channels/${duo.id}/leave`);
     expect(await adminsOf(duo.id)).toEqual([b.id]);
     expect(await systemLog(bTok, duo.id)).toEqual([
-      { body: "a nommé " + b.displayName + " admin du salon", authorId: creatorUser.id },
-      { body: "a quitté le salon", authorId: creatorUser.id },
+      { body: "a nommé " + b.displayName + " admin du groupe", authorId: creatorUser.id },
+      { body: "a quitté le groupe", authorId: creatorUser.id },
     ]);
   });
 
@@ -990,9 +990,9 @@ describe("départs : retirer un admin, le dernier admin qui part, un salon vide 
     const next = await authed(app, cTok).post(`/channels/${pub.id}/join`);
     expect(next.body.channel.adminIds).toEqual([b.id]);
     expect(await systemLog(cTok, pub.id)).toEqual([
-      { body: "a rejoint le salon", authorId: b.id },
-      { body: "est maintenant admin du salon", authorId: b.id },
-      { body: "a rejoint le salon", authorId: c.id },
+      { body: "a rejoint le groupe", authorId: b.id },
+      { body: "est maintenant admin du groupe", authorId: b.id },
+      { body: "a rejoint le groupe", authorId: c.id },
     ]);
   });
 
@@ -1012,9 +1012,9 @@ describe("départs : retirer un admin, le dernier admin qui part, un salon vide 
     expect(left.map((r) => r.status)).toEqual([200, 200]);
     expect(await adminsOf(ch.id)).toEqual([c.id]);
     const promotions = (await systemLog(cTok, ch.id)).filter(
-      (m) => m.body === "est maintenant admin du salon"
+      (m) => m.body === "est maintenant admin du groupe"
     );
-    expect(promotions).toEqual([{ body: "est maintenant admin du salon", authorId: c.id }]);
+    expect(promotions).toEqual([{ body: "est maintenant admin du groupe", authorId: c.id }]);
   });
 
   it("un admin se retire le rôle pendant que l'autre part : il en reste un", async () => {
@@ -1039,7 +1039,7 @@ describe("départs : retirer un admin, le dernier admin qui part, un salon vide 
     const handedOver = demoted.status === 200;
     expect(await adminsOf(ch.id)).toEqual([handedOver ? c.id : a.id]);
     const promotions = (await systemTexts(cTok, ch.id)).filter(
-      (t) => t === "est maintenant admin du salon"
+      (t) => t === "est maintenant admin du groupe"
     );
     expect(promotions).toHaveLength(handedOver ? 1 : 0);
   });
@@ -1180,10 +1180,10 @@ describe("compte désactivé : il n'est plus admin du salon (1.6.2)", () => {
     expect(await adminIdsSeenBy(bobTok, solo.id)).toEqual([carol.id]);
     expect(await adminsOf(solo.id)).toEqual([alice.id, carol.id].sort()); // son rôle est gardé
     expect(await systemLog(bobTok, solo.id)).toEqual([
-      { body: "est maintenant admin du salon", authorId: carol.id },
+      { body: "est maintenant admin du groupe", authorId: carol.id },
     ]);
     expect(await adminIdsSeenBy(bobTok, duo.id)).toEqual([bob.id]);
-    expect(await systemTexts(bobTok, duo.id)).toEqual([`a nommé ${bob.displayName} admin du salon`]);
+    expect(await systemTexts(bobTok, duo.id)).toEqual([`a nommé ${bob.displayName} admin du groupe`]);
     expect(await adminIdsSeenBy(bobTok, other.id)).toEqual([bob.id]);
     expect(await systemTexts(bobTok, other.id)).toEqual([]);
 
@@ -1191,7 +1191,7 @@ describe("compte désactivé : il n'est plus admin du salon (1.6.2)", () => {
     expect((await setStatus(owner, alice.id, "active")).status).toBe(200);
     expect((await adminIdsSeenBy(bobTok, solo.id)).sort()).toEqual([alice.id, carol.id].sort());
     expect((await adminIdsSeenBy(bobTok, duo.id)).sort()).toEqual([alice.id, bob.id].sort());
-    expect(await systemTexts(bobTok, solo.id)).toEqual(["est maintenant admin du salon"]);
+    expect(await systemTexts(bobTok, solo.id)).toEqual(["est maintenant admin du groupe"]);
   });
 
   it("un admin désactivé ne compte plus : dernier admin actif, nomination refusée, retrait par un simple membre", async () => {
@@ -1233,7 +1233,7 @@ describe("compte désactivé : il n'est plus admin du salon (1.6.2)", () => {
     expect((await setStatus(owner, bob.id, "active")).status).toBe(200);
     expect(await adminIdsSeenBy(bobTok, ch.id)).toEqual([bob.id]);
     expect(await systemLog(bobTok, ch.id)).toEqual([
-      { body: "est maintenant admin du salon", authorId: bob.id },
+      { body: "est maintenant admin du groupe", authorId: bob.id },
     ]);
   });
 
@@ -1291,7 +1291,7 @@ describe("compte désactivé : il n'est plus admin du salon (1.6.2)", () => {
     const id = created.body.channel.id;
     expect(await adminIdsSeenBy(bobTok, id)).toEqual([bob.id]);
     expect(await systemLog(bobTok, id)).toEqual([
-      { body: "est maintenant admin du salon", authorId: bob.id },
+      { body: "est maintenant admin du groupe", authorId: bob.id },
     ]);
   });
 
@@ -1312,8 +1312,8 @@ describe("compte désactivé : il n'est plus admin du salon (1.6.2)", () => {
 
     expect(await adminIdsSeenBy(danTok, ch.id)).toEqual([dan.id]);
     expect(await systemLog(danTok, ch.id)).toEqual([
-      { body: `a ajouté ${dan.displayName} au salon`, authorId: alice.id },
-      { body: "est maintenant admin du salon", authorId: dan.id },
+      { body: `a ajouté ${dan.displayName} au groupe`, authorId: alice.id },
+      { body: "est maintenant admin du groupe", authorId: dan.id },
     ]);
   });
 
@@ -1374,8 +1374,8 @@ describe("compte désactivé : il n'est plus admin du salon (1.6.2)", () => {
     expect(joined.status).toBe(200);
     expect(joined.body.channel.adminIds).toEqual([bob.id]);
     expect(await systemLog(bobTok, pub.id)).toEqual([
-      { body: "a rejoint le salon", authorId: bob.id },
-      { body: "est maintenant admin du salon", authorId: bob.id },
+      { body: "a rejoint le groupe", authorId: bob.id },
+      { body: "est maintenant admin du groupe", authorId: bob.id },
     ]);
   });
 });

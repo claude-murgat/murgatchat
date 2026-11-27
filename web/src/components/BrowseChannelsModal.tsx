@@ -102,12 +102,12 @@ export default function BrowseChannelsModal({
     >
       <div
         role="dialog"
-        aria-label="Parcourir les salons"
+        aria-label="Parcourir les groupes"
         onClick={(e) => e.stopPropagation()}
         className="bg-white text-slate-900 sm:rounded-xl shadow-2xl w-full h-dvh sm:h-auto sm:max-w-lg sm:max-h-[90vh] flex flex-col"
       >
         <div className="p-5 border-b border-slate-200 flex items-center justify-between gap-3">
-          <h2 className="text-xl font-bold">Parcourir les salons</h2>
+          <h2 className="text-xl font-bold">Parcourir les groupes</h2>
           <button
             type="button"
             onClick={onClose}
@@ -121,12 +121,12 @@ export default function BrowseChannelsModal({
           <input
             autoFocus
             className="w-full border rounded-md px-3 py-2"
-            placeholder="Rechercher un salon"
+            placeholder="Rechercher un groupe"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
           <p className="text-xs text-slate-500 mt-1">
-            Les salons privés n'apparaissent qu'à leurs membres.
+            Les groupes privés n'apparaissent qu'à leurs membres.
           </p>
         </div>
         <div className="px-2 pb-2 overflow-y-auto flex-1 min-h-0">
@@ -179,7 +179,7 @@ export default function BrowseChannelsModal({
             </div>
           ))}
           {rows.length === 0 && (
-            <div className="px-3 py-3 text-sm text-slate-500">Aucun salon public trouvé.</div>
+            <div className="px-3 py-3 text-sm text-slate-500">Aucun groupe public trouvé.</div>
           )}
         </div>
         <div className="p-4 border-t border-slate-200 flex justify-end">
@@ -188,7 +188,7 @@ export default function BrowseChannelsModal({
             onClick={onCreate}
             className="px-4 py-2 rounded-md bg-aubergine-700 text-white font-medium hover:bg-aubergine-800"
           >
-            Créer un salon
+            Créer un groupe
           </button>
         </div>
       </div>

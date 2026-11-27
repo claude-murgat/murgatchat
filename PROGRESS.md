@@ -2144,6 +2144,29 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      image construite, `db-migrate.js` sur base vide puis second passage, `prisma validate`.
      À retirer quand une version de Prisma embarquera elle-même effect ≥ 3.22.1.
 
+## Itération 2026-11-27 (fin) — un tray qui suit la fenêtre (Windows, Linux)
+
+186. **Menu du tray contextuel** (`web/src-tauri/src/tray.rs`) — « sur Linux Mint le menu
+     affiche Afficher Chat et Masquer la fenêtre, que le chat soit affiché ou non ». Le menu
+     n'a plus qu'une entrée, « Ouvrir Chat » (fenêtre cachée ou réduite) ou « Masquer Chat »
+     (affichée), puis « N conversations non lues » (« Aucun message non lu », grisé, à 0 ;
+     clic → fenêtre), puis « Quitter Chat ». Sous Linux l'icône AppIndicator n'envoie aucun
+     clic et rien ne signale l'ouverture du menu : il est recalé à chaque changement d'état
+     de la fenêtre (affichage, masquage, réduction, focus, Resized), et 250 ms après chaque
+     show/hide, que GTK n'applique que plus tard dans sa boucle. Même raison pour un défaut
+     Linux : `set_focus` juste après `show()` était ignoré (fenêtre encore cachée), la
+     fenêtre revenait derrière les autres ; le focus est redemandé une fois affichée, et
+     « Ouvrir » restaure aussi une fenêtre réduite. Windows : le clic gauche masque la
+     fenêtre seulement si elle est au premier plan (le clic sur l'icône lui retire le focus :
+     perdu depuis moins de 800 ms, elle compte encore), la ramène sinon ; le second clic d'un
+     double-clic est ignoré ; l'infobulle dit « Chat — 3 conversations non lues ».
+     `set_tray_badge` reçoit le nombre (`count`) et ne touche l'icône que quand le point
+     apparaît ou disparaît : sous Linux chaque changement d'icône réécrit un PNG et recharge
+     l'indicateur, et le front l'appelait à chaque mise à jour des salons. Clic de
+     notification, seconde instance et fermeture passent par les mêmes `show_main_window` /
+     `hide_main_window`. Backend KSNI de tray-icon (vrai clic gauche sous Linux) écarté :
+     sans StatusNotifierWatcher il fait échouer le démarrage, là où AppIndicator se replie.
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier

@@ -25,12 +25,12 @@ export type DetailsTab = "about" | "members";
 // salon du pipeline, que le client ne connaît pas…) : dits en clair plutôt
 // qu'avec le code du serveur. Les autres codes s'affichent tels quels.
 const ERROR_TEXT = new Map([
-  ["admin_only", "Seul un admin du salon peut faire cela."],
-  ["last_admin", "Le salon doit garder au moins un admin : nommez-en un autre d'abord."],
-  ["target_disabled", "Ce compte est désactivé : il ne peut pas être admin du salon."],
+  ["admin_only", "Seul un admin du groupe peut faire cela."],
+  ["last_admin", "Le groupe doit garder au moins un admin : nommez-en un autre d'abord."],
+  ["target_disabled", "Ce compte est désactivé : il ne peut pas être admin du groupe."],
   [
     "reserved_name",
-    "Le salon du pipeline de support garde son nom : aucun autre salon ne peut le prendre.",
+    "Le groupe du pipeline de support garde son nom : aucun autre groupe ne peut le prendre.",
   ],
 ]);
 
@@ -238,7 +238,7 @@ export default function ChannelDetailsModal({
                   value={description}
                   maxLength={300}
                   disabled={!editable}
-                  placeholder={editable ? "De quoi parle ce salon ?" : undefined}
+                  placeholder={editable ? "De quoi parle ce groupe ?" : undefined}
                   onChange={(e) => setDescriptionDraft(e.target.value)}
                 />
               </label>
@@ -278,14 +278,14 @@ export default function ChannelDetailsModal({
               )}
               {!editable && (
                 <p className="text-xs text-slate-500">
-                  Seul un administrateur du chat peut modifier le salon par défaut.
+                  Seul un administrateur du chat peut modifier le groupe par défaut.
                 </p>
               )}
               {editable && (
                 <div className="space-y-2">
                   {confirmPublic && (
                     <p className="text-sm text-slate-700">
-                      Rendre ce salon public ? Tout le monde pourra le trouver et lire tout son
+                      Rendre ce groupe public ? Tout le monde pourra le trouver et lire tout son
                       historique.
                     </p>
                   )}
@@ -345,7 +345,7 @@ export default function ChannelDetailsModal({
                         </span>
                         {admin && (
                           <span
-                            title="Admin du salon"
+                            title="Admin du groupe"
                             className="shrink-0 text-[11px] font-semibold text-blue-700 bg-blue-100 rounded-sm px-1.5 py-0.5"
                           >
                             Admin
@@ -401,17 +401,17 @@ export default function ChannelDetailsModal({
             {confirm === "leave" && (
               <p className="text-sm text-slate-700">
                 {channel.isPrivate && lastOne
-                  ? "Vous êtes le dernier membre : le salon et tous ses messages seront supprimés."
+                  ? "Vous êtes le dernier membre : le groupe et tous ses messages seront supprimés."
                   : strandedPrivate
-                  ? "Vous ne verrez plus ce salon, et personne ne pourra vous y rajouter : ses autres membres sont désactivés. Il restera sans admin tant que l'un d'eux n'est pas réactivé."
+                  ? "Vous ne verrez plus ce groupe, et personne ne pourra vous y rajouter : ses autres membres sont désactivés. Il restera sans admin tant que l'un d'eux n'est pas réactivé."
                   : channel.isPrivate
-                  ? "Vous ne verrez plus ce salon. Un membre pourra vous ajouter à nouveau."
-                  : "Le salon disparaîtra de votre liste ; vous pourrez le rejoindre à nouveau."}
+                  ? "Vous ne verrez plus ce groupe. Un membre pourra vous ajouter à nouveau."
+                  : "Le groupe disparaîtra de votre liste ; vous pourrez le rejoindre à nouveau."}
                 {lastAdminLeaving &&
                   !strandedPrivate &&
                   (heirLeft
                     ? " Vous êtes le seul admin : le membre le plus ancien le deviendra."
-                    : " Vous êtes le seul admin et les autres membres sont désactivés : le salon restera sans admin.")}
+                    : " Vous êtes le seul admin et les autres membres sont désactivés : le groupe restera sans admin.")}
               </p>
             )}
             {/* Le droit de supprimer peut se perdre en direct (rôle d'admin retiré). */}
@@ -433,7 +433,7 @@ export default function ChannelDetailsModal({
                       : "text-red-600 hover:bg-red-50"
                   }`}
                 >
-                  {confirm === "leave" ? "Confirmer : quitter le salon" : "Quitter le salon"}
+                  {confirm === "leave" ? "Confirmer : quitter le groupe" : "Quitter le groupe"}
                 </button>
               ) : (
                 <span />
@@ -449,7 +449,7 @@ export default function ChannelDetailsModal({
                       : "border border-red-200 text-red-600 hover:bg-red-50"
                   }`}
                 >
-                  {confirm === "delete" ? "Confirmer la suppression" : "Supprimer le salon"}
+                  {confirm === "delete" ? "Confirmer la suppression" : "Supprimer le groupe"}
                 </button>
               )}
             </div>

@@ -62,7 +62,7 @@ export default function NewChannelModal({
     }
   }
 
-  const title = step === 3 && created ? "Ajouter des personnes" : "Créer un salon";
+  const title = step === 3 && created ? "Ajouter des personnes" : "Créer un groupe";
   const prefix = isPrivate ? "🔒" : "#";
 
   return (
@@ -123,7 +123,7 @@ export default function NewChannelModal({
                   </span>
                 </div>
                 <span className="block text-xs text-slate-500 mt-1">
-                  Les conversations autour d'un thème ont lieu dans les salons. Choisissez un nom
+                  Les conversations autour d'un thème ont lieu dans les groupes. Choisissez un nom
                   simple et clair.
                 </span>
               </label>
@@ -133,7 +133,7 @@ export default function NewChannelModal({
                 </span>
                 <input
                   className="mt-1 w-full border rounded-md px-3 py-2"
-                  placeholder="De quoi parle ce salon ?"
+                  placeholder="De quoi parle ce groupe ?"
                   value={description}
                   maxLength={300}
                   onChange={(e) => setDescription(e.target.value)}
@@ -182,7 +182,7 @@ export default function NewChannelModal({
                 detail="Uniquement les personnes ajoutées : il n'apparaît pas pour les autres."
               />
               {creatorBecomesAdmin && (
-                <p className="text-xs text-slate-500">Vous serez admin de ce salon.</p>
+                <p className="text-xs text-slate-500">Vous serez admin de ce groupe.</p>
               )}
               {error && <p className="text-sm text-red-600">{error}</p>}
             </div>

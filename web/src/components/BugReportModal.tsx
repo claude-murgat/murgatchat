@@ -393,7 +393,7 @@ export default function BugReportModal({ onClose }: BugReportModalProps) {
                   rows={5}
                   value={message}
                   onChange={(e) => setMessage(e.target.value)}
-                  placeholder="Ex. : en cliquant sur un salon, l'app reste bloquée sur l'écran de chargement…"
+                  placeholder="Ex. : en cliquant sur un groupe, l'app reste bloquée sur l'écran de chargement…"
                   className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm resize-y focus:outline-hidden focus:ring-2 focus:ring-aubergine-400"
                 />
               </div>
