@@ -228,18 +228,18 @@ test("salon sans nom : son créateur doit le nommer à l'ouverture, pas les autr
 
   // Bob, simple membre, l'ouvre sans la moindre invite à le nommer.
   const bobPage = await openAs(browser, bob);
-  await salonItem(bobPage, "salon").click();
-  await expect(bobPage.getByRole("dialog", { name: "Nommer le salon" })).toHaveCount(0);
+  await salonItem(bobPage, "groupe").click();
+  await expect(bobPage.getByRole("dialog", { name: "Nommer le groupe" })).toHaveCount(0);
 
   // Alice, créatrice, l'ouvre : le nommage lui est demandé et bloque tant qu'il
   // reste vide ; une fois nommé, la fenêtre disparaît et la liste suit.
   const page = await openAs(browser, alice);
-  await salonItem(page, "salon").click();
-  const dialog = page.getByRole("dialog", { name: "Nommer le salon" });
+  await salonItem(page, "groupe").click();
+  const dialog = page.getByRole("dialog", { name: "Nommer le groupe" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Enregistrer" })).toBeDisabled();
   const named = `projet-${tag()}`;
-  await dialog.getByLabel("Nom du salon").fill(named);
+  await dialog.getByLabel("Nom du groupe").fill(named);
   await dialog.getByRole("button", { name: "Enregistrer" }).click();
   await expect(dialog).toBeHidden();
   await expect(salonItem(page, named).first()).toBeVisible();

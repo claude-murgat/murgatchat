@@ -5,10 +5,10 @@ import type { Channel } from "../types.ts";
 // Refus que l'interface ne peut pas toujours éviter, dits en clair plutôt
 // qu'avec le code du serveur (mêmes cas que ChannelDetailsModal).
 const ERROR_TEXT = new Map([
-  ["admin_only", "Seul un admin du salon peut faire cela."],
+  ["admin_only", "Seul un admin du groupe peut faire cela."],
   [
     "reserved_name",
-    "Le salon du pipeline de support garde son nom : aucun autre salon ne peut le prendre.",
+    "Le groupe du pipeline de support garde son nom : aucun autre groupe ne peut le prendre.",
   ],
 ]);
 
@@ -52,11 +52,11 @@ export default function NameGroupModal({ channel, onSaved }: NameGroupModalProps
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Nommer le salon"
+        aria-label="Nommer le groupe"
         className="bg-white text-slate-900 sm:rounded-xl shadow-2xl w-full h-dvh sm:h-auto sm:max-w-md flex flex-col"
       >
         <div className="p-5 border-b border-slate-200">
-          <h2 className="text-xl font-bold">Nommez ce salon</h2>
+          <h2 className="text-xl font-bold">Nommez ce groupe</h2>
         </div>
         <form
           className="flex flex-col flex-1 min-h-0"
@@ -67,11 +67,11 @@ export default function NameGroupModal({ channel, onSaved }: NameGroupModalProps
         >
           <div className="p-5 space-y-3 overflow-y-auto flex-1">
             <p className="text-sm text-slate-600">
-              Ce salon n'a pas encore de nom. En tant que créateur, donnez-lui un nom avant de
+              Ce groupe n'a pas encore de nom. En tant que créateur, donnez-lui un nom avant de
               continuer : il aidera ses membres à le reconnaître.
             </p>
             <label className="block">
-              <span className="text-sm font-semibold">Nom du salon</span>
+              <span className="text-sm font-semibold">Nom du groupe</span>
               <input
                 autoFocus
                 className="mt-1 w-full border rounded-md px-3 py-2"
