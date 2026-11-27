@@ -83,6 +83,15 @@ async function openAs(browser, session) {
 }
 
 const sidebarItem = (page, name) => page.getByRole("button", { name: new RegExp(name) }).first();
+// Le bouton d'un salon dans la barre latérale : le préfixe « # » et le nom sont
+// deux <span> accolés (aucune espace dans le DOM). Le nom accessible qu'en tire
+// Chromium colle ou non le « # » au nom selon le build (le runner CI diffère du
+// conteneur local) ; on ancre donc sur « # » suivi d'une espace facultative,
+// puis le nom exact — là où les autres cas ciblent le nom seul, qui suffit.
+const salonItem = (page, name) =>
+  page.getByRole("button", {
+    name: new RegExp(`^#\\s?${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
+  });
 // La ligne d'une personne dans un sélecteur (case à cocher + nom).
 const personRow = (dialog, who) => dialog.locator("label").filter({ hasText: who.user.displayName });
 const systemLine = (page, text) => page.locator("[data-system-message]").filter({ hasText: text });
@@ -219,13 +228,13 @@ test("salon sans nom : son créateur doit le nommer à l'ouverture, pas les autr
 
   // Bob, simple membre, l'ouvre sans la moindre invite à le nommer.
   const bobPage = await openAs(browser, bob);
-  await bobPage.getByRole("button", { name: "# salon" }).click();
+  await salonItem(bobPage, "salon").click();
   await expect(bobPage.getByRole("dialog", { name: "Nommer le salon" })).toHaveCount(0);
 
   // Alice, créatrice, l'ouvre : le nommage lui est demandé et bloque tant qu'il
   // reste vide ; une fois nommé, la fenêtre disparaît et la liste suit.
   const page = await openAs(browser, alice);
-  await page.getByRole("button", { name: "# salon" }).click();
+  await salonItem(page, "salon").click();
   const dialog = page.getByRole("dialog", { name: "Nommer le salon" });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Enregistrer" })).toBeDisabled();
@@ -233,10 +242,10 @@ test("salon sans nom : son créateur doit le nommer à l'ouverture, pas les autr
   await dialog.getByLabel("Nom du salon").fill(named);
   await dialog.getByRole("button", { name: "Enregistrer" }).click();
   await expect(dialog).toBeHidden();
-  await expect(page.getByRole("button", { name: `# ${named}` }).first()).toBeVisible();
+  await expect(salonItem(page, named).first()).toBeVisible();
 
   // Le nouveau nom parvient à Bob (channel:updated), sans recharger.
-  await expect(bobPage.getByRole("button", { name: `# ${named}` }).first()).toBeVisible();
+  await expect(salonItem(bobPage, named).first()).toBeVisible();
 });
 
 test("quitter un salon depuis le menu contextuel ; les autres en voient la trace", async ({
