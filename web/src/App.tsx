@@ -420,7 +420,7 @@ export default function App() {
       if (addedBy && addedBy.id !== user.id) {
         setToast({
           title: `${addedBy.displayName} vous a ajouté`,
-          body: created.name || "à un salon",
+          body: created.name || "à un groupe",
           open: () => setActiveChannelId(created.id),
         });
         setTimeout(() => setToast(null), 4500);
@@ -462,7 +462,7 @@ export default function App() {
       // Retiré par un autre membre : la conversation ne disparaît pas sans un mot.
       if (reason === "removed" && by && by.id !== user.id) {
         setToast({
-          title: `${by.displayName} vous a retiré du salon`,
+          title: `${by.displayName} vous a retiré du groupe`,
           body: channelName || "",
           open: () => {},
         });
@@ -1047,9 +1047,9 @@ export default function App() {
       const onlyAdmin = !!user && people > 1 && isOnlySalonAdmin(channel, user);
       const handover = heir
         ? "le membre le plus ancien le deviendra"
-        : "les autres membres sont désactivés, le salon restera sans admin";
+        : "les autres membres sont désactivés, le groupe restera sans admin";
       const question = last
-        ? `Vous êtes le dernier membre de « ${channel.name} » : en le quittant, le salon et tous ses messages seront supprimés. Continuer ?`
+        ? `Vous êtes le dernier membre de « ${channel.name} » : en le quittant, le groupe et tous ses messages seront supprimés. Continuer ?`
         : stranded
         ? `Quitter « ${channel.name} » ? Personne ne pourra vous y rajouter : ses autres membres sont désactivés. Il restera sans admin tant que l'un d'eux n'est pas réactivé.`
         : onlyAdmin

@@ -232,7 +232,7 @@ export default function QuickSwitcher({
       )}
 
       {publicChannels.length > 0 && (
-        <Section title="Salons à rejoindre">
+        <Section title="Groupes à rejoindre">
           {publicChannels.map((c, i) => (
             <Row
               key={c.id}
@@ -272,7 +272,7 @@ export default function QuickSwitcher({
           active={active === createBase}
           onClick={() => onCreateChannel(q)}
           prefix="➕"
-          label={`Créer le salon « ${q} »`}
+          label={`Créer le groupe « ${q} »`}
         />
         <Row
           active={active === createBase + 1}
@@ -286,7 +286,7 @@ export default function QuickSwitcher({
           onClick={onNewMessage}
           prefix="👥"
           label="Nouveau message"
-          sub="Une personne, ou plusieurs pour un salon privé"
+          sub="Une personne, ou plusieurs pour un groupe privé"
         />
       </Section>
 

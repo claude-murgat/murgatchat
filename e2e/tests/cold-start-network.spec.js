@@ -72,7 +72,7 @@ test("liste des salons lente : pas de liste vide avant la dernière conversation
   // Relève tout affichage, même bref, de la liste vide pendant le démarrage.
   await page.addInitScript(() => {
     new MutationObserver(() => {
-      if (document.body?.innerText.includes("Aucun salon")) window.__sawEmptyList = true;
+      if (document.body?.innerText.includes("Aucun groupe")) window.__sawEmptyList = true;
     }).observe(document, { childList: true, subtree: true, characterData: true });
   });
   await page.route("**/channels", async (route) => {

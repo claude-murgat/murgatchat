@@ -43,11 +43,11 @@ test("une section repliée affiche le nombre de conversations non lues", async (
   await expect(general.getByTitle("Non lu")).toBeVisible();
 
   // Repliée : la pastille de la ligne disparaît, l'en-tête affiche le total.
-  const salons = page.getByRole("button", { name: /^Salons/ });
+  const salons = page.getByRole("button", { name: /^Groupes/ });
   await salons.click();
   await expect(salons).toHaveAttribute("aria-expanded", "false");
   await expect(salons.getByText("1", { exact: true })).toBeVisible();
-  await expect(salons).toHaveAttribute("title", "Déplier Salons (1 conversation non lue)");
+  await expect(salons).toHaveAttribute("title", "Déplier Groupes (1 conversation non lue)");
 
   // Dépliée : le total s'efface, la pastille de la ligne revient.
   await salons.click();
