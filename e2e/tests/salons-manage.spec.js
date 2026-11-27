@@ -83,6 +83,15 @@ async function openAs(browser, session) {
 }
 
 const sidebarItem = (page, name) => page.getByRole("button", { name: new RegExp(name) }).first();
+// Le bouton d'un salon dans la barre latérale : le préfixe « # » et le nom sont
+// deux <span> accolés (aucune espace dans le DOM). Le nom accessible qu'en tire
+// Chromium colle ou non le « # » au nom selon le build (le runner CI diffère du
+// conteneur local) ; on ancre donc sur « # » suivi d'une espace facultative,
+// puis le nom exact — là où les autres cas ciblent le nom seul, qui suffit.
+const salonItem = (page, name) =>
+  page.getByRole("button", {
+    name: new RegExp(`^#\\s?${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
+  });
 // La ligne d'une personne dans un sélecteur (case à cocher + nom).
 const personRow = (dialog, who) => dialog.locator("label").filter({ hasText: who.user.displayName });
 const systemLine = (page, text) => page.locator("[data-system-message]").filter({ hasText: text });
@@ -202,6 +211,41 @@ test("un membre renomme le salon et retire quelqu'un, qui en est prévenu ; il n
   // Carol l'apprend, et le salon quitte sa liste.
   await expect(carolPage.getByText(`${bob.user.displayName} vous a retiré du groupe`)).toBeVisible();
   await expect(carolPage.getByRole("button", { name: new RegExp(renamed) })).toHaveCount(0);
+});
+
+test("salon sans nom : son créateur doit le nommer à l'ouverture, pas les autres membres (#509)", async ({
+  browser,
+  request,
+}) => {
+  const { alice, bob } = await setup(request);
+  const { channel } = await call(request, alice.token, "POST", "/channels", {
+    name: `temp-${tag()}`,
+    memberIds: [bob.user.id],
+  });
+  // Simule un salon historique sans nom (POST /channels refuse désormais un nom
+  // vide, ce cas ne peut plus naître que d'anciennes données).
+  await call(request, alice.token, "POST", "/test/blank-channel-name", { channelId: channel.id });
+
+  // Bob, simple membre, l'ouvre sans la moindre invite à le nommer.
+  const bobPage = await openAs(browser, bob);
+  await salonItem(bobPage, "groupe").click();
+  await expect(bobPage.getByRole("dialog", { name: "Nommer le groupe" })).toHaveCount(0);
+
+  // Alice, créatrice, l'ouvre : le nommage lui est demandé et bloque tant qu'il
+  // reste vide ; une fois nommé, la fenêtre disparaît et la liste suit.
+  const page = await openAs(browser, alice);
+  await salonItem(page, "groupe").click();
+  const dialog = page.getByRole("dialog", { name: "Nommer le groupe" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Enregistrer" })).toBeDisabled();
+  const named = `projet-${tag()}`;
+  await dialog.getByLabel("Nom du groupe").fill(named);
+  await dialog.getByRole("button", { name: "Enregistrer" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(salonItem(page, named).first()).toBeVisible();
+
+  // Le nouveau nom parvient à Bob (channel:updated), sans recharger.
+  await expect(salonItem(bobPage, named).first()).toBeVisible();
 });
 
 test("quitter un salon depuis le menu contextuel ; les autres en voient la trace", async ({

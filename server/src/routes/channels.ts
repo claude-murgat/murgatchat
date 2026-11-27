@@ -489,7 +489,10 @@ router.get("/", requireAuth, async (req, res) => {
 });
 
 const createChannelSchema = z.object({
-  name: z.string().min(1).max(80),
+  // `.trim()` avant `.min(1)`, comme updateChannelSchema : un nom réduit à des
+  // espaces donnait un salon sans nom (il était accepté puis `name.trim()` le
+  // vidait). Le nom d'un salon est obligatoire, à la création comme au renommage.
+  name: z.string().trim().min(1).max(80),
   description: z.string().max(300).optional(),
   isPrivate: z.boolean().optional(),
   memberIds: z.array(z.string()).optional(),
