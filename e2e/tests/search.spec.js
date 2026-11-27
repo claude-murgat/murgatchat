@@ -56,8 +56,8 @@ async function bootstrapAdmin(page) {
 // Crée un salon privé via la recherche unifiée (action « Créer le salon « … » »).
 async function createPrivateChannel(page, name) {
   await page.getByPlaceholder(/^Rechercher/).fill(name);
-  await page.getByRole("button", { name: /Créer le salon/ }).click();
-  const dialog = page.getByRole("dialog", { name: "Créer un salon" });
+  await page.getByRole("button", { name: /Créer le groupe/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Créer un groupe" });
   await expect(dialog).toBeVisible();
   await dialog.getByPlaceholder("ex. projet-chantier").fill(name);
   await dialog.getByRole("button", { name: "Suivant" }).click();

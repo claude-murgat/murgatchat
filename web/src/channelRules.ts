@@ -165,5 +165,5 @@ export function defaultSalonName(displayNames: string[]) {
 
 /** Libellé d'un salon avec son préfixe : « # projet » ou « 🔒 projet ». */
 export function salonLabel(c: Pick<Channel, "isPrivate" | "name">) {
-  return `${c.isPrivate ? "🔒" : "#"} ${c.name || "salon"}`;
+  return `${c.isPrivate ? "🔒" : "#"} ${c.name || "groupe"}`;
 }

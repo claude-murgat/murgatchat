@@ -1400,8 +1400,8 @@ export default function ChannelView({
             <button
               onClick={() => onShowDetails("about")}
               className="w-10 h-10 sm:w-auto sm:h-auto sm:px-2 sm:py-1.5 grid place-items-center sm:inline-block text-xs rounded-sm text-slate-600 hover:bg-slate-100 sm:border sm:border-slate-300"
-              title="Détails du salon"
-              aria-label="Détails du salon"
+              title="Détails du groupe"
+              aria-label="Détails du groupe"
             >
               <span aria-hidden="true">ⓘ</span>
               <span className="hidden sm:inline ml-1">Détails</span>
@@ -1432,14 +1432,14 @@ export default function ChannelView({
               onClick={() => setShowNotifyMenu((v) => !v)}
               className="w-10 h-10 sm:w-auto sm:h-auto sm:px-2 sm:py-1.5 grid place-items-center sm:inline-block text-xs rounded-sm text-slate-600 hover:bg-slate-100 sm:border sm:border-slate-300"
               title={`Notifications : ${currentNotifyOption.label}`}
-              aria-label={`Notifications du salon : ${currentNotifyOption.label}`}
+              aria-label={`Notifications du groupe : ${currentNotifyOption.label}`}
             >
               <span aria-hidden="true">{currentNotifyOption.icon}</span>
             </button>
             {showNotifyMenu && (
               <div className="absolute right-0 top-full mt-1 z-50 w-60 rounded-lg border border-slate-200 bg-white shadow-xl py-1">
                 <div className="px-3 py-1.5 text-xs font-semibold text-slate-500">
-                  Notifications de ce salon
+                  Notifications de ce groupe
                 </div>
                 {NOTIFY_OPTIONS.map((opt) => {
                   const active = (channel.notifyLevel || "all") === opt.value;

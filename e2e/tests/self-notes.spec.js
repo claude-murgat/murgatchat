@@ -66,7 +66,7 @@ test("« Mes notes » est épinglée en tête et hors de la liste des DM (#362)"
     const notes = buttons.find(
       (b) => /Mes notes/.test(b.textContent || "") && !/soi-même/.test(b.textContent || "")
     );
-    const salons = buttons.find((b) => /Salons/.test(b.textContent || ""));
+    const salons = buttons.find((b) => /Groupes/.test(b.textContent || ""));
     if (!notes || !salons) return "missing";
     const following = notes.compareDocumentPosition(salons) & Node.DOCUMENT_POSITION_FOLLOWING;
     return following ? "notes-before-salons" : "salons-before-notes";

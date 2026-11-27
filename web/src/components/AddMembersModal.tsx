@@ -99,7 +99,7 @@ export default function AddMembersModal({
           {/* Pas de « nouveau départ » pour les arrivants : comme dans un salon
               public, ils lisent tout ce qui a déjà été écrit. */}
           <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">
-            Les personnes ajoutées verront tout l'historique du salon, messages et fichiers
+            Les personnes ajoutées verront tout l'historique du groupe, messages et fichiers
             compris.
           </p>
         </div>

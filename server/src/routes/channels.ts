@@ -248,7 +248,7 @@ function canAdminister(
 // Lu après le nom du membre promu, auteur du message de service : « Bob est
 // maintenant admin du salon » (promotion automatique, ou admin du chat qui se
 // nomme lui-même).
-const NOW_ADMIN_TEXT = "est maintenant admin du salon";
+const NOW_ADMIN_TEXT = "est maintenant admin du groupe";
 
 // Verrouille la ligne du salon jusqu'à la fin de la transaction : les
 // changements de rôle d'un même salon (nomination, retrait du rôle, promotion
@@ -993,7 +993,7 @@ router.post("/:id/join", requireAuth, async (req, res) => {
   req.io?.to(`user:${req.userId}`).emit("channel:created", personalized);
   req.io?.in(`user:${req.userId}`).socketsJoin(`channel:${id}`);
   await broadcastMembers(req.io, id);
-  if (joined.count > 0) await postSystemMessage(req.io, id, req.userId, "a rejoint le salon");
+  if (joined.count > 0) await postSystemMessage(req.io, id, req.userId, "a rejoint le groupe");
   if (heir) await postSystemMessage(req.io, id, heir.userId, NOW_ADMIN_TEXT);
   res.json({ channel: personalized });
 });
@@ -1032,7 +1032,7 @@ router.post("/:id/members", requireAuth, async (req, res) => {
   await broadcastMembers(req.io, id);
   if (added.length) {
     const names = joinNames(added.map((u) => u.displayName));
-    await postSystemMessage(req.io, id, req.userId, `a ajouté ${names} au salon`);
+    await postSystemMessage(req.io, id, req.userId, `a ajouté ${names} au groupe`);
     // Celui qui ajoute, désactivé pendant l'ajout (sa requête avait passé
     // l'authentification) : syncSalonAdminsOf ne voyait pas encore les
     // arrivants, l'un d'eux reprend ici le salon resté sans admin actif. Comme
@@ -1055,7 +1055,7 @@ async function leaveSalon(req: Express.Request, channel: Channel) {
   const remaining = await prisma.membership.count({ where: { channelId: channel.id } });
   // Personne pour lire un « a quitté le salon » (salon public resté vide).
   if (remaining === 0) return;
-  await postSystemMessage(req.io, channel.id, req.userId, "a quitté le salon");
+  await postSystemMessage(req.io, channel.id, req.userId, "a quitté le groupe");
   await ensureSalonAdmin(req.io, channel.id, { announce: true });
 }
 
@@ -1106,7 +1106,7 @@ router.delete("/:id/members/:userId", requireAuth, async (req, res) => {
     req.io,
     id,
     req.userId,
-    `a retiré ${target.user.displayName} du salon`
+    `a retiré ${target.user.displayName} du groupe`
   );
   // Un admin du chat qui retire le dernier admin du salon : le plus ancien membre
   // prend le relais. Vérifié après tout retrait, pas seulement celui d'un admin :
@@ -1136,9 +1136,9 @@ type RoleChange =
 function roleChangeText(actorId: string, target: MemberWithUser, role: string) {
   const self = target.userId === actorId;
   if (role === "admin") {
-    return self ? NOW_ADMIN_TEXT : `a nommé ${target.user.displayName} admin du salon`;
+    return self ? NOW_ADMIN_TEXT : `a nommé ${target.user.displayName} admin du groupe`;
   }
-  return self ? "n'est plus admin du salon" : `a retiré le rôle d'admin à ${target.user.displayName}`;
+  return self ? "n'est plus admin du groupe" : `a retiré le rôle d'admin à ${target.user.displayName}`;
 }
 
 router.patch("/:id/members/:userId", requireAuth, async (req, res) => {
@@ -1302,14 +1302,14 @@ router.patch("/:id", requireAuth, async (req, res) => {
     req.io?.to(`user:${m.userId}`).emit("channel:updated", serializeChannel(updated, m.userId));
   }
   if (renamed) {
-    await postSystemMessage(req.io, channel.id, req.userId, `a renommé le salon en « ${name} »`);
+    await postSystemMessage(req.io, channel.id, req.userId, `a renommé le groupe en « ${name} »`);
   }
   if (visibilityChange) {
     await postSystemMessage(
       req.io,
       channel.id,
       req.userId,
-      isPrivate ? "a rendu le salon privé" : "a rendu le salon public"
+      isPrivate ? "a rendu le groupe privé" : "a rendu le groupe public"
     );
   }
   res.json({ channel: serializeChannel(updated, req.userId) });

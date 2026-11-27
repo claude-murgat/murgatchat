@@ -73,7 +73,7 @@ describe("salons gérés par leurs membres — temps réel", () => {
     expect(await trace).toMatchObject({
       channelId: ch.id,
       kind: "system",
-      body: "a retiré Bob du salon",
+      body: "a retiré Bob du groupe",
       author: { id: alice.user.id },
     });
     await silent;
@@ -127,7 +127,7 @@ describe("salons gérés par leurs membres — temps réel", () => {
     expect(await trace).toMatchObject({
       channelId: ch.id,
       kind: "system",
-      body: "a nommé Bob admin du salon",
+      body: "a nommé Bob admin du groupe",
       author: { id: alice.user.id },
     });
     await eveSilent;
@@ -154,7 +154,7 @@ describe("salons gérés par leurs membres — temps réel", () => {
     const trace = waitForEvent(
       bobSock,
       "message:system",
-      (m) => m.body === "est maintenant admin du salon"
+      (m) => m.body === "est maintenant admin du groupe"
     );
     await authed(srv.app, alice.token).post(`/channels/${ch.id}/leave`);
     expect((await promoted).adminIds).toEqual([bob.user.id]);
@@ -177,7 +177,7 @@ describe("salons gérés par leurs membres — temps réel", () => {
     const trace = waitForEvent(
       bobSock,
       "message:system",
-      (m) => m.body === "est maintenant admin du salon"
+      (m) => m.body === "est maintenant admin du groupe"
     );
     const ownerSilent = Promise.all([
       expectNoEvent(ownerSock, "channel:members", 800),

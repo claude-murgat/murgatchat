@@ -52,15 +52,15 @@ const ERRORS: Record<string, string> = {
   option_too_long: `Une réponse fait ${POLL_OPTION_MAX} caractères au plus.`,
   invalid_option_count: `Il faut entre ${POLL_OPTIONS_MIN} et ${POLL_OPTIONS_MAX} réponses.`,
   duplicate_option: "Cette réponse existe déjà.",
-  polls_in_salons_only: "Les sondages se publient dans les salons.",
-  not_a_member: "Vous ne faites plus partie de ce salon.",
+  polls_in_salons_only: "Les sondages se publient dans les groupes.",
+  not_a_member: "Vous ne faites plus partie de ce groupe.",
   poll_closed: "Ce sondage est clôturé.",
   single_choice: "Une seule réponse possible.",
   unknown_option: "Cette réponse n'existe plus. Rechargez la conversation.",
   options_locked: "Seul l'auteur du sondage peut ajouter des réponses.",
   too_many_options: `Ce sondage a déjà ${POLL_OPTIONS_MAX} réponses.`,
   invalid_option: `Une réponse fait entre 1 et ${POLL_OPTION_MAX} caractères.`,
-  not_allowed: "Seuls l'auteur du sondage et les admins du salon peuvent le clôturer.",
+  not_allowed: "Seuls l'auteur du sondage et les admins du groupe peuvent le clôturer.",
   not_found: "Ce sondage n'existe plus.",
 };
 

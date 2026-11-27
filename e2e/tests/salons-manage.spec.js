@@ -106,9 +106,9 @@ test("créer un salon par le « + » de la section, en trois étapes, et y ajout
   const page = await openAs(browser, alice);
   const name = `projet-${tag()}`;
 
-  await page.getByRole("button", { name: "Ajouter un salon" }).click();
-  await page.getByRole("menuitem", { name: "Créer un salon" }).click();
-  const dialog = page.getByRole("dialog", { name: "Créer un salon" });
+  await page.getByRole("button", { name: "Ajouter un groupe" }).click();
+  await page.getByRole("menuitem", { name: "Créer un groupe" }).click();
+  const dialog = page.getByRole("dialog", { name: "Créer un groupe" });
   await dialog.getByPlaceholder("ex. projet-chantier").fill(name);
   await dialog.getByRole("button", { name: "Suivant" }).click();
   await expect(dialog.getByText("Étape 2 sur 2")).toBeVisible();
@@ -124,7 +124,7 @@ test("créer un salon par le « + » de la section, en trois étapes, et y ajout
 
   // Le salon s'ouvre, privé ; l'ajout y laisse sa trace.
   await expect(page.getByRole("button", { name: `🔒 ${name}` }).first()).toBeVisible();
-  await expect(systemLine(page, `a ajouté ${bob.user.displayName} au salon`)).toBeVisible();
+  await expect(systemLine(page, `a ajouté ${bob.user.displayName} au groupe`)).toBeVisible();
 
   // Bob est prévenu, et le salon apparaît dans sa liste.
   await expect(bobPage.getByText(`${alice.user.displayName} vous a ajouté`)).toBeVisible();
@@ -151,8 +151,8 @@ test("« Nouveau message » à plusieurs crée un salon privé, puis propose cel
   await pick(dialog, carol);
   // Nom proposé : les trois participants, par ordre alphabétique.
   const expected = [alice, bob, carol].map((u) => u.user.displayName).sort().join(", ");
-  await expect(dialog.getByLabel("Nom du salon privé")).toHaveValue(expected);
-  await dialog.getByRole("button", { name: "Créer le salon privé (3)" }).click();
+  await expect(dialog.getByLabel("Nom du groupe privé")).toHaveValue(expected);
+  await dialog.getByRole("button", { name: "Créer le groupe privé (3)" }).click();
   await expect(dialog).toBeHidden();
   await expect(page.getByPlaceholder(`Message dans #${expected}`)).toBeVisible();
 
@@ -181,14 +181,14 @@ test("un membre renomme le salon et retire quelqu'un, qui en est prévenu ; il n
   const page = await openAs(browser, bob); // Bob n'a pas créé le salon
   await openSalon(page, channel.name);
 
-  await page.getByRole("button", { name: "Détails du salon" }).click();
+  await page.getByRole("button", { name: "Détails du groupe" }).click();
   const details = page.getByRole("dialog", { name: /^Détails de/ });
   // Simple membre (Alice, qui l'a créé, en est l'admin) : pas de suppression.
-  await expect(details.getByRole("button", { name: "Supprimer le salon" })).toHaveCount(0);
+  await expect(details.getByRole("button", { name: "Supprimer le groupe" })).toHaveCount(0);
   const renamed = `${channel.name}-bis`;
   await details.getByLabel("Nom").fill(renamed);
   await details.getByRole("button", { name: "Enregistrer" }).click();
-  await expect(systemLine(page, `a renommé le salon en « ${renamed} »`)).toBeVisible();
+  await expect(systemLine(page, `a renommé le groupe en « ${renamed} »`)).toBeVisible();
   await expect(sidebarItem(carolPage, renamed)).toBeVisible();
 
   await details.getByRole("tab", { name: /Membres/ }).click();
@@ -197,10 +197,10 @@ test("un membre renomme le salon et retire quelqu'un, qui en est prévenu ; il n
     .filter({ hasText: carol.user.displayName })
     .getByRole("button", { name: "Retirer" })
     .click();
-  await expect(systemLine(page, `a retiré ${carol.user.displayName} du salon`)).toBeVisible();
+  await expect(systemLine(page, `a retiré ${carol.user.displayName} du groupe`)).toBeVisible();
 
   // Carol l'apprend, et le salon quitte sa liste.
-  await expect(carolPage.getByText(`${bob.user.displayName} vous a retiré du salon`)).toBeVisible();
+  await expect(carolPage.getByText(`${bob.user.displayName} vous a retiré du groupe`)).toBeVisible();
   await expect(carolPage.getByRole("button", { name: new RegExp(renamed) })).toHaveCount(0);
 });
 
@@ -218,9 +218,9 @@ test("quitter un salon depuis le menu contextuel ; les autres en voient la trace
   const page = await openAs(browser, bob);
 
   await sidebarItem(page, channel.name).click({ button: "right" });
-  await page.getByRole("button", { name: "Quitter le salon" }).click(); // confirmé (dialog accepté)
+  await page.getByRole("button", { name: "Quitter le groupe" }).click(); // confirmé (dialog accepté)
   await expect(page.getByRole("button", { name: new RegExp(channel.name) })).toHaveCount(0);
-  await expect(systemLine(alicePage, "a quitté le salon")).toBeVisible();
+  await expect(systemLine(alicePage, "a quitté le groupe")).toBeVisible();
 });
 
 test("masquer une conversation directe : elle revient au prochain message", async ({
@@ -261,9 +261,9 @@ test("un admin supprime un salon depuis ses détails, pour tous ses membres", as
   const page = await openAs(browser, admin);
   await openSalon(page, channel.name);
 
-  await page.getByRole("button", { name: "Détails du salon" }).click();
+  await page.getByRole("button", { name: "Détails du groupe" }).click();
   const details = page.getByRole("dialog", { name: /^Détails de/ });
-  await details.getByRole("button", { name: "Supprimer le salon" }).click();
+  await details.getByRole("button", { name: "Supprimer le groupe" }).click();
   await details.getByRole("button", { name: "Confirmer la suppression" }).click();
   await expect(details).toBeHidden();
   await expect(alicePage.getByRole("button", { name: new RegExp(channel.name) })).toHaveCount(0);
@@ -281,12 +281,12 @@ test("le créateur d'un salon en est l'admin ; un simple membre n'en a pas les d
   const name = `geres-${tag()}`;
 
   // Alice crée un salon public par le « + » et y ajoute Bob et Carol.
-  await page.getByRole("button", { name: "Ajouter un salon" }).click();
-  await page.getByRole("menuitem", { name: "Créer un salon" }).click();
-  const dialog = page.getByRole("dialog", { name: "Créer un salon" });
+  await page.getByRole("button", { name: "Ajouter un groupe" }).click();
+  await page.getByRole("menuitem", { name: "Créer un groupe" }).click();
+  const dialog = page.getByRole("dialog", { name: "Créer un groupe" });
   await dialog.getByPlaceholder("ex. projet-chantier").fill(name);
   await dialog.getByRole("button", { name: "Suivant" }).click();
-  await expect(dialog.getByText("Vous serez admin de ce salon.")).toBeVisible();
+  await expect(dialog.getByText("Vous serez admin de ce groupe.")).toBeVisible();
   await dialog.getByRole("button", { name: "Créer", exact: true }).click();
   const people = page.getByRole("dialog", { name: "Ajouter des personnes" });
   for (const who of [bob, carol]) {
@@ -298,7 +298,7 @@ test("le créateur d'un salon en est l'admin ; un simple membre n'en a pas les d
   await expect(page.getByPlaceholder(`Message dans #${name}`)).toBeVisible();
 
   // Chez Alice : la pastille « Admin » sur sa seule ligne ; elle peut nommer.
-  await page.getByRole("button", { name: "Détails du salon" }).click();
+  await page.getByRole("button", { name: "Détails du groupe" }).click();
   let details = page.getByRole("dialog", { name: /^Détails de/ });
   await details.getByRole("tab", { name: /Membres/ }).click();
   await expect(adminPill(memberRow(details, alice))).toBeVisible();
@@ -311,11 +311,11 @@ test("le créateur d'un salon en est l'admin ; un simple membre n'en a pas les d
   // Chez Bob, simple membre : visibilité en lecture seule, pas de suppression,
   // pas de « Retirer » face à l'admin (mais bien face à Carol), pas de rôles.
   await openSalon(bobPage, name);
-  await bobPage.getByRole("button", { name: "Détails du salon" }).click();
+  await bobPage.getByRole("button", { name: "Détails du groupe" }).click();
   details = bobPage.getByRole("dialog", { name: /^Détails de/ });
   await expect(details.getByText("Public — tous les membres du chat peuvent le rejoindre.")).toBeVisible();
   await expect(details.getByRole("radio")).toHaveCount(0);
-  await expect(details.getByRole("button", { name: "Supprimer le salon" })).toHaveCount(0);
+  await expect(details.getByRole("button", { name: "Supprimer le groupe" })).toHaveCount(0);
   await details.getByRole("tab", { name: /Membres/ }).click();
   await expect(adminPill(memberRow(details, alice))).toBeVisible();
   await expect(removeButton(memberRow(details, alice))).toHaveCount(0);
@@ -326,9 +326,9 @@ test("le créateur d'un salon en est l'admin ; un simple membre n'en a pas les d
   // « Supprimer » n'est pas davantage proposé à Bob ailleurs (« Parcourir les
   // salons », menu contextuel) ; Alice, admin du salon, l'a dans « Parcourir ».
   const browseRow = async (p) => {
-    await p.getByRole("button", { name: "Ajouter un salon" }).click();
-    await p.getByRole("menuitem", { name: "Parcourir les salons" }).click();
-    const browse = p.getByRole("dialog", { name: "Parcourir les salons" });
+    await p.getByRole("button", { name: "Ajouter un groupe" }).click();
+    await p.getByRole("menuitem", { name: "Parcourir les groupes" }).click();
+    const browse = p.getByRole("dialog", { name: "Parcourir les groupes" });
     const row = browse.locator("div.rounded-md").filter({ hasText: `# ${name}` });
     await expect(row).toBeVisible();
     return { browse, row };
@@ -338,8 +338,8 @@ test("le créateur d'un salon en est l'admin ; un simple membre n'en a pas les d
   await expect(bobBrowse.row.getByRole("button", { name: "Supprimer", exact: true })).toHaveCount(0);
   await bobBrowse.browse.getByRole("button", { name: "Fermer" }).click();
   await sidebarItem(bobPage, name).click({ button: "right" });
-  await expect(bobPage.getByRole("button", { name: "Quitter le salon" })).toBeVisible();
-  await expect(bobPage.getByRole("button", { name: "Supprimer le salon" })).toHaveCount(0);
+  await expect(bobPage.getByRole("button", { name: "Quitter le groupe" })).toBeVisible();
+  await expect(bobPage.getByRole("button", { name: "Supprimer le groupe" })).toHaveCount(0);
 
   await page.getByRole("dialog", { name: /^Détails de/ }).getByRole("button", { name: "Fermer" }).click();
   const aliceBrowse = await browseRow(page);
@@ -360,16 +360,16 @@ test("un admin du salon en nomme un autre : ses droits arrivent en direct, rendr
   // modifiable ni de suppression.
   const bobPage = await openAs(browser, bob);
   await openSalon(bobPage, channel.name);
-  await bobPage.getByRole("button", { name: "Détails du salon" }).click();
+  await bobPage.getByRole("button", { name: "Détails du groupe" }).click();
   const bobDetails = bobPage.getByRole("dialog", { name: /^Détails de/ });
   await expect(bobDetails.getByText("Public — tous les membres du chat peuvent le rejoindre.")).toBeVisible();
   await expect(bobDetails.getByRole("radio")).toHaveCount(0);
-  await expect(bobDetails.getByRole("button", { name: "Supprimer le salon" })).toHaveCount(0);
+  await expect(bobDetails.getByRole("button", { name: "Supprimer le groupe" })).toHaveCount(0);
 
   // Alice, créatrice donc admin, nomme Bob.
   const page = await openAs(browser, alice);
   await openSalon(page, channel.name);
-  await page.getByRole("button", { name: "Détails du salon" }).click();
+  await page.getByRole("button", { name: "Détails du groupe" }).click();
   const details = page.getByRole("dialog", { name: /^Détails de/ });
   await details.getByRole("tab", { name: /Membres/ }).click();
   await memberRow(details, bob).getByRole("button", { name: "Nommer admin" }).click();
@@ -377,19 +377,19 @@ test("un admin du salon en nomme un autre : ses droits arrivent en direct, rendr
   // Deux admins : chacun peut désormais se voir retirer le rôle.
   await expect(memberRow(details, bob).getByRole("button", { name: "Retirer admin" })).toBeVisible();
   await expect(memberRow(details, alice).getByRole("button", { name: "Retirer admin" })).toBeVisible();
-  const promoted = `a nommé ${bob.user.displayName} admin du salon`;
+  const promoted = `a nommé ${bob.user.displayName} admin du groupe`;
   await expect(systemLine(page, promoted)).toBeVisible();
 
   // Chez Bob, sans recharger : la trace, puis les droits d'admin du salon.
   await expect(systemLine(bobPage, promoted)).toBeVisible();
   await expect(bobDetails.getByRole("radio", { name: /^Privé/ })).toBeVisible();
-  await expect(bobDetails.getByRole("button", { name: "Supprimer le salon" })).toBeVisible();
+  await expect(bobDetails.getByRole("button", { name: "Supprimer le groupe" })).toBeVisible();
 
   // Bob rend le salon privé : tout le monde en voit la trace.
   await bobDetails.getByRole("radio", { name: /^Privé/ }).check();
   await bobDetails.getByRole("button", { name: "Enregistrer" }).click();
-  await expect(systemLine(bobPage, "a rendu le salon privé")).toBeVisible();
-  await expect(systemLine(page, "a rendu le salon privé")).toBeVisible();
+  await expect(systemLine(bobPage, "a rendu le groupe privé")).toBeVisible();
+  await expect(systemLine(page, "a rendu le groupe privé")).toBeVisible();
   await expect(bobPage.getByRole("button", { name: `🔒 ${channel.name}` }).first()).toBeVisible();
 
   // Le rendre public à nouveau se confirme d'abord : rien n'est encore appliqué.
@@ -397,16 +397,16 @@ test("un admin du salon en nomme un autre : ses droits arrivent en direct, rendr
   await bobDetails.getByRole("button", { name: "Enregistrer" }).click();
   await expect(
     bobDetails.getByText(
-      "Rendre ce salon public ? Tout le monde pourra le trouver et lire tout son historique."
+      "Rendre ce groupe public ? Tout le monde pourra le trouver et lire tout son historique."
     )
   ).toBeVisible();
   const { channels } = await call(request, bob.token, "GET", "/channels");
   expect(channels.find((c) => c.id === channel.id)?.isPrivate).toBe(true);
-  await expect(systemLine(bobPage, "a rendu le salon public")).toHaveCount(0);
+  await expect(systemLine(bobPage, "a rendu le groupe public")).toHaveCount(0);
 
   await bobDetails.getByRole("button", { name: "Confirmer : rendre public" }).click();
-  await expect(systemLine(bobPage, "a rendu le salon public")).toBeVisible();
-  await expect(systemLine(page, "a rendu le salon public")).toBeVisible();
+  await expect(systemLine(bobPage, "a rendu le groupe public")).toBeVisible();
+  await expect(systemLine(page, "a rendu le groupe public")).toBeVisible();
   await expect(bobPage.getByRole("button", { name: `# ${channel.name}` }).first()).toBeVisible();
 });
 
@@ -428,27 +428,27 @@ test("la seule admin quitte le salon : elle en est prévenue, le plus ancien mem
   const page = await openAs(browser, alice);
   await openSalon(page, channel.name);
 
-  await page.getByRole("button", { name: "Détails du salon" }).click();
+  await page.getByRole("button", { name: "Détails du groupe" }).click();
   const details = page.getByRole("dialog", { name: /^Détails de/ });
-  await details.getByRole("button", { name: "Quitter le salon" }).click();
+  await details.getByRole("button", { name: "Quitter le groupe" }).click();
   await expect(
     details.getByText("Vous êtes le seul admin : le membre le plus ancien le deviendra.")
   ).toBeVisible();
-  await details.getByRole("button", { name: "Confirmer : quitter le salon" }).click();
+  await details.getByRole("button", { name: "Confirmer : quitter le groupe" }).click();
   await expect(details).toBeHidden();
 
   // Chez Bob, sans recharger : le départ, puis le relais, signé par lui.
-  await expect(systemLine(bobPage, "a quitté le salon")).toBeVisible();
+  await expect(systemLine(bobPage, "a quitté le groupe")).toBeVisible();
   await expect(
-    systemLine(bobPage, `${bob.user.displayName} est maintenant admin du salon`)
+    systemLine(bobPage, `${bob.user.displayName} est maintenant admin du groupe`)
   ).toBeVisible();
 
   // Il reçoit aussitôt ses droits d'admin du salon : visibilité, suppression,
   // pastille « Admin » (Carol, arrivée après lui, reste simple membre).
-  await bobPage.getByRole("button", { name: "Détails du salon" }).click();
+  await bobPage.getByRole("button", { name: "Détails du groupe" }).click();
   const bobDetails = bobPage.getByRole("dialog", { name: /^Détails de/ });
   await expect(bobDetails.getByRole("radio", { name: /^Privé/ })).toBeVisible();
-  await expect(bobDetails.getByRole("button", { name: "Supprimer le salon" })).toBeVisible();
+  await expect(bobDetails.getByRole("button", { name: "Supprimer le groupe" })).toBeVisible();
   await bobDetails.getByRole("tab", { name: /Membres/ }).click();
   await expect(adminPill(memberRow(bobDetails, bob))).toBeVisible();
   await expect(adminPill(memberRow(bobDetails, carol))).toHaveCount(0);
@@ -476,11 +476,11 @@ test("la seule admin désactivée : le plus ancien membre prend le relais en dir
 
   // Chez Bob, sans recharger : le relais, signé par lui, et ses droits.
   await expect(
-    systemLine(bobPage, `${bob.user.displayName} est maintenant admin du salon`)
+    systemLine(bobPage, `${bob.user.displayName} est maintenant admin du groupe`)
   ).toBeVisible();
-  await bobPage.getByRole("button", { name: "Détails du salon" }).click();
+  await bobPage.getByRole("button", { name: "Détails du groupe" }).click();
   const details = bobPage.getByRole("dialog", { name: /^Détails de/ });
-  await expect(details.getByRole("button", { name: "Supprimer le salon" })).toBeVisible();
+  await expect(details.getByRole("button", { name: "Supprimer le groupe" })).toBeVisible();
   await details.getByRole("tab", { name: /Membres/ }).click();
   await expect(adminPill(memberRow(details, bob))).toBeVisible();
   // Alice reste membre, signalée « Désactivé » : plus de pastille « Admin », et
@@ -505,12 +505,12 @@ test("la seule admin quitte un salon dont les autres membres sont désactivés :
   const page = await openAs(browser, alice);
   await openSalon(page, channel.name);
 
-  await page.getByRole("button", { name: "Détails du salon" }).click();
+  await page.getByRole("button", { name: "Détails du groupe" }).click();
   const details = page.getByRole("dialog", { name: /^Détails de/ });
-  await details.getByRole("button", { name: "Quitter le salon" }).click();
+  await details.getByRole("button", { name: "Quitter le groupe" }).click();
   await expect(
     details.getByText(
-      "Vous êtes le seul admin et les autres membres sont désactivés : le salon restera sans admin."
+      "Vous êtes le seul admin et les autres membres sont désactivés : le groupe restera sans admin."
     )
   ).toBeVisible();
   await expect(details.getByText("le membre le plus ancien le deviendra")).toHaveCount(0);
@@ -521,8 +521,8 @@ test("la seule admin quitte un salon dont les autres membres sont désactivés :
     page.once("dialog", (d) => resolve(d.message()))
   );
   await sidebarItem(page, channel.name).click({ button: "right" });
-  await page.getByRole("button", { name: "Quitter le salon" }).click();
-  expect(await question).toContain("les autres membres sont désactivés, le salon restera sans admin");
+  await page.getByRole("button", { name: "Quitter le groupe" }).click();
+  expect(await question).toContain("les autres membres sont désactivés, le groupe restera sans admin");
 });
 
 test("« Désactivé » dans les membres d'un salon, pas dans « Général »", async ({ browser, request }) => {
@@ -536,7 +536,7 @@ test("« Désactivé » dans les membres d'un salon, pas dans « Général »", 
   // de Bob — le salon le montre, ce qui rend la vérification sur « Général » parlante.
   const page = await openAs(browser, alice);
   await openSalon(page, channel.name);
-  await page.getByRole("button", { name: "Détails du salon" }).click();
+  await page.getByRole("button", { name: "Détails du groupe" }).click();
   let details = page.getByRole("dialog", { name: /^Détails de/ });
   await details.getByRole("tab", { name: /Membres/ }).click();
   await expect(memberRow(details, bob).getByText("Désactivé", { exact: true })).toBeVisible();
@@ -545,7 +545,7 @@ test("« Désactivé » dans les membres d'un salon, pas dans « Général »", 
 
   // Tout le chat est membre de « Général » : le badge n'y est pas affiché.
   await openSalon(page, "Général");
-  await page.getByRole("button", { name: "Détails du salon" }).click();
+  await page.getByRole("button", { name: "Détails du groupe" }).click();
   details = page.getByRole("dialog", { name: /^Détails de .*Général/ });
   await details.getByRole("tab", { name: /Membres/ }).click();
   await expect(memberRow(details, bob)).toBeVisible();
@@ -567,12 +567,12 @@ test("quitter un salon privé dont les autres membres sont désactivés : person
   await openSalon(page, channel.name);
 
   // Détails : pas de « Un membre pourra vous ajouter à nouveau », démenti ici.
-  await page.getByRole("button", { name: "Détails du salon" }).click();
+  await page.getByRole("button", { name: "Détails du groupe" }).click();
   const details = page.getByRole("dialog", { name: /^Détails de/ });
-  await details.getByRole("button", { name: "Quitter le salon" }).click();
+  await details.getByRole("button", { name: "Quitter le groupe" }).click();
   await expect(
     details.getByText(
-      "Vous ne verrez plus ce salon, et personne ne pourra vous y rajouter : ses autres membres sont désactivés. Il restera sans admin tant que l'un d'eux n'est pas réactivé."
+      "Vous ne verrez plus ce groupe, et personne ne pourra vous y rajouter : ses autres membres sont désactivés. Il restera sans admin tant que l'un d'eux n'est pas réactivé."
     )
   ).toBeVisible();
   await expect(details.getByText("Un membre pourra vous ajouter à nouveau")).toHaveCount(0);
@@ -581,7 +581,7 @@ test("quitter un salon privé dont les autres membres sont désactivés : person
   // Menu contextuel : même avertissement, puis départ confirmé.
   const question = new Promise((resolve) => page.once("dialog", (d) => resolve(d.message())));
   await sidebarItem(page, channel.name).click({ button: "right" });
-  await page.getByRole("button", { name: "Quitter le salon" }).click();
+  await page.getByRole("button", { name: "Quitter le groupe" }).click();
   expect(await question).toContain("Personne ne pourra vous y rajouter : ses autres membres sont désactivés.");
   await expect(sidebarItem(page, channel.name)).toHaveCount(0);
 

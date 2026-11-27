@@ -95,8 +95,8 @@ async function createPrivateChannel(page, name) {
   // ouvre la création pré-remplie, en trois temps comme Slack (1.6.0) : le nom,
   // la visibilité, puis les personnes à ajouter (qu'on passe ici).
   await page.getByPlaceholder(/^Rechercher/).fill(name);
-  await page.getByRole("button", { name: /Créer le salon/ }).click();
-  const dialog = page.getByRole("dialog", { name: "Créer un salon" });
+  await page.getByRole("button", { name: /Créer le groupe/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Créer un groupe" });
   await expect(dialog).toBeVisible();
   // Name is pre-filled from the search; re-assert it, then mark the channel private.
   await dialog.getByPlaceholder("ex. projet-chantier").fill(name);
