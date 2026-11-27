@@ -1,6 +1,7 @@
 // Alertes de la plateforme de déploiement des petites apps (dépôt Murgat-Ingenierie/deployer),
 // envoyées par son serveur via POST /support/deploy. Comme pour le disque du serveur TSE, le texte
-// est composé ici à partir de champs vérifiés, jamais d'un texte libre.
+// est composé ici à partir de champs vérifiés ; seule exception, la raison exacte d'un échec
+// (detail : texte brut d'une ligne, 400 caractères au plus, comme le titre d'une PR pour /notify).
 
 // « arret » / « reprise » : la publication automatique elle-même ne tourne plus, puis repart ;
 // le champ app est alors ignoré (la plateforme envoie « plateforme »).
@@ -28,6 +29,7 @@ export function deployAlertText(a: {
   repoUrl?: string;
   dashboardUrl?: string;
   detailUrl?: string;
+  detail?: string;
   test?: boolean;
 }) {
   const test = a.test ? "🧪 Test — " : "";
@@ -39,6 +41,7 @@ export function deployAlertText(a: {
     case "echec":
       lignes = [
         `${test}❌ Déploiement de ${a.app} en échec : ${DEPLOY_REASONS[a.reason ?? "autre"]}.`,
+        a.detail && `Raison : ${a.detail}`,
         a.detailUrl && `Détail : ${a.detailUrl}`,
       ];
       break;

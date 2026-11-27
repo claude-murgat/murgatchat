@@ -352,6 +352,12 @@ const deploySchema = z.object({
   repoUrl: httpsUrl.optional(),
   dashboardUrl: httpsUrl.optional(),
   detailUrl: httpsUrl.optional(),
+  // Raison exacte d'un échec (sortie du vérificateur, erreur de construction…) : une ligne de texte brut.
+  detail: z
+    .string()
+    .max(400)
+    .transform((s) => s.replace(/[\s\p{Cc}]+/gu, " ").trim())
+    .optional(),
   test: z.boolean().optional(),
 });
 
