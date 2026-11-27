@@ -26,6 +26,7 @@ import ChannelView from "./components/ChannelView.tsx";
 import NewChannelModal from "./components/NewChannelModal.tsx";
 import ChannelDetailsModal from "./components/ChannelDetailsModal.tsx";
 import type { DetailsTab } from "./components/ChannelDetailsModal.tsx";
+import NameGroupModal from "./components/NameGroupModal.tsx";
 import BrowseChannelsModal from "./components/BrowseChannelsModal.tsx";
 import NewDmModal from "./components/NewDmModal.tsx";
 import AddMembersModal from "./components/AddMembersModal.tsx";
@@ -39,7 +40,13 @@ import UpdateBanner from "./components/UpdateBanner.tsx";
 import InstallPwaBanner from "./components/InstallPwaBanner.tsx";
 import { checkForUpdate } from "./version.ts";
 import { setLogContext, logEvent } from "./logbuffer.ts";
-import { hasSalonHeir, isOnlySalonAdmin, salonPeople, serverHasSalonAdmins } from "./channelRules.ts";
+import {
+  hasSalonHeir,
+  isOnlySalonAdmin,
+  needsGroupName,
+  salonPeople,
+  serverHasSalonAdmins,
+} from "./channelRules.ts";
 import type {
   Channel,
   Message,
@@ -1279,6 +1286,16 @@ export default function App() {
             />
           );
         })()}
+      {/* Salon sans nom ouvert par son créateur : nommage obligatoire (#509).
+          Dès qu'il est nommé, onChannelUpdated met à jour la liste et la fenêtre
+          disparaît (needsGroupName redevient faux). */}
+      {user && activeChannel && needsGroupName(activeChannel, user) && (
+        <NameGroupModal
+          key={activeChannel.id}
+          channel={activeChannel}
+          onSaved={onChannelUpdated}
+        />
+      )}
       {showBrowse && (
         <BrowseChannelsModal
           currentUser={user}

@@ -127,6 +127,20 @@ export function createServer() {
         res.status(500).json({ error: String((e as { message?: string })?.message || e) });
       }
     });
+
+    // Test-only : vider le nom d'un salon pour simuler un salon historique sans
+    // nom (plus créable depuis que POST /channels refuse un nom vide, #509) et
+    // vérifier le nommage obligatoire à son ouverture. Même garde E2E_TEST_MODE.
+    app.post("/test/blank-channel-name", async (req, res) => {
+      try {
+        const id = String((req.body as { channelId?: string })?.channelId || "");
+        if (!id) return res.status(400).json({ error: "channelId_required" });
+        await prisma.channel.update({ where: { id }, data: { name: "" } });
+        res.json({ ok: true });
+      } catch (e) {
+        res.status(500).json({ error: String((e as { message?: string })?.message || e) });
+      }
+    });
   }
 
   return { app, server, io };

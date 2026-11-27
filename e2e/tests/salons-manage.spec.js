@@ -204,6 +204,41 @@ test("un membre renomme le salon et retire quelqu'un, qui en est prévenu ; il n
   await expect(carolPage.getByRole("button", { name: new RegExp(renamed) })).toHaveCount(0);
 });
 
+test("salon sans nom : son créateur doit le nommer à l'ouverture, pas les autres membres (#509)", async ({
+  browser,
+  request,
+}) => {
+  const { alice, bob } = await setup(request);
+  const { channel } = await call(request, alice.token, "POST", "/channels", {
+    name: `temp-${tag()}`,
+    memberIds: [bob.user.id],
+  });
+  // Simule un salon historique sans nom (POST /channels refuse désormais un nom
+  // vide, ce cas ne peut plus naître que d'anciennes données).
+  await call(request, alice.token, "POST", "/test/blank-channel-name", { channelId: channel.id });
+
+  // Bob, simple membre, l'ouvre sans la moindre invite à le nommer.
+  const bobPage = await openAs(browser, bob);
+  await bobPage.getByRole("button", { name: "# salon" }).click();
+  await expect(bobPage.getByRole("dialog", { name: "Nommer le salon" })).toHaveCount(0);
+
+  // Alice, créatrice, l'ouvre : le nommage lui est demandé et bloque tant qu'il
+  // reste vide ; une fois nommé, la fenêtre disparaît et la liste suit.
+  const page = await openAs(browser, alice);
+  await page.getByRole("button", { name: "# salon" }).click();
+  const dialog = page.getByRole("dialog", { name: "Nommer le salon" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Enregistrer" })).toBeDisabled();
+  const named = `projet-${tag()}`;
+  await dialog.getByLabel("Nom du salon").fill(named);
+  await dialog.getByRole("button", { name: "Enregistrer" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole("button", { name: `# ${named}` }).first()).toBeVisible();
+
+  // Le nouveau nom parvient à Bob (channel:updated), sans recharger.
+  await expect(bobPage.getByRole("button", { name: `# ${named}` }).first()).toBeVisible();
+});
+
 test("quitter un salon depuis le menu contextuel ; les autres en voient la trace", async ({
   browser,
   request,

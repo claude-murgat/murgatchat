@@ -81,6 +81,21 @@ describe("helpers de nommage", () => {
   });
 });
 
+describe("POST /channels — le nom est obligatoire", () => {
+  it("rejette un nom vide ou réduit à des espaces, mais rogne les espaces d'un nom valide", async () => {
+    const { token: creator } = await registerUser(app);
+
+    expect((await authed(app, creator).post("/channels").send({ name: "" })).status).toBe(400);
+    expect((await authed(app, creator).post("/channels").send({ name: "   " })).status).toBe(400);
+    expect((await authed(app, creator).post("/channels").send({})).status).toBe(400);
+
+    // Un nom valide entouré d'espaces est accepté, rogné.
+    const ok = await authed(app, creator).post("/channels").send({ name: "  projet-chantier  " });
+    expect(ok.status).toBe(200);
+    expect(ok.body.channel.name).toBe("projet-chantier");
+  });
+});
+
 describe("PATCH /channels/:id — tout membre renomme, la visibilité revient aux admins", () => {
   it("un membre renomme et décrit le salon, le salon en garde la trace", async () => {
     const { token: admin } = await registerUser(app);

@@ -139,6 +139,17 @@ export function canHideConversation(c: Channel, user: User) {
 }
 
 /**
+ * Salon sans nom dont le lecteur est le créateur : le nom d'un salon est
+ * obligatoire (le serveur le refuse désormais à la création), mais des salons
+ * historiques — ou créés avant cette règle — peuvent en être dépourvus. À leur
+ * ouverture, on demande à leur créateur de les nommer (voir NameGroupModal).
+ * Le salon par défaut (« Général ») a toujours un nom.
+ */
+export function needsGroupName(c: Channel, user: Pick<User, "id">) {
+  return isSalon(c) && !c.isDefault && c.createdById === user.id && !c.name?.trim();
+}
+
+/**
  * Le serveur a des admins de salon : il envoie `adminIds` sur chaque
  * conversation (un serveur 1.6.0 jamais), et le lecteur est au moins membre de
  * « Général ».
