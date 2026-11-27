@@ -228,20 +228,6 @@ test("salon sans nom : son créateur doit le nommer à l'ouverture, pas les autr
 
   // Bob, simple membre, l'ouvre sans la moindre invite à le nommer.
   const bobPage = await openAs(browser, bob);
-  // [DIAG509] Temporaire : voir l'état réel côté CI.
-  await bobPage.waitForTimeout(1500);
-  const diagListed = await bobPage.evaluate(async () => {
-    const base = localStorage.getItem("chat_api_base");
-    const token = localStorage.getItem("chat_token");
-    const r = await fetch(base + "/channels", { headers: { Authorization: "Bearer " + token } });
-    return r.json();
-  });
-  console.log("[DIAG509] GET /channels:", JSON.stringify(diagListed.channels.map((c) => ({ name: c.name, displayName: c.displayName, isDirect: c.isDirect, isDefault: c.isDefault, kind: c.kind }))));
-  const diagButtons = await bobPage.evaluate(() =>
-    [...document.querySelectorAll("button")].map((b) => JSON.stringify(b.textContent)).join(" | ")
-  );
-  console.log("[DIAG509] buttons textContent:", diagButtons);
-  console.log("[DIAG509] aria:\n" + (await bobPage.locator("body").ariaSnapshot()));
   await salonItem(bobPage, "salon").click();
   await expect(bobPage.getByRole("dialog", { name: "Nommer le salon" })).toHaveCount(0);
 
