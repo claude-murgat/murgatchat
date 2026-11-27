@@ -2130,6 +2130,20 @@ dépendances relevées, aucune fonctionnalité nouvelle.
      10.6 côté serveur, dompurify 3.4.18 et read-excel-file 9.3.19 côté web (#515) ; vitest
      5.1.1 et postcss 8.5.33 (#516, rebasée après #513 qui touchait les mêmes lockfiles).
 
+## Itération 2026-11-27 (suite) — faille d'effect dans la CLI Prisma
+
+185. **`effect` 3.22.5 forcé côté serveur** (`overrides` de `server/package.json`) — l'audit
+     npm signalait 3 failles « high » (GHSA-7589-6fvf-x4pw : ReDoS dans la regex compilée de
+     `Schema.TemplateLiteral`, corrigée en 3.22.1). `effect` 3.20.0 vient de `@prisma/config`
+     (CLI Prisma), qui l'épingle à la version exacte jusque dans Prisma 7.10.1. Cette CLI est
+     bien dans l'image de prod : `@prisma/client` la déclare en peer, et
+     `scripts/db-migrate.js` lance `prisma migrate deploy` à chaque démarrage. Seul notre
+     `prisma.config.ts` y passe, donc pas d'entrée non fiable, mais l'audit doit rester à 0.
+     `npm audit fix --force` aurait rétrogradé Prisma en 6.12 ; l'override reste dans la
+     branche 3 d'effect, sans changement de major. Vérifié : audit serveur à 0 (prod et dev),
+     image construite, `db-migrate.js` sur base vide puis second passage, `prisma validate`.
+     À retirer quand une version de Prisma embarquera elle-même effect ≥ 3.22.1.
+
 > **Releases récentes** (desktop-only depuis le pivot PWA, installeur NSIS attaché à la
 > GitHub Release) : **0.6.0** (remontée de bug, preview/téléchargement des PJ, GIF),
 > **0.6.1** (#46–48), **0.6.2** (#49–53), **0.6.3** (#54–55), **0.6.4** (#56–59, premier
