@@ -292,13 +292,15 @@ export function clearDesktopNotifications(channelIds: Iterable<string>, shownBef
     .catch((e) => console.error("[desktop] clear_desktop_notifications failed:", e));
 }
 
-// Desktop only: show (true) or clear (false) a red unread dot on the tray icon.
-// No-op in the browser/PWA. Errors are swallowed — a missing tray must never
-// break message handling.
-export function setTrayBadge(unread: boolean) {
+// Desktop only: number of conversations with unread messages, shown by the tray
+// (red dot on the icon, "N conversations non lues" in its menu, tooltip under
+// Windows); 0 clears it. No-op in the browser/PWA. Errors are swallowed — a
+// missing tray must never break message handling.
+export function setTrayBadge(count: number) {
   if (!isTauri()) return;
+  const n = Math.max(0, Math.floor(count) || 0);
   import("@tauri-apps/api/core")
-    .then((mod) => mod.invoke("set_tray_badge", { unread: !!unread }))
+    .then((mod) => mod.invoke("set_tray_badge", { count: n }))
     .catch((e) => console.error("[desktop] set_tray_badge failed:", e));
 }
 

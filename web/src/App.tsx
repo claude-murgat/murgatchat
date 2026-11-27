@@ -809,7 +809,8 @@ export default function App() {
   //   - Desktop Tauri : `setDesktopBadge` — point rouge « non lu » en overlay natif
   //     Windows sur l'icône de la barre des tâches (présence, pas un nombre).
   //   - Desktop Tauri : `setTrayBadge` — même point rouge sur l'icône du tray, seul
-  //     indicateur visible quand la fenêtre est repliée dans le tray.
+  //     indicateur visible quand la fenêtre est repliée dans le tray, et le nombre
+  //     de conversations non lues dans son menu.
   // Le chemin Desktop NE DOIT PAS être derrière la garde `setAppBadge`, que WebView2
   // (Tauri) n'expose pas. À 0, on efface (y compris à la déconnexion, où `channels`
   // repasse à [], et dès qu'un salon est lu).
@@ -820,7 +821,7 @@ export default function App() {
       p?.catch?.(() => {});
     }
     setDesktopBadge(count);
-    setTrayBadge(count > 0); // desktop: point rouge du tray (no-op web/PWA)
+    setTrayBadge(count); // desktop: point rouge + menu du tray (no-op web/PWA)
   }, [channels]);
 
   const onLoggedIn = useCallback((u: User) => {
